@@ -11,9 +11,8 @@ public class User implements Serializable{
     private String role;
     private LocalDate date_created;
 
-public User(int id, String username, String email, String password, String role, LocalDate date_created)
+public User(String username, String email, String password, String role, LocalDate date_created)
 {
-    this.id = id;
     this.email = email;
     this.username = username;
     this.password = password;
