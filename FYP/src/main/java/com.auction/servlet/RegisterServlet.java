@@ -5,6 +5,7 @@ import java.time.LocalDate;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.util.InputValidator;
 import at.favre.lib.crypto.bcrypt.BCrypt;
 
 import jakarta.servlet.ServletException;
@@ -30,13 +31,26 @@ public class RegisterServlet extends HttpServlet {
         String password = req.getParameter("password");
         String role = req.getParameter("role");
 
-        if(username == null || username.isBlank() ||
-        email == null || email.isBlank() || !email.matches(".+@.+\\..+")||
-        password == null || password.isBlank() || password.length() < 8 ||
-        role == null || role.isBlank()){
-            req.setAttribute("Error", "There is something wrong with your details");
+        if (username == null || username.isBlank()) {
+            req.setAttribute("Error", "Username is required.");
             stickyForm(req, username, email, role);
-            //redirect
+            return;
+        }
+        String emailViolation = InputValidator.getEmailFormatViolation(email);
+        if (emailViolation != null) {
+            req.setAttribute("Error", emailViolation);
+            stickyForm(req, username, email, role);
+            return;
+        }
+        String passwordViolation = InputValidator.getPasswordPolicyViolation(password);
+        if (passwordViolation != null) {
+            req.setAttribute("Error", passwordViolation);
+            stickyForm(req, username, email, role);
+            return;
+        }
+        if (role == null || role.isBlank()) {
+            req.setAttribute("Error", "Role is required.");
+            stickyForm(req, username, email, role);
             return;
         }
 
