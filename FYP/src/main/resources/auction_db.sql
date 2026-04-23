@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Generation Time: Apr 22, 2026 at 03:58 AM
+-- Generation Time: Apr 23, 2026 at 04:27 AM
 -- Server version: 9.6.0
 -- PHP Version: 8.3.28
 
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS `auction_images` (
 DROP TABLE IF EXISTS `auction_status`;
 CREATE TABLE IF NOT EXISTS `auction_status` (
   `ID` tinyint UNSIGNED NOT NULL AUTO_INCREMENT,
-  `status` enum('Active','Paused','Ended','Cancelled') NOT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`ID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS `auction_tag_info` (
 DROP TABLE IF EXISTS `auction_type`;
 CREATE TABLE IF NOT EXISTS `auction_type` (
   `ID` tinyint UNSIGNED NOT NULL AUTO_INCREMENT,
-  `type` enum('price up','blind','dutch') NOT NULL,
+  `type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`ID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS `bids` (
 DROP TABLE IF EXISTS `item_status`;
 CREATE TABLE IF NOT EXISTS `item_status` (
   `ID` tinyint UNSIGNED NOT NULL AUTO_INCREMENT,
-  `item_condition` enum('Brand New','Barely Used','Used','Damaged') NOT NULL,
+  `item_condition` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`ID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -156,9 +156,18 @@ CREATE TABLE IF NOT EXISTS `item_status` (
 DROP TABLE IF EXISTS `roles`;
 CREATE TABLE IF NOT EXISTS `roles` (
   `ID` tinyint UNSIGNED NOT NULL AUTO_INCREMENT,
-  `roles` enum('Admin','Buyer','Seller') NOT NULL,
+  `roles` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`ID`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Dumping data for table `roles`
+--
+
+INSERT INTO `roles` (`ID`, `roles`) VALUES
+(1, 'Admin'),
+(2, 'Buyer'),
+(3, 'Seller');
 
 -- --------------------------------------------------------
 
@@ -186,7 +195,7 @@ CREATE TABLE IF NOT EXISTS `user` (
   `username` varchar(255) NOT NULL,
   `password` varchar(255) NOT NULL,
   `role_id` tinyint UNSIGNED NOT NULL,
-  `date_created` date NOT NULL,
+  `date_created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `status_id` tinyint UNSIGNED NOT NULL,
   PRIMARY KEY (`ID`),
   UNIQUE KEY `email` (`email`),
@@ -204,9 +213,17 @@ CREATE TABLE IF NOT EXISTS `user` (
 DROP TABLE IF EXISTS `user_status`;
 CREATE TABLE IF NOT EXISTS `user_status` (
   `ID` tinyint UNSIGNED NOT NULL AUTO_INCREMENT,
-  `status` enum('Active','Suspended') NOT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   PRIMARY KEY (`ID`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Dumping data for table `user_status`
+--
+
+INSERT INTO `user_status` (`ID`, `status`) VALUES
+(1, 'Active'),
+(2, 'Suspended');
 
 --
 -- Constraints for dumped tables
