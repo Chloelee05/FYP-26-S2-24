@@ -25,29 +25,46 @@ public class RegisterServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         //
-        String username = req.getParameter("username").trim(); //check frontend
-        String email = req.getParameter("email").trim();
+        String username = req.getParameter("username"); //check frontend
+        String email = req.getParameter("email");
         String password = req.getParameter("password");
         String role = req.getParameter("role");
-        LocalDate date = LocalDate.now();
 
-        if(userDAO.checkUser(username)){
-            req.setAttribute("error", "Username already in use!");
+        if(username == null || username.isBlank() ||
+        email == null || email.isBlank() || !email.matches(".+@.+\\..+")||
+        password == null || password.isBlank() || password.length() < 8 ||
+        role == null || role.isBlank()){
+            req.setAttribute("Error", "There is something wrong with your details");
             stickyForm(req, username, email, role);
-            //
+            //redirect
             return;
         }
-        if(userDAO.checkEmail(email))
+
+        if(userDAO.checkUser(username.trim())){
+            req.setAttribute("Error", "Username already in use!");
+            stickyForm(req, username, email, role);
+            //redirect
+            return;
+        }
+        if(userDAO.checkEmail(email.trim()))
         {
-            req.setAttribute("error","Email already in use!");
+            req.setAttribute("Error","Email already in use!");
             stickyForm(req, username, email, role);
-            //
+            //redirect
             return;
         }
 
-        User user = new User(username, email, password, role, date);
+        String hashPassword = BCrypt.withDefaults().hashToString(12, password.toCharArray());
+        User user = new User(username, email, hashPassword, role);
 
-        //insert to database
+        if(userDAO.insertUser(user))
+        {
+            //success
+        }
+        else
+        {
+            //failure
+        }
     }
 
     private void stickyForm(HttpServletRequest req, String username, String email, String role)

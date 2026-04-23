@@ -41,8 +41,30 @@ public class UserDAO {
         }
     }
 
-    public boolean insertUser()
+    public boolean insertUser(User user)
     {
-        return false;
+        try(Connection conn = DBUtil.connectDB()) {
+
+            String sqlString = "INSERT INTO user (username, email, password, roles_id, status_id) " +
+                    "VALUES(?, ?, ?, ?, ?) ";
+            PreparedStatement pStatement = conn.prepareStatement(sqlString);
+            pStatement.setString(1, user.getUsername());
+            pStatement.setString(2, user.getEmail());
+            pStatement.setString(3, user.getPassword());
+            if(user.getRole().equalsIgnoreCase("buyer"))
+            {
+                pStatement.setInt(4, 2);
+            }
+            else{
+                pStatement.setInt(4, 3);
+            }
+            pStatement.setInt(5, 1);
+
+            int rowsAffected = pStatement.executeUpdate();
+            return rowsAffected > 0;
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

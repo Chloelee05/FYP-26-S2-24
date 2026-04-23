@@ -1,6 +1,7 @@
 package com.auction.model;
 
 import java.io.Serializable;
+import java.sql.Date;
 import java.time.LocalDate;
 
 public class User implements Serializable{
@@ -9,15 +10,13 @@ public class User implements Serializable{
     private String username;
     private String password;
     private String role;
-    private LocalDate date_created;
 
-public User(String username, String email, String password, String role, LocalDate date_created)
+public User(String username, String email, String password, String role)
 {
     this.email = email;
     this.username = username;
     this.password = password;
     this.role = role;
-    this.date_created = date_created;
 }
 
     public int getId() {
@@ -67,15 +66,5 @@ public User(String username, String email, String password, String role, LocalDa
     public void setRole(String role)
     {
         this.role = role;
-    }
-
-    public LocalDate getDate_created()
-    {
-        return this.date_created;
-    }
-
-    public void setDate_created(LocalDate date_created)
-    {
-        this.date_created = date_created;
     }
 }
