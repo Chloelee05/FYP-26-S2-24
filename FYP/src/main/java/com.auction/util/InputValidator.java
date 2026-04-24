@@ -55,7 +55,7 @@ public final class InputValidator {
             return "Email is too long.";
         }
         if (!EMAIL_PATTERN.matcher(trimmed).matches()) {
-            return "Please enter a valid email address.";
+            return "Please enter a valid Email address.";
         }
         return null;
     }

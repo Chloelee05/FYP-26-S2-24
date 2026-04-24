@@ -45,7 +45,7 @@ public class UserDAO {
     {
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "INSERT INTO user (username, email, password, roles_id, status_id) " +
+            String sqlString = "INSERT INTO user (username, email, password, role_id, status_id) " +
                     "VALUES(?, ?, ?, ?, ?) ";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, user.getUsername());
