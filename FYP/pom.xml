@@ -50,6 +50,15 @@
       <scope>compile</scope>
     </dependency>
 
+    <!-- HikariCP -->
+    <!-- Source: https://mvnrepository.com/artifact/com.zaxxer/HikariCP -->
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <version>7.0.2</version>
+      <scope>compile</scope>
+    </dependency>
+
     <!-- BCrypt for password hashing -->
     <!-- Source: https://mvnrepository.com/artifact/at.favre.lib/bcrypt -->
     <dependency>

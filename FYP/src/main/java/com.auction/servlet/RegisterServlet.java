@@ -5,6 +5,7 @@ import java.time.LocalDate;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.model.Role;
 import com.auction.util.InputValidator;
 import at.favre.lib.crypto.bcrypt.BCrypt;
 
@@ -16,7 +17,16 @@ import jakarta.servlet.http.HttpSession;
 
 public class RegisterServlet extends HttpServlet {
 
-    UserDAO userDAO = new UserDAO();
+    private UserDAO userDAO;
+
+    public RegisterServlet(){
+        userDAO = new UserDAO();
+    }
+
+    public void setUserDAO(UserDAO userDAO)
+    {
+        this.userDAO = userDAO;
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -29,41 +39,49 @@ public class RegisterServlet extends HttpServlet {
         String username = req.getParameter("username"); //check frontend
         String email = req.getParameter("email");
         String password = req.getParameter("password");
-        String role = req.getParameter("role");
+        String rolePara = req.getParameter("role");
+        Role role = null;
+
+        username = (username == null) ? null : username.trim();
+        email = (email == null) ? null : email.trim().toLowerCase();
+        rolePara = (rolePara == null) ? null : rolePara.trim();
 
         if (username == null || username.isBlank()) {
-            req.setAttribute("Error", "Username is required.");
-            stickyForm(req, username, email, role);
+            errorHandler(req, "Username is required.", username, email, rolePara);
             return;
         }
         String emailViolation = InputValidator.getEmailFormatViolation(email);
         if (emailViolation != null) {
-            req.setAttribute("Error", emailViolation);
-            stickyForm(req, username, email, role);
+            errorHandler(req, emailViolation, username, email, rolePara);
             return;
         }
         String passwordViolation = InputValidator.getPasswordPolicyViolation(password);
         if (passwordViolation != null) {
-            req.setAttribute("Error", passwordViolation);
-            stickyForm(req, username, email, role);
+            errorHandler(req, passwordViolation, username, email, rolePara);
             return;
         }
-        if (role == null || role.isBlank()) {
-            req.setAttribute("Error", "Role is required.");
-            stickyForm(req, username, email, role);
+        if (rolePara == null || rolePara.isBlank()) {
+            errorHandler(req, "Role is required.", username, email, rolePara);
             return;
+        }
+        else{
+            if(rolePara.equalsIgnoreCase("seller"))
+            {
+                role = Role.SELLER;
+            }
+            else{
+                role = Role.BUYER;
+            }
         }
 
         if(userDAO.checkUser(username.trim())){
-            req.setAttribute("Error", "Username already in use!");
-            stickyForm(req, username, email, role);
+            errorHandler(req, "Username already in use!", username, email, rolePara);
             //redirect
             return;
         }
         if(userDAO.checkEmail(email.trim()))
         {
-            req.setAttribute("Error","Email already in use!");
-            stickyForm(req, username, email, role);
+            errorHandler(req, "Email already in use!", username, email, rolePara);
             //redirect
             return;
         }
@@ -81,6 +99,13 @@ public class RegisterServlet extends HttpServlet {
         {
             //failure
         }
+    }
+
+
+    private void errorHandler(HttpServletRequest req, String message, String username, String email, String role)
+    {
+        req.setAttribute("Error", message);
+        stickyForm(req, username, email, role);
     }
 
     private void stickyForm(HttpServletRequest req, String username, String email, String role)
