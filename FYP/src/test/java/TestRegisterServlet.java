@@ -1,6 +1,8 @@
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.auction.dao.UserDAO;
+import com.auction.model.User;
 import com.auction.servlet.RegisterServlet;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.*;
@@ -23,6 +25,10 @@ public class TestRegisterServlet extends Mockito{
 
     @Test
     public void testInvalidEmail() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -36,13 +42,17 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), contains("Email"));
         //assertTrue(stringWriter.toString().contains("Error"));
     }
 
     @Test
     public void testInvalidUsername() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -56,7 +66,7 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), eq("Username is required."));
         //assertTrue(stringWriter.toString().contains("Error"));
     }
@@ -64,6 +74,10 @@ public class TestRegisterServlet extends Mockito{
     @ParameterizedTest
     @ValueSource(strings = {"Password", "Password1", "Password@"})
     public void testPasswordValidation(String pass) throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -77,13 +91,17 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), contains("Password"));
         //assertTrue(stringWriter.toString().contains("Error"));
         }
 
     @Test
     public void testInvalidRole() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -97,13 +115,19 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), eq("Role is required."));
         //assertTrue(stringWriter.toString().contains("Error"));
     }
 
     @Test
     public void testExistingUsername() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        when(mockDAO.checkUser("user1")).thenReturn(true);
+
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -117,13 +141,19 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), eq("Username already in use!"));
         //assertTrue(stringWriter.toString().contains("Error"));
     }
 
     @Test
     public void testExistingEmail() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        when(mockDAO.checkEmail("user1@email.com")).thenReturn(true);
+
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -137,13 +167,19 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Error"), eq("Email already in use!"));
         //assertTrue(stringWriter.toString().contains("Error"));
     }
 
     @Test
     public void testInsert() throws Exception{
+        UserDAO mockDAO = mock(UserDAO.class);
+        when(mockDAO.insertUser(any(User.class))).thenReturn(true);
+
+        RegisterServletWrapper mockServlet = new RegisterServletWrapper();
+        mockServlet.setUserDAO(mockDAO);
+
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -157,7 +193,7 @@ public class TestRegisterServlet extends Mockito{
         PrintWriter printWriter = new PrintWriter(stringWriter);
         when(response.getWriter()).thenReturn(printWriter);*/
 
-        new RegisterServletWrapper().doPost(request, response);
+        mockServlet.doPost(request, response);
         verify(request).setAttribute(eq("Insert"), eq("Insert ran!"));
         //assertTrue(stringWriter.toString().contains("Error"));
     }

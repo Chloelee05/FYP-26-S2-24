@@ -1,6 +1,7 @@
 package com.auction.dao;
 
 import com.auction.model.User;
+import com.auction.model.Status;
 import com.auction.util.DBUtil;
 
 import java.sql.Connection;
@@ -51,18 +52,26 @@ public class UserDAO {
             pStatement.setString(1, user.getUsername());
             pStatement.setString(2, user.getEmail());
             pStatement.setString(3, user.getPassword());
-            if(user.getRole().equalsIgnoreCase("seller"))
-            {
-                pStatement.setInt(4, 3);
-            }
-            else{
-                pStatement.setInt(4, 2);
-            }
-            pStatement.setInt(5, 1);
+            pStatement.setInt(4, user.getRole().getId());
+            pStatement.setInt(5, Status.ACTIVE.getId());
 
             int rowsAffected = pStatement.executeUpdate();
             return rowsAffected > 0;
 
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean updateStatus(User user, int id, int status)
+    {
+        try(Connection conn = DBUtil.connectDB()) {
+            String sqlString = "UPDATE user SET status_id = ? WHERE ID = ?";
+            PreparedStatement pStatement = conn.prepareStatement(sqlString);
+            pStatement.setInt(1, status);
+            pStatement.setInt(2, id);
+            int rowsAffected = pStatement.executeUpdate();
+            return rowsAffected == 1;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
