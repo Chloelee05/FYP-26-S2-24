@@ -9,9 +9,9 @@ public class User implements Serializable{
     private String email;
     private String username;
     private String password;
-    private String role;
+    private Role role;
 
-public User(String username, String email, String password, String role)
+public User(String username, String email, String password, Role role)
 {
     this.email = email;
     this.username = username;
@@ -58,12 +58,12 @@ public User(String username, String email, String password, String role)
         this.password = password;
     }
 
-    public String getRole()
+    public Role getRole()
     {
         return this.role;
     }
 
-    public void setRole(String role)
+    public void setRole(Role role)
     {
         this.role = role;
     }
