@@ -8,7 +8,7 @@ public class DBUtil {
     private static final String PASSWORD = "admin";
 
     public static Connection connectDB() throws Exception {
-        //jdbc 4.0+
+        //jdbc 4.0+ doesn't require
 /*        try {
             Class.forName("com.mysql.cj.jdbc.Driver");
         } catch (ClassNotFoundException e) {

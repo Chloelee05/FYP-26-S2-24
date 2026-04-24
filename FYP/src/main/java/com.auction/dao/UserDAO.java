@@ -23,7 +23,7 @@ public class UserDAO {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
+    } //for username validation
 
     public boolean checkEmail(String email){
         try(Connection conn = DBUtil.connectDB()) {
@@ -39,7 +39,7 @@ public class UserDAO {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
+    } // for email validation
 
     public boolean insertUser(User user)
     {
@@ -51,12 +51,12 @@ public class UserDAO {
             pStatement.setString(1, user.getUsername());
             pStatement.setString(2, user.getEmail());
             pStatement.setString(3, user.getPassword());
-            if(user.getRole().equalsIgnoreCase("buyer"))
+            if(user.getRole().equalsIgnoreCase("seller"))
             {
-                pStatement.setInt(4, 2);
+                pStatement.setInt(4, 3);
             }
             else{
-                pStatement.setInt(4, 3);
+                pStatement.setInt(4, 2);
             }
             pStatement.setInt(5, 1);
 
@@ -67,4 +67,5 @@ public class UserDAO {
             throw new RuntimeException(e);
         }
     }
+
 }
