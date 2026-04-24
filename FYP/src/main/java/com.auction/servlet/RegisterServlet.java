@@ -74,6 +74,8 @@ public class RegisterServlet extends HttpServlet {
         if(userDAO.insertUser(user))
         {
             //success
+            //placeholder for unit testing
+            req.setAttribute("Insert","Insert ran!");
         }
         else
         {
