@@ -14,4 +14,14 @@ public enum Role {
     public int getId(){
         return this.id;
     }
+
+    public static Role getRole(int id)
+    {
+        for(Role role: values()) {
+            if (role.id == id) {
+                return role;
+            }
+        }
+        throw new IllegalArgumentException("Invalid role");
+    }
 }

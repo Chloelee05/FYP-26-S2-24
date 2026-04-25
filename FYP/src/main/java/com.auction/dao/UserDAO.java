@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.model.Status;
 import com.auction.util.DBUtil;
@@ -7,7 +8,8 @@ import com.auction.util.DBUtil;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class UserDAO {
     public boolean checkUser(String username){
@@ -63,7 +65,7 @@ public class UserDAO {
         }
     }
 
-    public boolean updateStatus(User user, int id, int status)
+    public boolean updateStatus(int id, int status)
     {
         try(Connection conn = DBUtil.connectDB()) {
             String sqlString = "UPDATE user SET status_id = ? WHERE ID = ?";
@@ -72,6 +74,28 @@ public class UserDAO {
             pStatement.setInt(2, id);
             int rowsAffected = pStatement.executeUpdate();
             return rowsAffected == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public List<User> viewAllUsers(){
+        try(Connection conn = DBUtil.connectDB()) {
+            List<User> userList = new ArrayList<>();
+            String sqlString = "SELECT * FROM user";
+            PreparedStatement pStatement = conn.prepareStatement(sqlString);
+            ResultSet resultSet = pStatement.executeQuery();
+
+            while(resultSet.next())
+            {
+                User user = new User();
+                user.setId(resultSet.getInt("ID"));
+                user.setUsername(resultSet.getString("username"));
+                user.setEmail(resultSet.getString("email"));
+                user.setRole(Role.getRole(resultSet.getInt("role_id")));
+                userList.add((user));
+            }
+            return userList;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
