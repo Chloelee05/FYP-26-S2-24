@@ -1,8 +1,6 @@
 package com.auction.model;
 
 import java.io.Serializable;
-import java.sql.Date;
-import java.time.LocalDate;
 
 public class User implements Serializable{
     private int id;
@@ -10,6 +8,10 @@ public class User implements Serializable{
     private String username;
     private String password;
     private Role role;
+
+public User()
+{
+}
 
 public User(String username, String email, String password, Role role)
 {

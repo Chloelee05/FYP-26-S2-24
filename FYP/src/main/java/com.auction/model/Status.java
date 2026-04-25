@@ -13,4 +13,14 @@ public enum Status {
     public int getId(){
         return this.id;
     }
+
+    public static Status getStatus(int id)
+    {
+        for(Status status: values()) {
+            if (status.id == id) {
+                return status;
+            }
+        }
+        throw new IllegalArgumentException("Invalid status");
+    }
 }
