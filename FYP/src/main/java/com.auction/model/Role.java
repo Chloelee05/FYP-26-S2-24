@@ -14,4 +14,11 @@ public enum Role {
     public int getId(){
         return this.id;
     }
+
+    public static Role fromId(int id) {
+        for (Role r : values()) {
+            if (r.id == id) return r;
+        }
+        throw new IllegalArgumentException("Unknown role id: " + id);
+    }
 }
