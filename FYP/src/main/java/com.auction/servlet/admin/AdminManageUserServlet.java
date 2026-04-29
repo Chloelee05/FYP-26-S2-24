@@ -37,20 +37,21 @@ public class AdminManageUserServlet extends HttpServlet{
         //
         String action = req.getParameter("action");
         String userid = req.getParameter("userid");
-        if(action == null || userid  == null || userid.isBlank())
+        if(action == null || action.isBlank() || userid  == null || userid.isBlank())
         {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
         int targetUserID = Integer.parseInt(userid.trim());
+        action = action.toLowerCase();
         switch (action) {
-            case ("Suspend"):
+            case ("suspend"):
                 if(userDAO.updateStatus(targetUserID, Status.SUSPENDED.getId()))
                 {
                     req.setAttribute("Success","Account successfully suspended!");
                 }
                 break;
-            case("Active"):
+            case("active"):
                 if(userDAO.updateStatus(targetUserID, Status.ACTIVE.getId()))
                 {
                     req.setAttribute("Success","Account successfully unsuspended!");
