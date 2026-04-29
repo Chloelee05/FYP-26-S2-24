@@ -15,7 +15,7 @@ public class UserDAO {
     public boolean checkUser(String username){
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "SELECT 1 FROM user WHERE username = ? LIMIT 1";
+            String sqlString = "SELECT 1 FROM users WHERE username = ? LIMIT 1";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, username);
 
@@ -31,7 +31,7 @@ public class UserDAO {
     public boolean checkEmail(String email){
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "SELECT 1 FROM user WHERE email = ? LIMIT 1";
+            String sqlString = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, email);
 
@@ -68,7 +68,7 @@ public class UserDAO {
     public boolean updateStatus(int id, int status)
     {
         try(Connection conn = DBUtil.connectDB()) {
-            String sqlString = "UPDATE user SET status_id = ? WHERE ID = ?";
+            String sqlString = "UPDATE users SET status_id = ? WHERE ID = ?";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setInt(1, status);
             pStatement.setInt(2, id);
@@ -82,14 +82,14 @@ public class UserDAO {
     public List<User> viewAllUsers(){
         try(Connection conn = DBUtil.connectDB()) {
             List<User> userList = new ArrayList<>();
-            String sqlString = "SELECT * FROM user";
+            String sqlString = "SELECT * FROM users";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             ResultSet resultSet = pStatement.executeQuery();
 
             while(resultSet.next())
             {
                 User user = new User();
-                user.setId(resultSet.getInt("ID"));
+                user.setId(resultSet.getInt("id"));
                 user.setUsername(resultSet.getString("username"));
                 user.setEmail(resultSet.getString("email"));
                 user.setRole(Role.getRole(resultSet.getInt("role_id")));

@@ -9,8 +9,8 @@ public class DBUtil {
     private static final HikariDataSource dataSource;
 
     static{
-        config.setJdbcUrl("jdbc:mysql://localhost:3306/auction_db");
-        config.setUsername("root");
+        config.setJdbcUrl("jdbc:postgresql://localhost:5432/auction_db");
+        config.setUsername("postgres");
         config.setPassword("admin");
         config.addDataSourceProperty("cachePrepStmts", "true");
         config.addDataSourceProperty("prepStmtCacheSize", "250");
