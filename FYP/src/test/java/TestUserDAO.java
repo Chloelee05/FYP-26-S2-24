@@ -2,6 +2,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.auction.dao.UserDAO;
+import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.util.DBUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,6 +134,67 @@ public class TestUserDAO extends Mockito {
 
                 UserDAO dao = new UserDAO();
                 assertThrows(RuntimeException.class, () -> dao.checkEmail("test1@email.com"));
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Test insertUser()")
+    class TestInsertUser{
+        private User testUser;
+
+        @BeforeEach
+        public void setUp() throws Exception {
+            testUser = new User();
+            testUser.setUsername("test1");
+            testUser.setEmail("test1@email.com");
+            testUser.setPassword("password123");
+            testUser.setRole(Role.BUYER);
+        }
+
+        @Test
+        @DisplayName("Test Success")
+        public void TestSuccess() throws Exception {
+            try (MockedStatic<DBUtil> mockedDB = mockStatic(DBUtil.class)) {
+                mockedDB.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockStmt.executeUpdate()).thenReturn(1);
+
+                UserDAO dao = new UserDAO();
+                assertTrue(dao.insertUser(testUser));
+            }
+        }
+
+        @Test
+        @DisplayName("Test insert user fails when no rows affected")
+        public void TestFails() throws Exception {
+            try (MockedStatic<DBUtil> mockedDB = mockStatic(DBUtil.class)) {
+                mockedDB.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockStmt.executeUpdate()).thenReturn(0);
+
+                UserDAO dao = new UserDAO();
+                assertFalse(dao.insertUser(testUser));
+            }
+        }
+
+        @Test
+        @DisplayName("Test null exception")
+        public void TestInsertNull() throws Exception {
+            try (MockedStatic<DBUtil> mockedDB = mockStatic(DBUtil.class)) {
+                mockedDB.when(DBUtil::connectDB).thenReturn(mockConn);
+
+                UserDAO dao = new UserDAO();
+                assertThrows(RuntimeException.class, () -> dao.insertUser(null));
+            }
+        }
+
+        @Test
+        @DisplayName("Test exception on DB failure")
+        public void TestInsertUserDBFailure() throws Exception {
+            try (MockedStatic<DBUtil> mockedDB = mockStatic(DBUtil.class)) {
+                mockedDB.when(DBUtil::connectDB).thenThrow(new SQLException("Connection failed"));
+
+                UserDAO dao = new UserDAO();
+                assertThrows(RuntimeException.class, () -> dao.insertUser(testUser));
             }
         }
     }
