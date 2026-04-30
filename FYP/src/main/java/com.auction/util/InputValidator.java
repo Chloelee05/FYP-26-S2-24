@@ -17,7 +17,7 @@ public final class InputValidator {
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}$");
 
-    /** E.164-style: optional leading +, then 8–15 digits. */
+
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[0-9]{8,15}$");
 
     public static final int PASSWORD_MIN_LENGTH = 8;
@@ -121,6 +121,13 @@ public final class InputValidator {
      *
      * @return English description of the password rules
      */
+    public static String getPasswordPolicySummary() {
+        return String.format(
+                "%d–%d characters, with uppercase, lowercase, a number, and a special character.",
+                PASSWORD_MIN_LENGTH,
+                PASSWORD_MAX_LENGTH);
+    }
+
     /**
      * Human-readable reason when a phone number is invalid; {@code null} if valid.
      * Accepts an optional leading {@code +} followed by 8–15 digits (E.164-style).
@@ -138,10 +145,4 @@ public final class InputValidator {
         return null;
     }
 
-    public static String getPasswordPolicySummary() {
-        return String.format(
-                "%d–%d characters, with uppercase, lowercase, a number, and a special character.",
-                PASSWORD_MIN_LENGTH,
-                PASSWORD_MAX_LENGTH);
-    }
 }

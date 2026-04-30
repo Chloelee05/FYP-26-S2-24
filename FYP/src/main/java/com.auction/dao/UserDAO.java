@@ -8,13 +8,14 @@ import com.auction.util.DBUtil;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class UserDAO {
     public boolean checkUser(String username){
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "SELECT 1 FROM user WHERE username = ? LIMIT 1";
+            String sqlString = "SELECT 1 FROM users WHERE username = ? LIMIT 1";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, username);
 
@@ -30,7 +31,7 @@ public class UserDAO {
     public boolean checkEmail(String email){
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "SELECT 1 FROM user WHERE email = ? LIMIT 1";
+            String sqlString = "SELECT 1 FROM users WHERE email = ? LIMIT 1";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, email);
 
@@ -47,7 +48,7 @@ public class UserDAO {
     {
         try(Connection conn = DBUtil.connectDB()) {
 
-            String sqlString = "INSERT INTO user (username, email, password, role_id, status_id) " +
+            String sqlString = "INSERT INTO users (username, email, password, role_id, status_id) " +
                     "VALUES(?, ?, ?, ?, ?) ";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setString(1, user.getUsername());
@@ -64,6 +65,20 @@ public class UserDAO {
         }
     }
 
+    public boolean updateStatus(int id, int status)
+    {
+        try(Connection conn = DBUtil.connectDB()) {
+            String sqlString = "UPDATE users SET status_id = ? WHERE ID = ?";
+            PreparedStatement pStatement = conn.prepareStatement(sqlString);
+            pStatement.setInt(1, status);
+            pStatement.setInt(2, id);
+            int rowsAffected = pStatement.executeUpdate();
+            return rowsAffected == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, password, role_id FROM user WHERE email = ? LIMIT 1";
@@ -75,7 +90,7 @@ public class UserDAO {
                         rs.getString("username"),
                         rs.getString("email"),
                         rs.getString("password"),
-                        Role.fromId(rs.getInt("role_id"))
+                        Role.getRole(rs.getInt("role_id"))
                 );
                 user.setId(rs.getInt("id"));
                 user.setTwoFactorEnabled(rs.getBoolean("two_factor_enabled"));
@@ -122,15 +137,24 @@ public class UserDAO {
         }
     }
 
-    public boolean updateStatus(User user, int id, int status)
-    {
+
+    public List<User> viewAllUsers(){
         try(Connection conn = DBUtil.connectDB()) {
-            String sqlString = "UPDATE user SET status_id = ? WHERE ID = ?";
+            List<User> userList = new ArrayList<>();
+            String sqlString = "SELECT * FROM users";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
-            pStatement.setInt(1, status);
-            pStatement.setInt(2, id);
-            int rowsAffected = pStatement.executeUpdate();
-            return rowsAffected == 1;
+            ResultSet resultSet = pStatement.executeQuery();
+
+            while(resultSet.next())
+            {
+                User user = new User();
+                user.setId(resultSet.getInt("id"));
+                user.setUsername(resultSet.getString("username"));
+                user.setEmail(resultSet.getString("email"));
+                user.setRole(Role.getRole(resultSet.getInt("role_id")));
+                userList.add((user));
+            }
+            return userList;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

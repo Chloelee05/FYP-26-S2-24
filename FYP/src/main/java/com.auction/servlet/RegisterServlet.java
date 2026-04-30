@@ -1,7 +1,6 @@
 package com.auction.servlet;
 
 import java.io.IOException;
-import java.time.LocalDate;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
@@ -24,7 +23,7 @@ public class RegisterServlet extends HttpServlet {
         userDAO = new UserDAO();
     }
 
-    public void setUserDAO(UserDAO userDAO)
+    public void setUserDAO(UserDAO userDAO) // for unit testing
     {
         this.userDAO = userDAO;
     }
