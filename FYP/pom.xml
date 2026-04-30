@@ -41,12 +41,12 @@
       <scope>compile</scope>
     </dependency>
 
-    <!-- MySQL Connector -->
-    <!-- Source: https://mvnrepository.com/artifact/com.mysql/mysql-connector-j -->
+    <!-- postgres Connector -->
+    <!-- Source: https://mvnrepository.com/artifact/org.postgresql/postgresql -->
     <dependency>
-      <groupId>com.mysql</groupId>
-      <artifactId>mysql-connector-j</artifactId>
-      <version>9.6.0</version>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.10</version>
       <scope>compile</scope>
     </dependency>
 
@@ -73,7 +73,7 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
-      <version>5.11.4</version>
+      <version>6.0.3</version>
       <scope>test</scope>
     </dependency>
 
@@ -81,14 +81,14 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-params</artifactId>
-      <version>5.11.4</version>
+      <version>6.0.3</version>
       <scope>test</scope>
     </dependency>
 
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <version>5.11.4</version>
+      <version>6.0.3</version>
       <scope>test</scope>
     </dependency>
 
