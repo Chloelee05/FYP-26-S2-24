@@ -79,6 +79,65 @@ public class UserDAO {
         }
     }
 
+    public User getUserByEmail(String email) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "SELECT id, username, email, password, role_id FROM user WHERE email = ? LIMIT 1";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                User user = new User(
+                        rs.getString("username"),
+                        rs.getString("email"),
+                        rs.getString("password"),
+                        Role.getRole(rs.getInt("role_id"))
+                );
+                user.setId(rs.getInt("id"));
+                user.setTwoFactorEnabled(rs.getBoolean("two_factor_enabled"));
+                user.setTwoFactorSecret(rs.getString("two_factor_secret"));
+                return user;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean enableTwoFactor(String email, String encryptedSecret) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "UPDATE user SET two_factor_enabled = TRUE, two_factor_secret = ? WHERE email = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, encryptedSecret);
+            ps.setString(2, email);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean disableTwoFactor(String email) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "UPDATE user SET two_factor_enabled = FALSE, two_factor_secret = NULL WHERE email = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, email);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean updatePassword(String email, String hashedPassword) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "UPDATE user SET password = ? WHERE email = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, hashedPassword);
+            ps.setString(2, email);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
     public List<User> viewAllUsers(){
         try(Connection conn = DBUtil.connectDB()) {
             List<User> userList = new ArrayList<>();
