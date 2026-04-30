@@ -63,7 +63,7 @@ public class UserDAO {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
+    } 
 
     public boolean updateStatus(int id, int status)
     {
