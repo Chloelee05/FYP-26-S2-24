@@ -8,8 +8,6 @@ public class User implements Serializable{
     private String username;
     private String password;
     private Role role;
-    private boolean twoFactorEnabled;
-    private String twoFactorSecret; // AES-GCM encrypted; null when 2FA is disabled
 
 public User()
 {
@@ -70,25 +68,5 @@ public User(String username, String email, String password, Role role)
     public void setRole(Role role)
     {
         this.role = role;
-    }
-
-    public boolean isTwoFactorEnabled()
-    {
-        return this.twoFactorEnabled;
-    }
-
-    public void setTwoFactorEnabled(boolean twoFactorEnabled)
-    {
-        this.twoFactorEnabled = twoFactorEnabled;
-    }
-
-    public String getTwoFactorSecret()
-    {
-        return this.twoFactorSecret;
-    }
-
-    public void setTwoFactorSecret(String twoFactorSecret)
-    {
-        this.twoFactorSecret = twoFactorSecret;
     }
 }

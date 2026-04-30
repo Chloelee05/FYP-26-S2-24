@@ -6,7 +6,6 @@ import com.auction.dao.UserDAO;
 import com.auction.model.User;
 import com.auction.model.Role;
 import com.auction.util.InputValidator;
-import com.auction.util.SecurityUtil;
 import at.favre.lib.crypto.bcrypt.BCrypt;
 
 import jakarta.servlet.ServletException;
@@ -86,7 +85,7 @@ public class RegisterServlet extends HttpServlet {
             return;
         }
 
-        String hashPassword = SecurityUtil.hashPassword(password);
+        String hashPassword = BCrypt.withDefaults().hashToString(12, password.toCharArray());
         User user = new User(username, email, hashPassword, role);
 
         if(userDAO.insertUser(user))
