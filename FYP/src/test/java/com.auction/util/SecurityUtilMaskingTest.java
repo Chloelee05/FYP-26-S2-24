@@ -81,4 +81,27 @@ class SecurityUtilMaskingTest {
     void maskUsername_blank() {
         assertEquals("", SecurityUtil.maskUsername("\t  "));
     }
+
+    @ParameterizedTest
+    @CsvSource({
+            "+65 9123 4567, ****4567",
+            "+6512345678, ****5678",
+            "123456789012, ****9012"
+    })
+    @DisplayName("maskPhone keeps last up to 4 digits (SCRUM-119)")
+    void maskPhone_publicPreview(String raw, String expected) {
+        assertEquals(expected, SecurityUtil.maskPhone(raw));
+    }
+
+    @Test
+    @DisplayName("maskPhone null returns null")
+    void maskPhone_null() {
+        assertNull(SecurityUtil.maskPhone(null));
+    }
+
+    @Test
+    @DisplayName("maskPhone very short digits returns masked placeholder")
+    void maskPhone_short() {
+        assertEquals("****", SecurityUtil.maskPhone("12"));
+    }
 }

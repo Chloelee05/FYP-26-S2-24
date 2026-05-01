@@ -88,7 +88,7 @@ public class UserDAO {
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, password, role_id, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted "
+                    + "phone_encrypted, address_encrypted, profile_image_url "
                     + "FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setString(1, email);
@@ -109,7 +109,7 @@ public class UserDAO {
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, role_id, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted "
+                    + "phone_encrypted, address_encrypted, profile_image_url "
                     + "FROM users WHERE id = ? LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setInt(1, id);
@@ -138,6 +138,7 @@ public class UserDAO {
         user.setTwoFactorSecret(rs.getString("two_factor_secret"));
         user.setPhoneEncrypted(rs.getString("phone_encrypted"));
         user.setAddressEncrypted(rs.getString("address_encrypted"));
+        user.setProfileImageUrl(rs.getString("profile_image_url"));
         return user;
     }
 
@@ -203,7 +204,7 @@ public class UserDAO {
         boolean previousAutoCommit = conn.getAutoCommit();
         conn.setAutoCommit(false);
         String sql = "UPDATE users SET email = ?, username = ?, password = ?, "
-                + "phone_encrypted = NULL, address_encrypted = NULL, "
+                + "phone_encrypted = NULL, address_encrypted = NULL, profile_image_url = NULL, "
                 + "two_factor_enabled = FALSE, two_factor_secret = NULL, "
                 + "status_id = ? WHERE id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -220,6 +221,59 @@ public class UserDAO {
             throw e;
         } finally {
             conn.setAutoCommit(previousAutoCommit);
+        }
+    }
+
+    public boolean usernameTakenByOtherUser(String username, int excludeUserId) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "SELECT 1 FROM users WHERE LOWER(username) = LOWER(?) AND id <> ? LIMIT 1";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, username);
+            ps.setInt(2, excludeUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * {@code true} if another row already uses this email (case-insensitive).
+     */
+    public boolean emailTakenByOtherUser(String email, int excludeUserId) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "SELECT 1 FROM users WHERE LOWER(email) = LOWER(?) AND id <> ? LIMIT 1";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, email);
+            ps.setInt(2, excludeUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Persists profile fields; {@code phoneEncrypted} / {@code addressEncrypted} must already be
+     * ciphertext from {@link com.auction.util.SecurityUtil#encrypt(String)} or {@code null} to clear.
+     */
+    public boolean updateProfile(int userId, String username, String email, String phoneEncrypted,
+                                 String addressEncrypted, String profileImageUrl) {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "UPDATE users SET username = ?, email = ?, phone_encrypted = ?, "
+                    + "address_encrypted = ?, profile_image_url = ? WHERE id = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, username);
+            ps.setString(2, email);
+            ps.setString(3, phoneEncrypted);
+            ps.setString(4, addressEncrypted);
+            ps.setString(5, profileImageUrl);
+            ps.setInt(6, userId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
