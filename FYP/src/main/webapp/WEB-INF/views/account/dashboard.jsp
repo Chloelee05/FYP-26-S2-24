@@ -47,7 +47,10 @@
                         <p class="text-muted mb-0 small">View and keep your profile information up to date.</p>
                     </div>
                 </div>
-                <a class="btn btn-primary" href="${pageContext.request.contextPath}/protected/account/edit">Edit profile</a>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-primary" href="${pageContext.request.contextPath}/protected/account/edit">Edit profile</a>
+                    <a class="btn btn-outline-primary" href="${pageContext.request.contextPath}/protected/account/password">Change password</a>
+                </div>
             </div>
 
             <div class="card shadow-sm border-0 mb-4">
