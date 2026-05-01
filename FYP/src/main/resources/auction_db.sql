@@ -45,7 +45,8 @@ CREATE TABLE user_status (
 
 INSERT INTO user_status (status) VALUES
   ('Active'),
-  ('Suspended');
+  ('Suspended'),
+  ('Deleted');
 
 -- Users
 CREATE TABLE users (

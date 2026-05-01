@@ -76,6 +76,46 @@
             <p class="text-muted small mt-3 mb-0">
                 Phone and address are decrypted only for your session using the platform encryption key.
             </p>
+
+            <div class="card border-danger shadow-sm mt-4">
+                <div class="card-header bg-danger text-white py-3">
+                    <span class="fw-semibold">Danger zone</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-text text-muted small mb-3">
+                        Permanently close your account. Your personal data will be removed or anonymised (PDPA).
+                        Historical auction records may retain an anonymised user reference.
+                    </p>
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal"
+                            data-bs-target="#deleteAccountModal">
+                        Delete my account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-labelledby="deleteAccountModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-danger">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger" id="deleteAccountModalLabel">Delete account?</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">This cannot be undone. You will be signed out immediately.</p>
+                <p class="small text-muted mb-0">Type the confirmation in the next step by submitting the form below.</p>
+            </div>
+            <div class="modal-footer flex-column align-items-stretch gap-2">
+                <form method="post" action="${pageContext.request.contextPath}/protected/account/delete"
+                      class="d-grid">
+                    <input type="hidden" name="confirm" value="DELETE"/>
+                    <button type="submit" class="btn btn-danger">Yes, delete my account</button>
+                </form>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
         </div>
     </div>
 </div>

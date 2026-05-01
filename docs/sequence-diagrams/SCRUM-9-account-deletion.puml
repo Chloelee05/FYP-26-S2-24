@@ -1,0 +1,52 @@
+@startuml SCRUM-9 Account Deletion
+
+title Self-Service Account Deletion (SCRUM-9)
+
+actor User as U
+participant "Browser\n(Bootstrap modal)" as B
+participant "AuthFilter" as AF
+participant "DeleteAccountServlet\nPOST /protected/account/delete" as DS
+participant "UserDAO" as DAO
+database "PostgreSQL\n(users)" as DB
+participant "SecurityUtil\n(hashPassword)" as SU
+participant "HttpSession" as S
+
+U -> B : Click Delete my account\n(open modal)
+U -> B : Confirm Yes, delete my account
+B -> AF : POST confirm=DELETE\n(JSESSIONID)
+activate AF
+AF -> DS : chain
+deactivate AF
+
+activate DS
+DS -> S : getSession(false) / read userId
+activate S
+S --> DS : userId
+deactivate S
+
+DS -> DAO : deleteAccount(userId)
+activate DAO
+DAO -> SU : hashPassword(randomSecret)\n(irrecoverable placeholder)
+SU --> DAO : new hash
+DAO -> DB : UPDATE users SET\nemail, username, password → anonymised\nphone_encrypted, address_encrypted, 2FA → cleared\nstatus_id = DELETED\nWHERE id = ?
+activate DB
+DB --> DAO : 1 row
+deactivate DB
+DAO --> DS : true
+deactivate DAO
+
+DS -> S : invalidate()
+activate S
+note right of S : Session ends immediately (SCRUM-191)
+S --> DS
+deactivate S
+
+DS -> B : Redirect /login?accountClosed=1\n+ no-cache headers
+deactivate DS
+B -> U : Login page
+
+note over DAO, DB
+  **PDPA (SCRUM-137):** row retained for auction/bid FKs;\nPII replaced with non-identifying placeholders.\nNo live email, phone, address, or usable password remains.
+end note
+
+@enduml

@@ -4,6 +4,7 @@ import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.model.Status;
 import com.auction.util.DBUtil;
+import com.auction.util.SecurityUtil;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -11,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class UserDAO {
     public boolean checkUser(String username){
@@ -174,6 +176,52 @@ public class UserDAO {
         }
     }
 
+    /**
+     * PDPA-aligned account closure: removes identifying data in place (email, username, password,
+     * phone, address, 2FA secrets) and marks the row {@link Status#DELETED}. The primary key is
+     * retained so auction/bid foreign keys remain valid without exposing the data subject.
+     */
+    public boolean deleteAccount(int userId) {
+        try (Connection conn = DBUtil.connectDB()) {
+            return deleteAccountWithConnection(conn, userId);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Same as {@link #deleteAccount(int)} but uses an existing connection (for unit tests with a mock).
+     */
+    boolean deleteAccountWithConnection(Connection conn, int userId) throws SQLException {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        String shortTok = token.substring(0, Math.min(16, token.length()));
+        String anonymizedEmail = "deleted_" + userId + "_" + shortTok + "@invalid.auction.local";
+        String anonymizedUsername = "deleted_u" + userId + "_" + shortTok;
+        String randomSecret = UUID.randomUUID().toString() + token;
+        String newPasswordHash = SecurityUtil.hashPassword(randomSecret);
+
+        boolean previousAutoCommit = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+        String sql = "UPDATE users SET email = ?, username = ?, password = ?, "
+                + "phone_encrypted = NULL, address_encrypted = NULL, "
+                + "two_factor_enabled = FALSE, two_factor_secret = NULL, "
+                + "status_id = ? WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, anonymizedEmail);
+            ps.setString(2, anonymizedUsername);
+            ps.setString(3, newPasswordHash);
+            ps.setInt(4, Status.DELETED.getId());
+            ps.setInt(5, userId);
+            boolean updated = ps.executeUpdate() == 1;
+            conn.commit();
+            return updated;
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(previousAutoCommit);
+        }
+    }
 
     public List<User> viewAllUsers(){
         try(Connection conn = DBUtil.connectDB()) {
