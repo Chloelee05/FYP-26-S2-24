@@ -11,7 +11,7 @@ public class DBUtil {
     static{
         config.setJdbcUrl("jdbc:postgresql://localhost:5432/auction_db");
         config.setUsername("postgres");
-        config.setPassword("admin");
+        config.setPassword("chloelee");
         config.addDataSourceProperty("cachePrepStmts", "true");
         config.addDataSourceProperty("prepStmtCacheSize", "250");
         config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");

@@ -4,6 +4,7 @@ import static org.mockito.Mockito.*;
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
 import com.auction.servlet.RegisterServlet;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,8 @@ public class TestRegisterServlet extends Mockito{
 
         mockRequest = mock(HttpServletRequest.class);
         mockResponse = mock(HttpServletResponse.class);
+        RequestDispatcher dispatcher = mock(RequestDispatcher.class);
+        when(mockRequest.getRequestDispatcher(anyString())).thenReturn(dispatcher);
     }
     
     @Test

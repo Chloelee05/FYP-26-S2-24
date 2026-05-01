@@ -40,6 +40,13 @@
       <version>3.0.2</version>
       <scope>compile</scope>
     </dependency>
+    <!-- JSTL implementation: provides TLDs (e.g. jakarta.tags.core); API jar alone causes Jasper 500 -->
+    <dependency>
+      <groupId>org.glassfish.web</groupId>
+      <artifactId>jakarta.servlet.jsp.jstl</artifactId>
+      <version>3.0.1</version>
+      <scope>compile</scope>
+    </dependency>
 
     <!-- postgres Connector -->
     <!-- Source: https://mvnrepository.com/artifact/org.postgresql/postgresql -->
