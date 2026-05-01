@@ -7,6 +7,7 @@ import com.auction.model.User;
 import com.auction.servlet.LoginServlet;
 import com.auction.servlet.RegisterServlet;
 import com.auction.util.SecurityUtil;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,6 +21,11 @@ import org.mockito.Mockito;
 import java.io.IOException;
 
 public class TestLoginServlet extends Mockito {
+
+    private static void stubLoginForward(HttpServletRequest request) {
+        RequestDispatcher dispatcher = mock(RequestDispatcher.class);
+        when(request.getRequestDispatcher(anyString())).thenReturn(dispatcher);
+    }
 
     private static class LoginServletWrapper extends LoginServlet {
         @Override
@@ -46,6 +52,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("email")).thenReturn(email);
         when(request.getParameter("password")).thenReturn("Password1!");
@@ -64,6 +71,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("email")).thenReturn("user@email.com");
         when(request.getParameter("password")).thenReturn("");
@@ -85,6 +93,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("email")).thenReturn("unknown@email.com");
         when(request.getParameter("password")).thenReturn("Password1!");
@@ -107,6 +116,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("email")).thenReturn("john@email.com");
         when(request.getParameter("password")).thenReturn("WrongPassword1!");
@@ -131,7 +141,9 @@ public class TestLoginServlet extends Mockito {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         HttpSession session = mock(HttpSession.class);
+        stubLoginForward(request);
 
+        when(request.getContextPath()).thenReturn("");
         when(request.getParameter("email")).thenReturn("john@email.com");
         when(request.getParameter("password")).thenReturn("Password1!");
         when(request.getSession(true)).thenReturn(session);
@@ -139,6 +151,7 @@ public class TestLoginServlet extends Mockito {
         servlet.doPost(request, response);
 
         verify(request).setAttribute(eq("Login"), eq("Login successful!"));
+        verify(response).sendRedirect("/protected/account");
         verify(session).setAttribute(eq("userId"), eq(42));
         verify(session).setAttribute(eq("userRole"), eq("BUYER"));
         verify(session).setAttribute(eq("maskedEmail"), eq(SecurityUtil.maskEmail("john@email.com")));
@@ -159,6 +172,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");
@@ -189,6 +203,7 @@ public class TestLoginServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
 
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");

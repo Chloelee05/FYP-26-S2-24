@@ -6,6 +6,7 @@ import com.auction.util.InputValidator;
 import com.auction.util.SecurityUtil;
 
 import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -13,7 +14,10 @@ import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 
+@WebServlet("/login")
 public class LoginServlet extends HttpServlet {
+
+    static final String VIEW_LOGIN = "/WEB-INF/views/auth/login.jsp";
 
     private UserDAO userDAO;
 
@@ -27,7 +31,7 @@ public class LoginServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        //
+        req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
     }
 
     @Override
@@ -40,22 +44,26 @@ public class LoginServlet extends HttpServlet {
         String emailViolation = InputValidator.getEmailFormatViolation(email);
         if (emailViolation != null) {
             loginError(req, emailViolation, email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
 
         if (password == null || password.isBlank()) {
             loginError(req, "Password is required.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
 
         User user = userDAO.getUserByEmail(email);
         if (user == null) {
             loginError(req, "Invalid email or password.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
 
         if (!SecurityUtil.verifyPassword(password, user.getPassword())) {
             loginError(req, "Invalid email or password.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
 
@@ -68,6 +76,7 @@ public class LoginServlet extends HttpServlet {
         session.setAttribute("maskedUsername", SecurityUtil.maskUsername(user.getUsername()));
 
         req.setAttribute("Login", "Login successful!");
+        resp.sendRedirect(req.getContextPath() + "/protected/account");
     }
 
     private void loginError(HttpServletRequest req, String message, String email) {

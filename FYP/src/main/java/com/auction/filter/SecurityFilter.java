@@ -15,7 +15,12 @@ public class SecurityFilter implements Filter{
         resp.setHeader("X-Content-Type-Options", "nosniff");
         resp.setHeader("X-Frame-Options", "DENY");
         resp.setHeader("X-XSS-Protection", "1; mode=block");
-        resp.setHeader("Content-Security-Policy", "default-src 'self'");
+        // Allow Bootstrap (and similar) from jsDelivr; default-src 'self' blocks external CSS/JS.
+        resp.setHeader("Content-Security-Policy",
+                "default-src 'self'; "
+                        + "style-src 'self' https://cdn.jsdelivr.net; "
+                        + "script-src 'self' https://cdn.jsdelivr.net; "
+                        + "font-src 'self' https://cdn.jsdelivr.net data:");
 
         filterChain.doFilter(req, resp);
     }
