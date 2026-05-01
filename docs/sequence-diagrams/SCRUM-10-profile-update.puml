@@ -1,0 +1,44 @@
+@startuml SCRUM-10 Profile Update
+
+title Update profile — display name, image URL, encrypted PII (SCRUM-10 / SCRUM-11)
+
+actor User as U
+participant "Browser\nBootstrap 5 form" as B
+participant "AuthFilter" as AF
+participant "UpdateProfileServlet\nPOST /protected/account/update" as UP
+participant "InputValidator" as IV
+participant "UserDAO" as DAO
+participant "SecurityUtil\nencrypt + mask" as SU
+database "PostgreSQL" as DB
+
+U -> B : Edit profile → submit form
+B -> AF : POST (session cookie)
+AF -> UP : chain
+
+activate UP
+UP -> UP : read session userId
+UP -> IV : validate display name, email,\noptional phone, address, image URL
+IV --> UP : null or error message
+
+alt validation failure
+    UP -> B : forward edit.jsp + error
+else duplicate email / name
+    UP -> DAO : emailTakenByOtherUser /\nusernameTakenByOtherUser
+    DAO --> UP : true
+    UP -> B : forward edit.jsp + message
+else success
+    UP -> SU : encrypt(phone plaintext)\nencrypt(address plaintext)
+    SU --> UP : ciphertext
+    UP -> DAO : updateProfile(\n… ciphertext …)
+    DAO -> DB : UPDATE users SET\nusername, email,\nphone_encrypted, address_encrypted,\nprofile_image_url
+    DB --> DAO : ok
+    UP -> UP : session: maskedEmail,\nmaskedUsername, sessionEmail
+    UP -> B : redirect /protected/account?updated=1
+end
+deactivate UP
+
+note over SU
+  **SCRUM-119:** Public views use\nmaskEmail, maskUsername, maskPhone\n(not raw PII).
+end note
+
+@enduml
