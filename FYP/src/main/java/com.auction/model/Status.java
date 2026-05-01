@@ -2,7 +2,9 @@ package com.auction.model;
 
 public enum Status {
     ACTIVE(1),
-    SUSPENDED(2);
+    SUSPENDED(2),
+    /** PDPA-oriented closed account: PII anonymised; row kept for referential integrity. */
+    DELETED(3);
 
     private final int id;
 
