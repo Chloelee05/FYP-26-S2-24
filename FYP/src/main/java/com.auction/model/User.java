@@ -10,18 +10,20 @@ public class User implements Serializable{
     private Role role;
     private boolean twoFactorEnabled;
     private String twoFactorSecret; // AES-GCM encrypted; null when 2FA is disabled
+    /** AES-GCM ciphertext (Base64) from {@link com.auction.util.SecurityUtil#encrypt}; nullable. */
+    private String phoneEncrypted;
+    /** AES-GCM ciphertext (Base64); nullable. */
+    private String addressEncrypted;
 
-public User()
-{
-}
+    public User() {
+    }
 
-public User(String username, String email, String password, Role role)
-{
-    this.email = email;
-    this.username = username;
-    this.password = password;
-    this.role = role;
-}
+    public User(String username, String email, String password, Role role) {
+        this.email = email;
+        this.username = username;
+        this.password = password;
+        this.role = role;
+    }
 
     public int getId() {
         return this.id;
@@ -90,5 +92,21 @@ public User(String username, String email, String password, Role role)
     public void setTwoFactorSecret(String twoFactorSecret)
     {
         this.twoFactorSecret = twoFactorSecret;
+    }
+
+    public String getPhoneEncrypted() {
+        return phoneEncrypted;
+    }
+
+    public void setPhoneEncrypted(String phoneEncrypted) {
+        this.phoneEncrypted = phoneEncrypted;
+    }
+
+    public String getAddressEncrypted() {
+        return addressEncrypted;
+    }
+
+    public void setAddressEncrypted(String addressEncrypted) {
+        this.addressEncrypted = addressEncrypted;
     }
 }
