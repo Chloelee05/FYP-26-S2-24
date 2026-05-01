@@ -227,6 +227,28 @@ public final class SecurityUtil {
     }
 
     /**
+     * Masks a phone number for public listings / PDPA (keeps only the last 4 digits, normalised digits only).
+     *
+     * @param phone plaintext phone; {@code null} or blank returns {@code null}
+     * @return masked form e.g. {@code ****5678}, or {@code null}
+     */
+    public static String maskPhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String trimmed = phone.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String digits = trimmed.replaceAll("[^0-9]", "");
+        if (digits.length() <= 2) {
+            return "****";
+        }
+        String tail = digits.substring(digits.length() - Math.min(4, digits.length()));
+        return "****" + tail;
+    }
+
+    /**
      * Trims input, performs HTML entity escaping for XSS mitigation, and doubles single quotes
      * for ANSI SQL string-literal escaping as a secondary control. Primary defenses must remain
      * parameterized queries / {@code PreparedStatement} and contextual output encoding.

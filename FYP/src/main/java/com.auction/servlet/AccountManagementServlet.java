@@ -57,8 +57,14 @@ public class AccountManagementServlet extends HttpServlet {
         req.setAttribute("profileRole", profile.getRole().name());
         req.setAttribute("twoFactorEnabled", profile.isTwoFactorEnabled());
 
-        req.setAttribute("profilePhone", decryptPiiForDisplay(profile.getPhoneEncrypted()));
+        String phonePlain = AccountManagementServlet.decryptPiiForDisplay(profile.getPhoneEncrypted());
+        req.setAttribute("profilePhone", phonePlain);
         req.setAttribute("profileAddress", decryptPiiForDisplay(profile.getAddressEncrypted()));
+        req.setAttribute("profileImageUrl", profile.getProfileImageUrl());
+
+        req.setAttribute("publicMaskedName", SecurityUtil.maskUsername(profile.getUsername()));
+        req.setAttribute("publicMaskedEmail", SecurityUtil.maskEmail(profile.getEmail()));
+        req.setAttribute("publicMaskedPhone", SecurityUtil.maskPhone(phonePlain));
 
         req.getRequestDispatcher(VIEW_DASHBOARD).forward(req, resp);
     }

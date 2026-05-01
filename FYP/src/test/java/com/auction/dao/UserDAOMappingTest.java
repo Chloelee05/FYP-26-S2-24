@@ -29,6 +29,7 @@ class UserDAOMappingTest {
         when(rs.getString("two_factor_secret")).thenReturn(null);
         when(rs.getString("phone_encrypted")).thenReturn("encPhone");
         when(rs.getString("address_encrypted")).thenReturn("encAddr");
+        when(rs.getString("profile_image_url")).thenReturn("https://cdn.example.com/a.png");
 
         User u = UserDAO.mapUserFromResultSet(rs, false);
 
@@ -40,6 +41,7 @@ class UserDAOMappingTest {
         assertFalse(u.isTwoFactorEnabled());
         assertEquals("encPhone", u.getPhoneEncrypted());
         assertEquals("encAddr", u.getAddressEncrypted());
+        assertEquals("https://cdn.example.com/a.png", u.getProfileImageUrl());
     }
 
     @Test
@@ -55,6 +57,7 @@ class UserDAOMappingTest {
         when(rs.getString("two_factor_secret")).thenReturn("secretCipher");
         when(rs.getString("phone_encrypted")).thenReturn(null);
         when(rs.getString("address_encrypted")).thenReturn(null);
+        when(rs.getString("profile_image_url")).thenReturn(null);
 
         User u = UserDAO.mapUserFromResultSet(rs, true);
 
@@ -64,5 +67,6 @@ class UserDAOMappingTest {
         assertEquals("secretCipher", u.getTwoFactorSecret());
         assertNull(u.getPhoneEncrypted());
         assertNull(u.getAddressEncrypted());
+        assertNull(u.getProfileImageUrl());
     }
 }

@@ -20,6 +20,15 @@ public final class InputValidator {
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[0-9]{8,15}$");
 
+    private static final Pattern DISPLAY_NAME_PATTERN = Pattern.compile(
+            "^[\\p{L}0-9][\\p{L}0-9 '\\-.]{1,63}$");
+
+    /** Max length for street / contact address text. */
+    public static final int ADDRESS_MAX_LENGTH = 500;
+
+    public static final int DISPLAY_NAME_MAX_LENGTH = 64;
+
+    public static final int PROFILE_IMAGE_URL_MAX_LENGTH = 512;
     public static final int PASSWORD_MIN_LENGTH = 8;
     public static final int PASSWORD_MAX_LENGTH = 128;
 
@@ -145,4 +154,71 @@ public final class InputValidator {
         return null;
     }
 
+    /**
+     * Optional phone for profile updates: blank is valid; non-blank must match {@link #getPhoneFormatViolation(String)} rules.
+     */
+    public static String getOptionalPhoneFormatViolation(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
+        }
+        if (!PHONE_PATTERN.matcher(phone.trim()).matches()) {
+            return "Please enter a valid phone number (8–15 digits, optional leading +).";
+        }
+        return null;
+    }
+
+    /**
+     * Display name (username) for profile: 2–{@link #DISPLAY_NAME_MAX_LENGTH} chars, letters / digits / spaces / hyphen / dot / apostrophe.
+     */
+    public static String getDisplayNameViolation(String name) {
+        if (name == null || name.isBlank()) {
+            return "Display name is required.";
+        }
+        String t = name.trim();
+        if (t.length() < 2) {
+            return "Display name must be at least 2 characters.";
+        }
+        if (t.length() > DISPLAY_NAME_MAX_LENGTH) {
+            return "Display name must be at most " + DISPLAY_NAME_MAX_LENGTH + " characters.";
+        }
+        if (!DISPLAY_NAME_PATTERN.matcher(t).matches()) {
+            return "Display name contains invalid characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Optional address: blank allowed; otherwise max {@link #ADDRESS_MAX_LENGTH} chars after trim.
+     */
+    public static String getOptionalAddressViolation(String address) {
+        if (address == null || address.isBlank()) {
+            return null;
+        }
+        if (address.trim().length() > ADDRESS_MAX_LENGTH) {
+            return "Address must be at most " + ADDRESS_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Optional profile image URL: blank allowed; otherwise must be https and within max length.
+     */
+    public static String getOptionalProfileImageUrlViolation(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String t = url.trim();
+        if (t.length() > PROFILE_IMAGE_URL_MAX_LENGTH) {
+            return "Image URL is too long.";
+        }
+        if (!t.startsWith("https://")) {
+            return "Image URL must use https://";
+        }
+        try {
+            java.net.URI.create(t);
+        } catch (IllegalArgumentException e) {
+            return "Image URL is not a valid URL.";
+        }
+        return null;
+    }
 }

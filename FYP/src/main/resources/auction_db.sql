@@ -45,7 +45,8 @@ CREATE TABLE user_status (
 
 INSERT INTO user_status (status) VALUES
   ('Active'),
-  ('Suspended');
+  ('Suspended'),
+  ('Deleted');
 
 -- Users
 CREATE TABLE users (
@@ -60,6 +61,7 @@ CREATE TABLE users (
   two_factor_secret   TEXT,
   phone_encrypted     TEXT,
   address_encrypted   TEXT,
+  profile_image_url   VARCHAR(512),
   CONSTRAINT user_role_id_foreign   FOREIGN KEY (role_id)   REFERENCES roles       (id),
   CONSTRAINT user_status_id_foreign FOREIGN KEY (status_id) REFERENCES user_status (id)
 );
