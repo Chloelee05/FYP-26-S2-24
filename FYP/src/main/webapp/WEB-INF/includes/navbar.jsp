@@ -14,6 +14,11 @@
                 <li class="nav-item">
                     <a class="nav-link" href="${pageContext.request.contextPath}/">Home</a>
                 </li>
+                <c:if test="${not empty sessionScope.userId}">
+                    <li class="nav-item">
+                        <a class="nav-link" href="${pageContext.request.contextPath}/protected/account">My Account</a>
+                    </li>
+                </c:if>
             </ul>
 
             <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-center">

@@ -56,6 +56,10 @@ CREATE TABLE users (
   role_id       SMALLINT     NOT NULL,
   date_created  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   status_id     SMALLINT     NOT NULL,
+  two_factor_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
+  two_factor_secret   TEXT,
+  phone_encrypted     TEXT,
+  address_encrypted   TEXT,
   CONSTRAINT user_role_id_foreign   FOREIGN KEY (role_id)   REFERENCES roles       (id),
   CONSTRAINT user_status_id_foreign FOREIGN KEY (status_id) REFERENCES user_status (id)
 );
