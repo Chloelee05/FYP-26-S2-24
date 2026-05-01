@@ -14,6 +14,8 @@ public class User implements Serializable{
     private String phoneEncrypted;
     /** AES-GCM ciphertext (Base64); nullable. */
     private String addressEncrypted;
+    /** HTTPS URL to avatar image; nullable. */
+    private String profileImageUrl;
 
     public User() {
     }
@@ -108,5 +110,13 @@ public class User implements Serializable{
 
     public void setAddressEncrypted(String addressEncrypted) {
         this.addressEncrypted = addressEncrypted;
+    }
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
+    }
+
+    public void setProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 }
