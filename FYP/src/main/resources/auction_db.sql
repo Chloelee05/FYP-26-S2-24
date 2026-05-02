@@ -111,7 +111,8 @@ CREATE TABLE auction_details (
   item_condition_id SMALLINT     NOT NULL,
   winning_bid       INTEGER      DEFAULT NULL,
   winner_id         INTEGER      DEFAULT NULL,
-  CONSTRAINT auction_id_details FOREIGN KEY (id) REFERENCES auction (auction_id)
+  CONSTRAINT auction_id_details FOREIGN KEY (id) REFERENCES auction (auction_id),
+  CONSTRAINT item_condition FOREIGN KEY (item_condition_id) REFERENCES item_status(id)
 );
 
 -- Auction images
@@ -137,7 +138,7 @@ CREATE TABLE bids (
   bid_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   auction_id  BIGINT    NOT NULL,
   user_id     BIGINT    NOT NULL,
-  bid_amount  REAL      NOT NULL CHECK (bid_amount >= 0),
+  bid_amount  NUMERIC(10,2)    NOT NULL CHECK (bid_amount >= 0),
   bid_time    TIMESTAMP NOT NULL,
   CONSTRAINT auction_id_foreign FOREIGN KEY (auction_id) REFERENCES auction (auction_id),
   CONSTRAINT user_id_foreign    FOREIGN KEY (user_id)    REFERENCES users   (id)
