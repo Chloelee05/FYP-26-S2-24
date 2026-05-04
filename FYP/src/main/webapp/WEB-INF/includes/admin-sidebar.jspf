@@ -1,0 +1,26 @@
+<%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<c:set var="ctx" value="${pageContext.request.contextPath}"/>
+<aside class="admin-sidebar">
+    <div class="admin-brand mb-4">
+        <div class="fw-semibold fs-5">Admin Panel</div>
+        <div class="small admin-brand-sub">AuctionHub</div>
+    </div>
+    <nav class="nav flex-column gap-1" aria-label="Admin navigation">
+        <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'overview' ? 'active' : ''}"
+           href="${ctx}/admin/dashboard"><i class="bi bi-speedometer2" aria-hidden="true"></i> Overview</a>
+        <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'users' ? 'active' : ''}"
+           href="${ctx}/admin/users"><i class="bi bi-people" aria-hidden="true"></i> User Moderation</a>
+        <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'listings' ? 'active' : ''}"
+           href="${ctx}/admin/listings"><i class="bi bi-list-ul" aria-hidden="true"></i> Listing Moderation</a>
+        <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'analytics' ? 'active' : ''}"
+           href="${ctx}/admin/analytics"><i class="bi bi-graph-up" aria-hidden="true"></i> Analytics</a>
+    </nav>
+    <div class="mt-auto pt-4 admin-sidebar-footer">
+        <a class="btn btn-outline-light btn-sm w-100 mb-2 rounded-pill" href="${ctx}/protected/account">Account</a>
+        <form action="${ctx}/logout" method="post" class="mb-0">
+            <button type="submit" class="btn btn-outline-danger btn-sm w-100 rounded-pill">
+                <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Log out
+            </button>
+        </form>
+    </div>
+</aside>

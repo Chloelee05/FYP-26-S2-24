@@ -25,6 +25,7 @@ class UserDAOMappingTest {
         when(rs.getString("username")).thenReturn("alice");
         when(rs.getString("email")).thenReturn("alice@example.com");
         when(rs.getInt("role_id")).thenReturn(2);
+        when(rs.getInt("status_id")).thenReturn(1);
         when(rs.getBoolean("two_factor_enabled")).thenReturn(false);
         when(rs.getString("two_factor_secret")).thenReturn(null);
         when(rs.getString("phone_encrypted")).thenReturn("encPhone");
@@ -38,6 +39,7 @@ class UserDAOMappingTest {
         assertEquals("alice@example.com", u.getEmail());
         assertNull(u.getPassword());
         assertEquals(Role.BUYER, u.getRole());
+        assertEquals(1, u.getStatusId());
         assertFalse(u.isTwoFactorEnabled());
         assertEquals("encPhone", u.getPhoneEncrypted());
         assertEquals("encAddr", u.getAddressEncrypted());
@@ -53,6 +55,7 @@ class UserDAOMappingTest {
         when(rs.getString("email")).thenReturn("bob@test.com");
         when(rs.getString("password")).thenReturn("1$salt$hash");
         when(rs.getInt("role_id")).thenReturn(3);
+        when(rs.getInt("status_id")).thenReturn(1);
         when(rs.getBoolean("two_factor_enabled")).thenReturn(true);
         when(rs.getString("two_factor_secret")).thenReturn("secretCipher");
         when(rs.getString("phone_encrypted")).thenReturn(null);
@@ -63,6 +66,7 @@ class UserDAOMappingTest {
 
         assertEquals("1$salt$hash", u.getPassword());
         assertEquals(Role.SELLER, u.getRole());
+        assertEquals(1, u.getStatusId());
         assertTrue(u.isTwoFactorEnabled());
         assertEquals("secretCipher", u.getTwoFactorSecret());
         assertNull(u.getPhoneEncrypted());

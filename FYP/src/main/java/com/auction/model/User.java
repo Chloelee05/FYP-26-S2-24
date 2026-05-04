@@ -2,12 +2,14 @@ package com.auction.model;
 
 import java.io.Serializable;
 
-public class User implements Serializable{
+public class User implements Serializable {
     private int id;
     private String email;
     private String username;
     private String password;
     private Role role;
+    /** {@link com.auction.model.Status#getId()} — defaults to {@link com.auction.model.Status#ACTIVE}. */
+    private int statusId = Status.ACTIVE.getId();
     private boolean twoFactorEnabled;
     private String twoFactorSecret; // AES-GCM encrypted; null when 2FA is disabled
     /** AES-GCM ciphertext (Base64) from {@link com.auction.util.SecurityUtil#encrypt}; nullable. */
@@ -74,6 +76,14 @@ public class User implements Serializable{
     public void setRole(Role role)
     {
         this.role = role;
+    }
+
+    public int getStatusId() {
+        return statusId;
+    }
+
+    public void setStatusId(int statusId) {
+        this.statusId = statusId;
     }
 
     public boolean isTwoFactorEnabled()

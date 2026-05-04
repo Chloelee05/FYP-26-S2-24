@@ -56,6 +56,7 @@ CREATE TABLE users (
   password      VARCHAR(255) NOT NULL,
   role_id       SMALLINT     NOT NULL,
   date_created  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_status_changed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   status_id     SMALLINT     NOT NULL,
   two_factor_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
   two_factor_secret   TEXT,
@@ -98,9 +99,12 @@ CREATE TABLE auction (
   date_created  TIMESTAMP NOT NULL,
   date_end      TIMESTAMP NOT NULL,
   auction_type  SMALLINT  NOT NULL,
+  report_count       INTEGER     NOT NULL DEFAULT 0,
+  moderation_state   VARCHAR(20) NOT NULL DEFAULT 'active',
   CONSTRAINT auction_status_foreign FOREIGN KEY (status_id)    REFERENCES auction_status (id),
   CONSTRAINT auction_type_foreign   FOREIGN KEY (auction_type) REFERENCES auction_type   (id),
-  CONSTRAINT seller_id_foreign      FOREIGN KEY (seller_id)    REFERENCES users           (id)
+  CONSTRAINT seller_id_foreign      FOREIGN KEY (seller_id)    REFERENCES users           (id),
+  CONSTRAINT auction_moderation_state_check CHECK (moderation_state IN ('active', 'flagged', 'removed'))
 );
 
 -- Auction details
@@ -108,6 +112,7 @@ CREATE TABLE auction_details (
   id                BIGINT       PRIMARY KEY,
   title             VARCHAR(255) NOT NULL,
   description       TEXT         NOT NULL,
+  category          VARCHAR(100) NOT NULL DEFAULT 'Other',
   item_condition_id SMALLINT     NOT NULL,
   winning_bid       INTEGER      DEFAULT NULL,
   winner_id         INTEGER      DEFAULT NULL,
