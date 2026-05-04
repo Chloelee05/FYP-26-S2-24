@@ -18,6 +18,8 @@ public class User implements Serializable {
     private String addressEncrypted;
     /** HTTPS URL to avatar image; nullable. */
     private String profileImageUrl;
+    /** Account creation date (optional — loaded when column present). */
+    private java.time.LocalDate memberSince;
 
     public User() {
     }
@@ -128,5 +130,13 @@ public class User implements Serializable {
 
     public void setProfileImageUrl(String profileImageUrl) {
         this.profileImageUrl = profileImageUrl;
+    }
+
+    public java.time.LocalDate getMemberSince() {
+        return memberSince;
+    }
+
+    public void setMemberSince(java.time.LocalDate memberSince) {
+        this.memberSince = memberSince;
     }
 }

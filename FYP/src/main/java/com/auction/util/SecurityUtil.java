@@ -249,6 +249,24 @@ public final class SecurityUtil {
     }
 
     /**
+     * Masks a street address for public preview (first/last chars only).
+     */
+    public static String maskAddress(String address) {
+        if (address == null) {
+            return null;
+        }
+        String trimmed = address.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.length() <= 4) {
+            return "****";
+        }
+        int keep = Math.min(3, trimmed.length() / 4);
+        return trimmed.substring(0, keep) + "***" + trimmed.substring(trimmed.length() - 2);
+    }
+
+    /**
      * Trims input, performs HTML entity escaping for XSS mitigation, and doubles single quotes
      * for ANSI SQL string-literal escaping as a secondary control. Primary defenses must remain
      * parameterized queries / {@code PreparedStatement} and contextual output encoding.

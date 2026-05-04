@@ -113,7 +113,7 @@ public class UserDAO {
      */
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
-            String sql = "SELECT id, username, email, role_id, status_id, two_factor_enabled, two_factor_secret, "
+            String sql = "SELECT id, username, email, role_id, status_id, date_created, two_factor_enabled, two_factor_secret, "
                     + "phone_encrypted, address_encrypted, profile_image_url "
                     + "FROM users WHERE id = ? LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
@@ -122,7 +122,12 @@ public class UserDAO {
                 if (!rs.next()) {
                     return null;
                 }
-                return mapUserFromResultSet(rs, false);
+                User user = mapUserFromResultSet(rs, false);
+                java.sql.Timestamp dc = rs.getTimestamp("date_created");
+                if (dc != null) {
+                    user.setMemberSince(dc.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate());
+                }
+                return user;
             }
         } catch (Exception e) {
             throw new RuntimeException(e);

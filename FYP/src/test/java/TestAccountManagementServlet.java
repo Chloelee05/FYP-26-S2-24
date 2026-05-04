@@ -1,9 +1,11 @@
-import static org.junit.jupiter.api.Assertions.*;
+
 import static org.mockito.Mockito.*;
 
+import com.auction.dao.ProfileActivityDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.User;
+import com.auction.model.profile.RatingSummary;
 import com.auction.servlet.AccountManagementServlet;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.RequestDispatcher;
@@ -14,12 +16,13 @@ import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.Collections;
 
 @DisplayName("AccountManagementServlet (SCRUM-8)")
-public class TestAccountManagementServlet extends Mockito {
+public class TestAccountManagementServlet {
 
     private static class AccountServletWrapper extends AccountManagementServlet {
         @Override
@@ -33,13 +36,16 @@ public class TestAccountManagementServlet extends Mockito {
     private HttpServletResponse resp;
     private HttpSession session;
     private UserDAO mockDao;
+    private ProfileActivityDAO mockProfileDao;
     private RequestDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
         servlet   = new AccountServletWrapper();
         mockDao   = mock(UserDAO.class);
+        mockProfileDao = mock(ProfileActivityDAO.class);
         servlet.setUserDAO(mockDao);
+        servlet.setProfileActivityDAO(mockProfileDao);
         req       = mock(HttpServletRequest.class);
         resp      = mock(HttpServletResponse.class);
         session   = mock(HttpSession.class);
@@ -47,6 +53,15 @@ public class TestAccountManagementServlet extends Mockito {
         when(req.getSession(false)).thenReturn(session);
         when(req.getRequestDispatcher(AccountManagementServlet.VIEW_DASHBOARD)).thenReturn(dispatcher);
         when(req.getContextPath()).thenReturn("");
+
+        when(mockProfileDao.listTransactions(anyInt(), any(ProfileActivityDAO.TxFilter.class)))
+                .thenReturn(Collections.emptyList());
+        when(mockProfileDao.computeTransactionStats(anyInt()))
+                .thenReturn(new ProfileActivityDAO.TransactionStats(0, 0, BigDecimal.ZERO));
+        when(mockProfileDao.getRatingSummary(anyInt()))
+                .thenReturn(new RatingSummary(0, 0, new int[]{0, 0, 0, 0, 0}));
+        when(mockProfileDao.listReviewsAboutUser(anyInt()))
+                .thenReturn(Collections.emptyList());
     }
 
     @Test
