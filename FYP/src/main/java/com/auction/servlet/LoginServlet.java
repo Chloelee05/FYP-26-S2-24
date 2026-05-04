@@ -1,6 +1,8 @@
 package com.auction.servlet;
 
 import com.auction.dao.UserDAO;
+import com.auction.model.Role;
+import com.auction.model.Status;
 import com.auction.model.User;
 import com.auction.util.InputValidator;
 import com.auction.util.SecurityUtil;
@@ -67,7 +69,23 @@ public class LoginServlet extends HttpServlet {
             return;
         }
 
+        if (user.getStatusId() == Status.SUSPENDED.getId()) {
+            loginError(req, "Your account has been suspended.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+        if (user.getStatusId() == Status.DELETED.getId()) {
+            loginError(req, "This account is no longer available.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+
         HttpSession session = req.getSession(true);
+        if ("1".equals(req.getParameter("rememberMe"))) {
+            session.setMaxInactiveInterval(60 * 60 * 24 * 7);
+        } else {
+            session.setMaxInactiveInterval(60 * 30);
+        }
         session.setAttribute("userId", user.getId());
         session.setAttribute("userRole", user.getRole().name());
         session.setAttribute("sessionEmail", user.getEmail());
@@ -76,7 +94,10 @@ public class LoginServlet extends HttpServlet {
         session.setAttribute("maskedUsername", SecurityUtil.maskUsername(user.getUsername()));
 
         req.setAttribute("Login", "Login successful!");
-        resp.sendRedirect(req.getContextPath() + "/protected/account");
+        String target = user.getRole() == Role.ADMIN
+                ? "/admin/dashboard"
+                : "/protected/account";
+        resp.sendRedirect(req.getContextPath() + target);
     }
 
     private void loginError(HttpServletRequest req, String message, String email) {

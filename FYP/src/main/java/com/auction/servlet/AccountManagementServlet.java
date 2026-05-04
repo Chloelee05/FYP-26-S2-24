@@ -1,7 +1,9 @@
 package com.auction.servlet;
 
+import com.auction.dao.ProfileActivityDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.model.profile.RatingSummary;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -11,6 +13,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Signed-in user's account dashboard. Loads the profile by {@code session.userId} only
@@ -21,15 +25,25 @@ public class AccountManagementServlet extends HttpServlet {
 
     public static final String VIEW_DASHBOARD = "/WEB-INF/views/account/dashboard.jsp";
 
+    private static final DateTimeFormatter MEMBER_SINCE_FMT =
+            DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
+
     private UserDAO userDAO;
+    private ProfileActivityDAO profileActivityDAO;
 
     public AccountManagementServlet() {
         this.userDAO = new UserDAO();
+        this.profileActivityDAO = new ProfileActivityDAO();
     }
 
     /** For unit tests. */
     public void setUserDAO(UserDAO userDAO) {
         this.userDAO = userDAO;
+    }
+
+    /** For unit tests. */
+    public void setProfileActivityDAO(ProfileActivityDAO profileActivityDAO) {
+        this.profileActivityDAO = profileActivityDAO;
     }
 
     @Override
@@ -58,13 +72,43 @@ public class AccountManagementServlet extends HttpServlet {
         req.setAttribute("twoFactorEnabled", profile.isTwoFactorEnabled());
 
         String phonePlain = AccountManagementServlet.decryptPiiForDisplay(profile.getPhoneEncrypted());
+        String addressPlain = decryptPiiForDisplay(profile.getAddressEncrypted());
         req.setAttribute("profilePhone", phonePlain);
-        req.setAttribute("profileAddress", decryptPiiForDisplay(profile.getAddressEncrypted()));
+        req.setAttribute("profileAddress", addressPlain);
         req.setAttribute("profileImageUrl", profile.getProfileImageUrl());
+
+        if (profile.getMemberSince() != null) {
+            req.setAttribute("memberSinceFormatted", MEMBER_SINCE_FMT.format(profile.getMemberSince()));
+        }
 
         req.setAttribute("publicMaskedName", SecurityUtil.maskUsername(profile.getUsername()));
         req.setAttribute("publicMaskedEmail", SecurityUtil.maskEmail(profile.getEmail()));
         req.setAttribute("publicMaskedPhone", SecurityUtil.maskPhone(phonePlain));
+        req.setAttribute("publicMaskedAddress", SecurityUtil.maskAddress(addressPlain));
+
+        ProfileActivityDAO.TxFilter txFilter = ProfileActivityDAO.TxFilter.fromParam(req.getParameter("tx"));
+        req.setAttribute("txFilter", txFilter.name().toLowerCase());
+        req.setAttribute("transactions", profileActivityDAO.listTransactions(userId, txFilter));
+
+        ProfileActivityDAO.TransactionStats txStats = profileActivityDAO.computeTransactionStats(userId);
+        req.setAttribute("txPurchaseTotal", txStats.getPurchaseCount());
+        req.setAttribute("txSaleTotal", txStats.getSaleCount());
+        req.setAttribute("txVolumeTotal", txStats.getTotalVolume());
+
+        RatingSummary rating = profileActivityDAO.getRatingSummary(userId);
+        int ratingStarsFilled = 0;
+        if (rating.getReviewCount() > 0) {
+            ratingStarsFilled = (int) Math.round(rating.getAverage());
+            if (ratingStarsFilled < 1) {
+                ratingStarsFilled = 1;
+            }
+            if (ratingStarsFilled > 5) {
+                ratingStarsFilled = 5;
+            }
+        }
+        req.setAttribute("ratingStarsFilled", ratingStarsFilled);
+        req.setAttribute("ratingSummary", rating);
+        req.setAttribute("reviewsAboutMe", profileActivityDAO.listReviewsAboutUser(userId));
 
         req.getRequestDispatcher(VIEW_DASHBOARD).forward(req, resp);
     }

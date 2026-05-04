@@ -2,12 +2,14 @@ package com.auction.model;
 
 import java.io.Serializable;
 
-public class User implements Serializable{
+public class User implements Serializable {
     private int id;
     private String email;
     private String username;
     private String password;
     private Role role;
+    /** {@link com.auction.model.Status#getId()} — defaults to {@link com.auction.model.Status#ACTIVE}. */
+    private int statusId = Status.ACTIVE.getId();
     private boolean twoFactorEnabled;
     private String twoFactorSecret; // AES-GCM encrypted; null when 2FA is disabled
     /** AES-GCM ciphertext (Base64) from {@link com.auction.util.SecurityUtil#encrypt}; nullable. */
@@ -16,6 +18,8 @@ public class User implements Serializable{
     private String addressEncrypted;
     /** HTTPS URL to avatar image; nullable. */
     private String profileImageUrl;
+    /** Account creation date (optional — loaded when column present). */
+    private java.time.LocalDate memberSince;
 
     public User() {
     }
@@ -76,6 +80,14 @@ public class User implements Serializable{
         this.role = role;
     }
 
+    public int getStatusId() {
+        return statusId;
+    }
+
+    public void setStatusId(int statusId) {
+        this.statusId = statusId;
+    }
+
     public boolean isTwoFactorEnabled()
     {
         return this.twoFactorEnabled;
@@ -118,5 +130,13 @@ public class User implements Serializable{
 
     public void setProfileImageUrl(String profileImageUrl) {
         this.profileImageUrl = profileImageUrl;
+    }
+
+    public java.time.LocalDate getMemberSince() {
+        return memberSince;
+    }
+
+    public void setMemberSince(java.time.LocalDate memberSince) {
+        this.memberSince = memberSince;
     }
 }
