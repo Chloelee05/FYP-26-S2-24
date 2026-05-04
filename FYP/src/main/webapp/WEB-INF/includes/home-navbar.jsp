@@ -52,6 +52,9 @@
                         <c:when test="${not empty sessionScope.userId}">
                             <span class="small text-muted d-none d-lg-inline">Hello, <strong>${sessionScope.maskedUsername}</strong></span>
                             <a class="btn home-btn-signin btn-sm" href="${ctx}/protected/account">Account</a>
+                            <c:if test="${sessionScope.userRole == 'ADMIN'}">
+                                <a class="btn btn-outline-primary btn-sm rounded-pill" href="${ctx}/admin/dashboard">Admin</a>
+                            </c:if>
                             <form action="${ctx}/logout" method="post" class="d-inline mb-0">
                                 <button type="submit" class="btn btn-outline-secondary btn-sm rounded-pill">Log out</button>
                             </form>

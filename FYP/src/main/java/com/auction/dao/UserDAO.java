@@ -3,6 +3,7 @@ package com.auction.dao;
 import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.model.Status;
+import com.auction.model.admin.AdminUserSummary;
 import com.auction.util.DBUtil;
 import com.auction.util.SecurityUtil;
 
@@ -10,6 +11,10 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -71,7 +76,7 @@ public class UserDAO {
     public boolean updateStatus(int id, int status)
     {
         try(Connection conn = DBUtil.connectDB()) {
-            String sqlString = "UPDATE users SET status_id = ? WHERE ID = ?";
+            String sqlString = "UPDATE users SET status_id = ?, last_status_changed_at = CURRENT_TIMESTAMP WHERE id = ?";
             PreparedStatement pStatement = conn.prepareStatement(sqlString);
             pStatement.setInt(1, status);
             pStatement.setInt(2, id);
@@ -87,7 +92,7 @@ public class UserDAO {
      */
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
-            String sql = "SELECT id, username, email, password, role_id, two_factor_enabled, two_factor_secret, "
+            String sql = "SELECT id, username, email, password, role_id, status_id, two_factor_enabled, two_factor_secret, "
                     + "phone_encrypted, address_encrypted, profile_image_url "
                     + "FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
@@ -108,7 +113,7 @@ public class UserDAO {
      */
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
-            String sql = "SELECT id, username, email, role_id, two_factor_enabled, two_factor_secret, "
+            String sql = "SELECT id, username, email, role_id, status_id, two_factor_enabled, two_factor_secret, "
                     + "phone_encrypted, address_encrypted, profile_image_url "
                     + "FROM users WHERE id = ? LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
@@ -134,6 +139,7 @@ public class UserDAO {
             user.setPassword(rs.getString("password"));
         }
         user.setRole(Role.getRole(rs.getInt("role_id")));
+        user.setStatusId(rs.getInt("status_id"));
         user.setTwoFactorEnabled(rs.getBoolean("two_factor_enabled"));
         user.setTwoFactorSecret(rs.getString("two_factor_secret"));
         user.setPhoneEncrypted(rs.getString("phone_encrypted"));
@@ -274,6 +280,139 @@ public class UserDAO {
             return ps.executeUpdate() == 1;
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static final ZoneId ADMIN_ZONE = ZoneId.systemDefault();
+
+    public List<AdminUserSummary> listUsersForAdminTable() {
+        try (Connection conn = DBUtil.connectDB()) {
+            String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created, "
+                    + "(SELECT COUNT(*)::int FROM bids b WHERE b.user_id = u.id) AS bid_count, "
+                    + "(SELECT COUNT(*)::int FROM auction a WHERE a.seller_id = u.id) AS listing_count "
+                    + "FROM users u "
+                    + "WHERE u.status_id <> ? "
+                    + "ORDER BY u.id ASC";
+            List<AdminUserSummary> list = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, Status.DELETED.getId());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        LocalDate joined = rs.getTimestamp("date_created").toInstant()
+                                .atZone(ADMIN_ZONE).toLocalDate();
+                        list.add(new AdminUserSummary(
+                                rs.getInt("id"),
+                                rs.getString("username"),
+                                rs.getString("email"),
+                                Role.getRole(rs.getInt("role_id")),
+                                rs.getInt("status_id"),
+                                joined,
+                                rs.getInt("bid_count"),
+                                rs.getInt("listing_count")));
+                    }
+                }
+            }
+            return list;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public int countNonDeletedUsers() {
+        return countOneInt("SELECT COUNT(*) FROM users WHERE status_id <> ?", Status.DELETED.getId());
+    }
+
+    public int countActiveUsers() {
+        return countOneInt("SELECT COUNT(*) FROM users WHERE status_id = ?", Status.ACTIVE.getId());
+    }
+
+    public List<NamedInstantEvent> recentRegistrations(int limit) {
+        String sql = "SELECT username, date_created FROM users "
+                + "WHERE status_id <> ? "
+                + "ORDER BY date_created DESC "
+                + "LIMIT ?";
+        return loadNamedInstantEvents(sql, Status.DELETED.getId(), limit);
+    }
+
+    public List<NamedInstantEvent> recentSuspensions(int limit) {
+        String sql = "SELECT username, COALESCE(last_status_changed_at, date_created) AS ev "
+                + "FROM users "
+                + "WHERE status_id = ? "
+                + "ORDER BY ev DESC "
+                + "LIMIT ?";
+        return loadNamedInstantEventsByTwoParams(sql, Status.SUSPENDED.getId(), limit);
+    }
+
+    private List<NamedInstantEvent> loadNamedInstantEvents(String sql, int excludeDeleted, int limit) {
+        try (Connection conn = DBUtil.connectDB()) {
+            List<NamedInstantEvent> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, excludeDeleted);
+                ps.setInt(2, limit);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Timestamp ts = rs.getTimestamp("date_created");
+                        Instant at = ts != null ? ts.toInstant() : Instant.now();
+                        out.add(new NamedInstantEvent(rs.getString("username"), at));
+                    }
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private List<NamedInstantEvent> loadNamedInstantEventsByTwoParams(String sql, int statusId, int limit) {
+        try (Connection conn = DBUtil.connectDB()) {
+            List<NamedInstantEvent> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, statusId);
+                ps.setInt(2, limit);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Timestamp ts = rs.getTimestamp("ev");
+                        Instant at = ts != null ? ts.toInstant() : Instant.now();
+                        out.add(new NamedInstantEvent(rs.getString("username"), at));
+                    }
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static int countOneInt(String sql, int intParam) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, intParam);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return 0;
+    }
+
+    public static final class NamedInstantEvent {
+        private final String name;
+        private final Instant at;
+
+        public NamedInstantEvent(String name, Instant at) {
+            this.name = name;
+            this.at = at;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public Instant getAt() {
+            return at;
         }
     }
 

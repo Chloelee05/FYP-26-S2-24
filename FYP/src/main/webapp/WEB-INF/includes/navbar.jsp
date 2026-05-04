@@ -18,6 +18,11 @@
                     <li class="nav-item">
                         <a class="nav-link" href="${pageContext.request.contextPath}/protected/account">My Account</a>
                     </li>
+                    <c:if test="${sessionScope.userRole == 'ADMIN'}">
+                        <li class="nav-item">
+                            <a class="nav-link" href="${pageContext.request.contextPath}/admin/dashboard">Admin</a>
+                        </li>
+                    </c:if>
                 </c:if>
             </ul>
 
