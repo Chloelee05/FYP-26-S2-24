@@ -3,6 +3,7 @@ import static org.mockito.Mockito.*;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
+import com.auction.model.Status;
 import com.auction.model.User;
 import com.auction.servlet.LoginServlet;
 import com.auction.servlet.RegisterServlet;
@@ -131,6 +132,7 @@ public class TestLoginServlet extends Mockito {
         String storedHash = SecurityUtil.hashPassword("Password1!");
         User existingUser = new User("john", "john@email.com", storedHash, Role.BUYER);
         existingUser.setId(42);
+        existingUser.setStatusId(Status.ACTIVE.getId());
 
         UserDAO mockDAO = mock(UserDAO.class);
         when(mockDAO.getUserByEmail("john@email.com")).thenReturn(existingUser);
@@ -158,6 +160,60 @@ public class TestLoginServlet extends Mockito {
         verify(session).setAttribute(eq("maskedUsername"), eq(SecurityUtil.maskUsername("john")));
     }
 
+    @Test
+    public void testAdminRedirectsToAdminDashboard() throws Exception {
+        String storedHash = SecurityUtil.hashPassword("Password1!");
+        User admin = new User("admin", "admin@email.com", storedHash, Role.ADMIN);
+        admin.setId(99);
+        admin.setStatusId(Status.ACTIVE.getId());
+
+        UserDAO mockDAO = mock(UserDAO.class);
+        when(mockDAO.getUserByEmail("admin@email.com")).thenReturn(admin);
+
+        LoginServletWrapper servlet = new LoginServletWrapper();
+        servlet.setUserDAO(mockDAO);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        HttpSession session = mock(HttpSession.class);
+        stubLoginForward(request);
+
+        when(request.getContextPath()).thenReturn("");
+        when(request.getParameter("email")).thenReturn("admin@email.com");
+        when(request.getParameter("password")).thenReturn("Password1!");
+        when(request.getSession(true)).thenReturn(session);
+
+        servlet.doPost(request, response);
+
+        verify(response).sendRedirect("/admin/dashboard");
+        verify(session).setAttribute(eq("userRole"), eq("ADMIN"));
+    }
+
+    @Test
+    public void testSuspendedUserCannotLogin() throws Exception {
+        String storedHash = SecurityUtil.hashPassword("Password1!");
+        User suspended = new User("bad", "bad@email.com", storedHash, Role.BUYER);
+        suspended.setStatusId(Status.SUSPENDED.getId());
+
+        UserDAO mockDAO = mock(UserDAO.class);
+        when(mockDAO.getUserByEmail("bad@email.com")).thenReturn(suspended);
+
+        LoginServletWrapper servlet = new LoginServletWrapper();
+        servlet.setUserDAO(mockDAO);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        stubLoginForward(request);
+
+        when(request.getParameter("email")).thenReturn("bad@email.com");
+        when(request.getParameter("password")).thenReturn("Password1!");
+
+        servlet.doPost(request, response);
+
+        verify(request).setAttribute(eq("Error"), eq("Your account has been suspended."));
+        verify(response, never()).sendRedirect(anyString());
+    }
+
     // Registration flow: SecurityUtil SHA-256 hashing integration
 
     @Test
@@ -177,6 +233,8 @@ public class TestLoginServlet extends Mockito {
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");
         when(request.getParameter("password")).thenReturn("Password1!");
+        when(request.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(request.getParameter("termsAccept")).thenReturn("on");
         when(request.getParameter("role")).thenReturn("buyer");
 
         registerServlet.doPost(request, response);
@@ -208,6 +266,8 @@ public class TestLoginServlet extends Mockito {
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");
         when(request.getParameter("password")).thenReturn(weakPassword);
+        when(request.getParameter("confirmPassword")).thenReturn(weakPassword);
+        when(request.getParameter("termsAccept")).thenReturn("on");
         when(request.getParameter("role")).thenReturn("buyer");
 
         registerServlet.doPost(request, response);
