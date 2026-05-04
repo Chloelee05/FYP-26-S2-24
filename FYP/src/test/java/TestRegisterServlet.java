@@ -49,6 +49,8 @@ public class TestRegisterServlet extends Mockito{
     public void testInvalidEmail() throws Exception{
         when(mockRequest.getParameter("username")).thenReturn("Test1");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("email");
         when(mockRequest.getParameter("role")).thenReturn("buyer");
 
@@ -67,6 +69,8 @@ public class TestRegisterServlet extends Mockito{
     public void testInvalidUsername() throws Exception{
         when(mockRequest.getParameter("username")).thenReturn(" ");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("buyer");
 
@@ -86,6 +90,8 @@ public class TestRegisterServlet extends Mockito{
     public void testPasswordValidation(String pass) throws Exception{
         when(mockRequest.getParameter("username")).thenReturn("Test1");
         when(mockRequest.getParameter("password")).thenReturn(pass);
+        when(mockRequest.getParameter("confirmPassword")).thenReturn(pass);
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("buyer");
 
@@ -104,6 +110,8 @@ public class TestRegisterServlet extends Mockito{
     public void testInvalidRole() throws Exception{
         when(mockRequest.getParameter("username")).thenReturn("Test1");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("");
 
@@ -124,6 +132,8 @@ public class TestRegisterServlet extends Mockito{
 
         when(mockRequest.getParameter("username")).thenReturn("user1");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("seller");
 
@@ -144,6 +154,8 @@ public class TestRegisterServlet extends Mockito{
 
         when(mockRequest.getParameter("username")).thenReturn("Test1");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("user1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("seller");
 
@@ -162,6 +174,8 @@ public class TestRegisterServlet extends Mockito{
     public void testInsert() throws Exception{
         when(mockRequest.getParameter("username")).thenReturn("Test2");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("test1@email.com");
         when(mockRequest.getParameter("role")).thenReturn("seller");
         when(mockDAO.insertUser(any(User.class))).thenReturn(true);

@@ -177,6 +177,8 @@ public class TestLoginServlet extends Mockito {
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");
         when(request.getParameter("password")).thenReturn("Password1!");
+        when(request.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(request.getParameter("termsAccept")).thenReturn("on");
         when(request.getParameter("role")).thenReturn("buyer");
 
         registerServlet.doPost(request, response);
@@ -208,6 +210,8 @@ public class TestLoginServlet extends Mockito {
         when(request.getParameter("username")).thenReturn("newuser");
         when(request.getParameter("email")).thenReturn("newuser@email.com");
         when(request.getParameter("password")).thenReturn(weakPassword);
+        when(request.getParameter("confirmPassword")).thenReturn(weakPassword);
+        when(request.getParameter("termsAccept")).thenReturn("on");
         when(request.getParameter("role")).thenReturn("buyer");
 
         registerServlet.doPost(request, response);

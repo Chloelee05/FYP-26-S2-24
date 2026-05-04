@@ -68,6 +68,11 @@ public class LoginServlet extends HttpServlet {
         }
 
         HttpSession session = req.getSession(true);
+        if ("1".equals(req.getParameter("rememberMe"))) {
+            session.setMaxInactiveInterval(60 * 60 * 24 * 7);
+        } else {
+            session.setMaxInactiveInterval(60 * 30);
+        }
         session.setAttribute("userId", user.getId());
         session.setAttribute("userRole", user.getRole().name());
         session.setAttribute("sessionEmail", user.getEmail());
