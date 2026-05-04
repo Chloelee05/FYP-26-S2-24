@@ -8,7 +8,13 @@ public class DBUtil {
     private static final HikariConfig config = new HikariConfig();
     private static final HikariDataSource dataSource;
 
-    static{
+    static {
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+        config.setDriverClassName("org.postgresql.Driver");
         config.setJdbcUrl("jdbc:postgresql://localhost:5432/auction_db");
         config.setUsername("postgres");
         config.setPassword("chloelee");
