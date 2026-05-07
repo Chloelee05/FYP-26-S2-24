@@ -19,7 +19,7 @@ import java.sql.SQLException;
 import java.util.List;
 
 @DisplayName("UserDAO tests")
-public class TestUserDAO extends Mockito {
+public class TestUserDAO{
 
     private Connection mockConn;
     private PreparedStatement mockStmt;
