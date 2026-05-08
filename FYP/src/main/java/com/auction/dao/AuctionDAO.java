@@ -1,12 +1,15 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionStatus;
 import com.auction.model.admin.AdminListingRow;
 import com.auction.util.DBUtil;
+import com.auction.model.Auction;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -159,6 +162,50 @@ public class AuctionDAO {
 
         public Instant getAt() {
             return at;
+        }
+    }
+
+    public long createAuction(Auction auction) throws Exception {
+        try (Connection conn = DBUtil.connectDB()) {
+            conn.setAutoCommit(false);
+            try {
+                String auctionSQL = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) " +
+                        "VALUES(?, ?, ?, ?, ?)";
+                PreparedStatement pStatement = conn.prepareStatement(auctionSQL, PreparedStatement.RETURN_GENERATED_KEYS);
+                if (!auction.getStart_date().isAfter(Instant.now())) {
+                    pStatement.setInt(1, AuctionStatus.ACTIVE.getId());
+                } else {
+                    pStatement.setInt(1, AuctionStatus.PENDING.getId());
+                }
+                pStatement.setInt(2, auction.getSeller_id());
+                pStatement.setTimestamp(3, Timestamp.from(auction.getStart_date()));
+                pStatement.setTimestamp(4, Timestamp.from(auction.getEnd_date()));
+                pStatement.setInt(5, auction.getAuctionType().getId());
+                pStatement.executeUpdate();
+
+                ResultSet rs = pStatement.getGeneratedKeys();
+                if (rs.next()) {
+                    long auctionId = rs.getLong(1);
+                    String auctionDetailsSQL = "INSERT INTO auction_details (id, title, description, item_condition_id) " +
+                            "VALUES(?, ?, ?, ?)";
+                    pStatement = conn.prepareStatement(auctionDetailsSQL);
+                    pStatement.setLong(1, auctionId);
+                    pStatement.setString(2, auction.getAuction_name());
+                    pStatement.setString(3, auction.getAuction_details());
+                    pStatement.setInt(4, auction.getItemCondition().getId());
+
+                    int rowsAffected = pStatement.executeUpdate();
+                    if (rowsAffected > 0) {
+                        conn.commit();
+                        return auctionId;
+                    }
+                    throw new Exception("Failed at auction_details");
+                }
+                throw new Exception("Failed to retrieve generated auction ID");
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
         }
     }
 }

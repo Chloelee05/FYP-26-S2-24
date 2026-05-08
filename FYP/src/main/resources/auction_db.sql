@@ -100,7 +100,7 @@ CREATE TABLE auction (
   date_created  TIMESTAMP NOT NULL,
   date_end      TIMESTAMP NOT NULL,
   auction_type  SMALLINT  NOT NULL,
-  report_count       INTEGER     NOT NULL DEFAULT 0,
+  report_count       INTEGER     NOT NULL DEFAULT 0, -- should be separate
   moderation_state   VARCHAR(20) NOT NULL DEFAULT 'active',
   CONSTRAINT auction_status_foreign FOREIGN KEY (status_id)    REFERENCES auction_status (id),
   CONSTRAINT auction_type_foreign   FOREIGN KEY (auction_type) REFERENCES auction_type   (id),
@@ -113,7 +113,7 @@ CREATE TABLE auction_details (
   id                BIGINT       PRIMARY KEY,
   title             VARCHAR(255) NOT NULL,
   description       TEXT         NOT NULL,
-  category          VARCHAR(100) NOT NULL DEFAULT 'Other',
+  category          VARCHAR(100) NOT NULL DEFAULT 'Other', -- ???
   item_condition_id SMALLINT     NOT NULL,
   winning_bid       INTEGER      DEFAULT NULL,
   winner_id         INTEGER      DEFAULT NULL,
