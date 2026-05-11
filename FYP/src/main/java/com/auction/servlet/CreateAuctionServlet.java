@@ -1,33 +1,61 @@
 package com.auction.servlet;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import com.auction.dao.AuctionDAO;
-import com.auction.dao.UserDAO;
+import com.auction.dao.AuctionTagsDAO;
 import com.auction.model.Auction;
+import com.auction.model.AuctionTags;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
 
 import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.*;
+
+@MultipartConfig(
+        fileSizeThreshold = 1024 * 1024,      // 1MB - buffer in memory before writing to disk
+        maxFileSize       = 1024 * 1024 * 5,  // 5MB per file
+        maxRequestSize    = 1024 * 1024 * 20  // 20MB total request
+)
 
 @WebServlet("/create-auction")
 public class CreateAuctionServlet extends HttpServlet{
     private AuctionDAO auctionDAO;
+    private AuctionTagsDAO auctionTagsDAO;
+    private String uploadDir;
+    private static final List<String> ALLOWED_EXTENSIONS = List.of(".jpg", ".jpeg", ".png", ".webp");
 
     public CreateAuctionServlet(){
         auctionDAO = new AuctionDAO();
+        auctionTagsDAO = new AuctionTagsDAO();
     }
 
-    public void setAuctionDAO(AuctionDAO auctionDAO){
+    public void setAuctionDAO(AuctionDAO auctionDAO, AuctionTagsDAO auctionTagsDAO){
         this.auctionDAO = auctionDAO;
+        this.auctionTagsDAO = auctionTagsDAO;
+    }
+
+
+    @Override
+    public void init() throws ServletException {
+        uploadDir = getServletContext().getInitParameter("uploadDir");
+        if (uploadDir == null) throw new ServletException("uploadDir context param is not set");
+        try {
+            Files.createDirectories(Paths.get(uploadDir));
+        } catch (IOException e) {
+            throw new ServletException("Could not create upload directory: " + uploadDir, e);
+        }
     }
 
     @Override
@@ -60,6 +88,7 @@ public class CreateAuctionServlet extends HttpServlet{
         String item_condition = req.getParameter("item_condition");
         AuctionType auctionTypeEnum = AuctionType.PRICE_UP;
         ItemCondition itemConditionEnum = null;
+        String[] tagIds = req.getParameterValues("tags");
 
         auction_name = (auction_name == null) ? null : auction_name.trim();
         auction_details = (auction_details == null) ? null : auction_details.trim();
@@ -139,14 +168,87 @@ public class CreateAuctionServlet extends HttpServlet{
             }
         }
 
+        List<String> savedFilenames = new ArrayList<>();
+        try {
+            Collection<Part> fileParts = req.getParts()
+                    .stream()
+                    .filter(p -> "images".equals(p.getName()) && p.getSize() > 0)
+                    .collect(Collectors.toList());
+
+            for (Part part : fileParts) {
+                String originalName = Paths.get(part.getSubmittedFileName()).getFileName().toString();
+                int dotIndex = originalName.lastIndexOf('.');
+                if (dotIndex == -1) {
+                    errorHandler(req, resp, "File must have an extension",
+                            auction_name, auction_details, start_date, end_date, start_price,
+                            auction_type, item_condition);
+                    return;
+                }
+                String ext = originalName.substring(dotIndex).toLowerCase();
+
+                if (!ALLOWED_EXTENSIONS.contains(ext)) {
+                    errorHandler(req, resp, "Only JPG, PNG, and WEBP images are allowed",
+                            auction_name, auction_details, start_date, end_date, start_price,
+                            auction_type, item_condition);
+                    return;
+                }
+
+                String savedName = UUID.randomUUID() + ext;
+                Path dest = Paths.get(uploadDir, savedName);
+                part.write(dest.toString());
+                savedFilenames.add(savedName); // store just the filename; build full URL when serving
+            }
+        } catch (Exception e) {
+            errorHandler(req, resp, "Image upload failed",
+                    auction_name, auction_details, start_date, end_date, start_price,
+                    auction_type, item_condition);
+            return;
+        }
+
+        List<Long> selectedTagIds = new ArrayList<>();
+        if (tagIds != null) {
+            Set<Long> validIds;
+            try {
+                validIds = auctionTagsDAO.getAllTags().keySet();
+            } catch (SQLException e) {
+                errorHandler(req, resp, "Could not validate tags",
+                        auction_name, auction_details, start_date, end_date, start_price,
+                        auction_type, item_condition);
+                return;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+            for (String tagId : tagIds) {
+                try {
+                    long id = Long.parseLong(tagId);
+                    if (!validIds.contains(id)) {
+                        errorHandler(req, resp, "Invalid tag selected",
+                                auction_name, auction_details, start_date, end_date, start_price,
+                                auction_type, item_condition);
+                        return;
+                    }
+                    selectedTagIds.add(id);
+                } catch (NumberFormatException e) {
+                    errorHandler(req, resp, "Invalid tag",
+                            auction_name, auction_details, start_date, end_date, start_price,
+                            auction_type, item_condition);
+                    return;
+                }
+            }
+        }
+
         Auction auction = new Auction(seller_id, auction_name, auction_details, auctionStart, auctionEnd,
-                price, auctionTypeEnum, itemConditionEnum);
+                price, auctionTypeEnum, itemConditionEnum, selectedTagIds);
 
         try {
-            long auctionId = auctionDAO.createAuction(auction);
-            req.setAttribute("Insert", "Insert ran!");
-            //redirect to newly created auction
-        }catch (Throwable ex) {
+            long auctionId = auctionDAO.createAuction(auction, savedFilenames);
+            resp.sendRedirect(req.getContextPath() + "/auction?id=" + auctionId);
+        } catch (Throwable ex) {
+            for (String filename : savedFilenames) {
+                try { Files.deleteIfExists(Paths.get(uploadDir, filename)); }
+                catch (IOException ignore) {}
+            }
             getServletContext().log("Auction database error", ex);
             errorHandler(req, resp,
                     "Could not reach the database. Ensure PostgreSQL is running, JDBC driver is on the classpath, "

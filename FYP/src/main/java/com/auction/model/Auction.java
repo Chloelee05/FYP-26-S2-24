@@ -2,8 +2,7 @@ package com.auction.model;
 
 import java.io.Serializable;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.List;
 
 public class Auction implements  Serializable{
     private int auction_id;
@@ -15,12 +14,13 @@ public class Auction implements  Serializable{
     private float starting_price;
     private AuctionType auctionType;
     private ItemCondition itemCondition;
+    private List<Long> auctionTagsList;
 
     public Auction(){
     }
 
     public Auction(int seller_id, String auction_name, String auction_details, Instant start_date, Instant end_date,
-                   float starting_price, AuctionType auctionType, ItemCondition itemCondition)
+                   float starting_price, AuctionType auctionType, ItemCondition itemCondition, List<Long> auctionTagsList)
     {
         this.seller_id = seller_id;
         this.auction_name = auction_name;
@@ -30,6 +30,7 @@ public class Auction implements  Serializable{
         this.starting_price = starting_price;
         this.auctionType = auctionType;
         this.itemCondition = itemCondition;
+        this.auctionTagsList = auctionTagsList;
     }
 
     public int getAuction_id() {
@@ -107,5 +108,14 @@ public class Auction implements  Serializable{
 
     public void setItemCondition(ItemCondition itemCondition) {
         this.itemCondition = itemCondition;
+    }
+
+    public List<Long> getAuctionTagsList() {
+        return auctionTagsList;
+    }
+
+    public void setAuctionTagsList(List<Long> newList)
+    {
+        auctionTagsList = newList;
     }
 }
