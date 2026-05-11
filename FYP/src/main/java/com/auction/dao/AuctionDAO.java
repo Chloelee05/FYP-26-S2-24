@@ -1,15 +1,13 @@
 package com.auction.dao;
 
 import com.auction.model.AuctionStatus;
+import com.auction.model.AuctionTags;
 import com.auction.model.admin.AdminListingRow;
 import com.auction.util.DBUtil;
 import com.auction.model.Auction;
 
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Timestamp;
+import java.sql.*;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -165,47 +163,81 @@ public class AuctionDAO {
         }
     }
 
-    public long createAuction(Auction auction) throws Exception {
+    public long createAuction(Auction auction, List<String> imageFilenames) throws Exception {
         try (Connection conn = DBUtil.connectDB()) {
             conn.setAutoCommit(false);
             try {
-                String auctionSQL = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) " +
-                        "VALUES(?, ?, ?, ?, ?)";
-                PreparedStatement pStatement = conn.prepareStatement(auctionSQL, PreparedStatement.RETURN_GENERATED_KEYS);
-                if (!auction.getStart_date().isAfter(Instant.now())) {
-                    pStatement.setInt(1, AuctionStatus.ACTIVE.getId());
-                } else {
-                    pStatement.setInt(1, AuctionStatus.PENDING.getId());
-                }
-                pStatement.setInt(2, auction.getSeller_id());
-                pStatement.setTimestamp(3, Timestamp.from(auction.getStart_date()));
-                pStatement.setTimestamp(4, Timestamp.from(auction.getEnd_date()));
-                pStatement.setInt(5, auction.getAuctionType().getId());
-                pStatement.executeUpdate();
-
-                ResultSet rs = pStatement.getGeneratedKeys();
-                if (rs.next()) {
-                    long auctionId = rs.getLong(1);
-                    String auctionDetailsSQL = "INSERT INTO auction_details (id, title, description, item_condition_id) " +
-                            "VALUES(?, ?, ?, ?)";
-                    pStatement = conn.prepareStatement(auctionDetailsSQL);
-                    pStatement.setLong(1, auctionId);
-                    pStatement.setString(2, auction.getAuction_name());
-                    pStatement.setString(3, auction.getAuction_details());
-                    pStatement.setInt(4, auction.getItemCondition().getId());
-
-                    int rowsAffected = pStatement.executeUpdate();
-                    if (rowsAffected > 0) {
-                        conn.commit();
-                        return auctionId;
-                    }
-                    throw new Exception("Failed at auction_details");
-                }
-                throw new Exception("Failed to retrieve generated auction ID");
+                long auctionId = insertAuction(conn, auction);
+                insertAuctionDetails(conn, auctionId, auction);
+                insertAuctionImages(conn, auctionId, imageFilenames);
+                insertAuctionTags(conn, auctionId, auction.getAuctionTagsList());
+                conn.commit();
+                return auctionId;
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
             }
+        }
+    }
+
+    private long insertAuction(Connection conn, Auction auction) throws Exception {
+        String sql = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) VALUES(?, ?, ?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
+            stmt.setInt(1, auction.getStart_date().isAfter(Instant.now()) ? AuctionStatus.PENDING.getId() : AuctionStatus.ACTIVE.getId());
+            stmt.setInt(2, auction.getSeller_id());
+            stmt.setTimestamp(3, Timestamp.from(auction.getStart_date()));
+            stmt.setTimestamp(4, Timestamp.from(auction.getEnd_date()));
+            stmt.setInt(5, auction.getAuctionType().getId());
+            stmt.executeUpdate();
+
+            try (ResultSet rs = stmt.getGeneratedKeys()) {
+                if (rs.next()) return rs.getLong(1);
+                throw new Exception("Failed to retrieve generated auction ID");
+            }
+        }
+    }
+
+    private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
+        String sql = "INSERT INTO auction_details (id, title, description, item_condition_id) VALUES(?, ?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, auctionId);
+            stmt.setString(2, auction.getAuction_name());
+            stmt.setString(3, auction.getAuction_details());
+            stmt.setInt(4, auction.getItemCondition().getId());
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected == 0) throw new Exception("Failed at auction_details");
+        }
+    }
+
+    private void insertAuctionImages(Connection conn, long auctionId, List<String> imageFilenames) throws Exception {
+        if (imageFilenames == null || imageFilenames.isEmpty()) return;
+        String sql = "INSERT INTO auction_images (auction_id, image_url, upload_date) VALUES (?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            Timestamp now = Timestamp.from(Instant.now());
+            for (String filename : imageFilenames) {
+                stmt.setLong(1, auctionId);
+                stmt.setString(2, filename);
+                stmt.setTimestamp(3, now);
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        } catch (BatchUpdateException e) {
+            throw new Exception("Failed to save images to database", e);
+        }
+    }
+
+    private void insertAuctionTags(Connection conn, long auctionId, List<Long> tags) throws Exception {
+        if (tags == null || tags.isEmpty()) return;
+        String sql = "INSERT INTO auction_tag_info (auction_id, tag_id) VALUES (?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (Long tag : tags) {
+                stmt.setLong(1, auctionId);
+                stmt.setLong(2, tag);
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        } catch (BatchUpdateException e) {
+            throw new Exception("Failed to save tags to database", e);
         }
     }
 }

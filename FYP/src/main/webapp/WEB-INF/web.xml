@@ -4,4 +4,9 @@
          xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
          version="6.0">
   <display-name>online-auction</display-name>
+
+  <context-param>
+    <param-name>uploadDir</param-name>
+    <param-value>url</param-value><!--change to proper url-->
+  </context-param>
 </web-app>
