@@ -30,18 +30,18 @@ import jakarta.servlet.http.*;
 )
 
 @WebServlet("/create-auction")
-public class CreateAuctionServlet extends HttpServlet{
+public class CreateAuctionServlet extends HttpServlet {
     private AuctionDAO auctionDAO;
     private AuctionTagsDAO auctionTagsDAO;
     private String uploadDir;
     private static final List<String> ALLOWED_EXTENSIONS = List.of(".jpg", ".jpeg", ".png", ".webp");
 
-    public CreateAuctionServlet(){
+    public CreateAuctionServlet() {
         auctionDAO = new AuctionDAO();
         auctionTagsDAO = new AuctionTagsDAO();
     }
 
-    public void setAuctionDAO(AuctionDAO auctionDAO, AuctionTagsDAO auctionTagsDAO){
+    public void setAuctionDAO(AuctionDAO auctionDAO, AuctionTagsDAO auctionTagsDAO) {
         this.auctionDAO = auctionDAO;
         this.auctionTagsDAO = auctionTagsDAO;
     }
@@ -66,9 +66,8 @@ public class CreateAuctionServlet extends HttpServlet{
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
-
         if (session == null) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED); // 401
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
 
@@ -79,209 +78,204 @@ public class CreateAuctionServlet extends HttpServlet{
         }
 
         int seller_id = ((Number) session.getAttribute("userId")).intValue();
-        String auction_name = req.getParameter("auction_name");
-        String auction_details = req.getParameter("auction_details");
-        String start_date = req.getParameter("start_date");
-        String end_date = req.getParameter("end_date");
-        String start_price = req.getParameter("start_price");
-        String auction_type = req.getParameter("auction_type");
-        String item_condition = req.getParameter("item_condition");
-        AuctionType auctionTypeEnum = AuctionType.PRICE_UP;
-        ItemCondition itemConditionEnum = null;
-        String[] tagIds = req.getParameterValues("tags");
 
-        auction_name = (auction_name == null) ? null : auction_name.trim();
-        auction_details = (auction_details == null) ? null : auction_details.trim();
-        start_date = (start_date == null) ? null : start_date.trim();
-        end_date = (end_date == null) ? null : end_date.trim();
-        start_price = (start_price == null) ? null : start_price.trim();
-        auction_type = (auction_type == null) ? null: auction_type.trim();
-        item_condition = (item_condition == null)? null: item_condition.trim();
+        AuctionFormInput input = parseFormInput(req);
+        if (!validateFormInput(req, resp, input)) return;
 
-        if (auction_name == null || auction_name.isBlank() ||
-                auction_details == null || auction_details.isBlank() ||
-                end_date == null || end_date.isBlank() ||
-                item_condition == null || item_condition.isBlank()) {
-            errorHandler(req, resp, "All fields are required",
-                    auction_name, auction_details, start_date, end_date, start_price,
-                    auction_type, item_condition);
-            return;
-        }
-        //default start price if user input is null
-        float price = 0;
-        if (start_price != null && !start_price.isBlank()) {
-            try {
-                price = Float.parseFloat(start_price);
-                if (price <= 0) throw new NumberFormatException();
-            } catch (NumberFormatException e) {
-                errorHandler(req, resp, "Invalid start price",
-                        auction_name, auction_details, start_date, end_date, start_price,
-                        auction_type, item_condition);
-                return;
-            }
-        }
-        //default start_date if user input is null
-        Instant auctionStart = Instant.now();
-        Instant auctionEnd;
+        List<String> savedFilenames = processImages(req, resp, input);
+        if (savedFilenames == null) return;
 
-        try {
-            if(start_date != null && !start_date.isBlank()) {
-                auctionStart = OffsetDateTime.parse(start_date).toInstant();
-            }
-            auctionEnd   = OffsetDateTime.parse(end_date).toInstant();
-        } catch (DateTimeParseException e) {
-            errorHandler(req, resp, "Invalid date format",
-                    auction_name, auction_details, start_date, end_date, start_price,
-                    auction_type, item_condition);
-            return;
-        }
+        List<Long> selectedTagIds = validateTags(req, resp, input);
+        if (selectedTagIds == null) return;
 
-        if (auctionEnd.isBefore(auctionStart)) {
-            errorHandler(req, resp, "End date must be after start date",
-                    auction_name, auction_details, start_date, end_date, start_price,
-                    auction_type, item_condition);
-            return;
-        }
-
-        if(auction_type != null && !auction_type.isBlank())
-        {
-            try {
-                int typeId = Integer.parseInt(auction_type);
-                auctionTypeEnum = AuctionType.getAuctionType(typeId);
-            } catch (IllegalArgumentException e) {
-                errorHandler(req, resp, "Invalid auction type",
-                        auction_name, auction_details, start_date, end_date, start_price,
-                        auction_type, item_condition);
-                return;
-            }
-        }
-
-        if(!item_condition.isBlank()) {
-            try {
-                int conditionId = Integer.parseInt(item_condition);
-                itemConditionEnum = ItemCondition.getItemCondition(conditionId);
-            } catch (IllegalArgumentException e) {
-                errorHandler(req, resp, "Invalid item condition",
-                        auction_name, auction_details, start_date, end_date, start_price,
-                        auction_type, item_condition);
-                return;
-            }
-        }
-
-        List<String> savedFilenames = new ArrayList<>();
-        try {
-            Collection<Part> fileParts = req.getParts()
-                    .stream()
-                    .filter(p -> "images".equals(p.getName()) && p.getSize() > 0)
-                    .collect(Collectors.toList());
-
-            for (Part part : fileParts) {
-                String originalName = Paths.get(part.getSubmittedFileName()).getFileName().toString();
-                int dotIndex = originalName.lastIndexOf('.');
-                if (dotIndex == -1) {
-                    errorHandler(req, resp, "File must have an extension",
-                            auction_name, auction_details, start_date, end_date, start_price,
-                            auction_type, item_condition);
-                    return;
-                }
-                String ext = originalName.substring(dotIndex).toLowerCase();
-
-                if (!ALLOWED_EXTENSIONS.contains(ext)) {
-                    errorHandler(req, resp, "Only JPG, PNG, and WEBP images are allowed",
-                            auction_name, auction_details, start_date, end_date, start_price,
-                            auction_type, item_condition);
-                    return;
-                }
-
-                String savedName = UUID.randomUUID() + ext;
-                Path dest = Paths.get(uploadDir, savedName);
-                part.write(dest.toString());
-                savedFilenames.add(savedName); // store just the filename; build full URL when serving
-            }
-        } catch (Exception e) {
-            errorHandler(req, resp, "Image upload failed",
-                    auction_name, auction_details, start_date, end_date, start_price,
-                    auction_type, item_condition);
-            return;
-        }
-
-        List<Long> selectedTagIds = new ArrayList<>();
-        if (tagIds != null) {
-            Set<Long> validIds;
-            try {
-                validIds = auctionTagsDAO.getAllTags().keySet();
-            } catch (SQLException e) {
-                errorHandler(req, resp, "Could not validate tags",
-                        auction_name, auction_details, start_date, end_date, start_price,
-                        auction_type, item_condition);
-                return;
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-
-            for (String tagId : tagIds) {
-                try {
-                    long id = Long.parseLong(tagId);
-                    if (!validIds.contains(id)) {
-                        errorHandler(req, resp, "Invalid tag selected",
-                                auction_name, auction_details, start_date, end_date, start_price,
-                                auction_type, item_condition);
-                        return;
-                    }
-                    selectedTagIds.add(id);
-                } catch (NumberFormatException e) {
-                    errorHandler(req, resp, "Invalid tag",
-                            auction_name, auction_details, start_date, end_date, start_price,
-                            auction_type, item_condition);
-                    return;
-                }
-            }
-        }
-
-        Auction auction = new Auction(seller_id, auction_name, auction_details, auctionStart, auctionEnd,
-                price, auctionTypeEnum, itemConditionEnum, selectedTagIds);
+        Auction auction = new Auction(seller_id, input.auctionName, input.auctionDetails,
+                input.auctionStart, input.auctionEnd, input.price,
+                input.auctionTypeEnum, input.itemConditionEnum, selectedTagIds);
 
         try {
             long auctionId = auctionDAO.createAuction(auction, savedFilenames);
             resp.sendRedirect(req.getContextPath() + "/auction?id=" + auctionId);
         } catch (Throwable ex) {
             for (String filename : savedFilenames) {
-                try { Files.deleteIfExists(Paths.get(uploadDir, filename)); }
-                catch (IOException ignore) {}
+                try {
+                    Files.deleteIfExists(Paths.get(uploadDir, filename));
+                } catch (IOException ignore){}
             }
+            cleanupFiles(savedFilenames);
             getServletContext().log("Auction database error", ex);
-            errorHandler(req, resp,
-                    "Could not reach the database. Ensure PostgreSQL is running, JDBC driver is on the classpath, "
-                            + "and DBUtil settings are correct.",
-                    auction_name, auction_details, start_date, end_date, start_price,
-                    auction_type, item_condition);
+            errorHandler(req, resp, "Could not reach the database.", input);
         }
     }
 
 
-    private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message, String auction_name, String auction_details,
-                              String start_date,
-                              String end_date,
-                              String start_price,
-                              String auction_type,
-                              String item_condition) throws ServletException, IOException {
-        req.setAttribute("Error", message);
-        stickyForm(req, auction_name, auction_details, start_date, end_date, start_price, auction_type, item_condition);
-        //req.getRequestDispatcher(???).forward(req, resp);
+    private static class AuctionFormInput {
+        String auctionName, auctionDetails, startDate, endDate, startPrice, auctionType, itemCondition;
+        String[] tagIds;
+        float price;
+        Instant auctionStart, auctionEnd;
+        AuctionType auctionTypeEnum;
+        ItemCondition itemConditionEnum;
     }
 
-    private void stickyForm(HttpServletRequest req, String auction_name, String auction_details,
-                            String start_date,
-                            String end_date,
-                            String start_price,
-                            String auction_type,
-                            String item_condition) {
-        req.setAttribute("auction_name", auction_name);
-        req.setAttribute("auction_details", auction_details);
-        req.setAttribute("start_date", start_date);
-        req.setAttribute("end_date", end_date);
-        req.setAttribute("start_price", start_price);
-        req.setAttribute("auction_type", auction_type);
-        req.setAttribute("item_condition", item_condition);
+    private String trimOrNull(String value) {
+        return (value == null) ? null : value.trim();
+    }
+
+    private AuctionFormInput parseFormInput(HttpServletRequest req) {
+        AuctionFormInput input = new AuctionFormInput();
+        input.auctionName    = trimOrNull(req.getParameter("auction_name"));
+        input.auctionDetails = trimOrNull(req.getParameter("auction_details"));
+        input.startDate      = trimOrNull(req.getParameter("start_date"));
+        input.endDate        = trimOrNull(req.getParameter("end_date"));
+        input.startPrice     = trimOrNull(req.getParameter("start_price"));
+        input.auctionType    = trimOrNull(req.getParameter("auction_type"));
+        input.itemCondition  = trimOrNull(req.getParameter("item_condition"));
+        input.tagIds         = req.getParameterValues("tags");
+        return input;
+    }
+
+    // returns false if validation fails
+    private boolean validateFormInput(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
+        if (input.auctionName == null || input.auctionName.isBlank() ||
+                input.auctionDetails == null || input.auctionDetails.isBlank() ||
+                input.endDate == null || input.endDate.isBlank() ||
+                input.itemCondition == null || input.itemCondition.isBlank()) {
+            errorHandler(req, resp, "All fields are required", input);
+            return false;
+        }
+
+        input.price = 0;
+        if (input.startPrice != null && !input.startPrice.isBlank()) {
+            try {
+                input.price = Float.parseFloat(input.startPrice);
+                if (input.price <= 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                errorHandler(req, resp, "Invalid start price", input);
+                return false;
+            }
+        }
+
+        try {
+            input.auctionStart = Instant.now();
+            if (input.startDate != null && !input.startDate.isBlank())
+                input.auctionStart = OffsetDateTime.parse(input.startDate).toInstant();
+            input.auctionEnd = OffsetDateTime.parse(input.endDate).toInstant();
+        } catch (DateTimeParseException e) {
+            errorHandler(req, resp, "Invalid date format", input);
+            return false;
+        }
+
+        if (input.auctionEnd.isBefore(input.auctionStart)) {
+            errorHandler(req, resp, "End date must be after start date", input);
+            return false;
+        }
+
+        input.auctionTypeEnum = AuctionType.PRICE_UP;
+        if (input.auctionType != null && !input.auctionType.isBlank()) {
+            try {
+                input.auctionTypeEnum = AuctionType.getAuctionType(Integer.parseInt(input.auctionType));
+            } catch (IllegalArgumentException e) {
+                errorHandler(req, resp, "Invalid auction type", input);
+                return false;
+            }
+        }
+
+        try {
+            input.itemConditionEnum = ItemCondition.getItemCondition(Integer.parseInt(input.itemCondition));
+        } catch (IllegalArgumentException e) {
+            errorHandler(req, resp, "Invalid item condition", input);
+            return false;
+        }
+
+        return true;
+    }
+
+    // returns null if processing fails
+    private List<String> processImages(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
+        List<String> savedFilenames = new ArrayList<>();
+        try {
+            Collection<Part> fileParts = req.getParts().stream()
+                    .filter(p -> "images".equals(p.getName()) && p.getSize() > 0)
+                    .collect(Collectors.toList());
+
+            for (Part part : fileParts) {
+                String originalName = Paths.get(part.getSubmittedFileName()).getFileName().toString();
+                int dotIndex = originalName.lastIndexOf('.');
+                if (dotIndex == -1)
+                {
+                    cleanupFiles(savedFilenames);
+                    errorHandler(req, resp, "File must have an extension", input);
+                    return null;
+                }
+
+                String ext = originalName.substring(dotIndex).toLowerCase();
+                if (!ALLOWED_EXTENSIONS.contains(ext))
+                {
+                    cleanupFiles(savedFilenames);
+                    errorHandler(req, resp, "Only JPG, PNG, and WEBP images are allowed", input);
+                    return null;
+                }
+
+                String savedName = UUID.randomUUID() + ext;
+                part.write(Paths.get(uploadDir, savedName).toString());
+                savedFilenames.add(savedName);
+            }
+        } catch (Exception e) {
+            errorHandler(req, resp, "Image upload failed", input);
+            return null;
+        }
+        return savedFilenames;
+    }
+
+    // returns null if validation fails
+    private List<Long> validateTags(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
+        List<Long> selectedTagIds = new ArrayList<>();
+        if (input.tagIds == null) return selectedTagIds;
+
+        Set<Long> validIds;
+        try {
+            validIds = auctionTagsDAO.getAllTags().keySet();
+        } catch (Exception e) {
+            errorHandler(req, resp, "Could not validate tags", input);
+            return null;
+        }
+
+        for (String tagId : input.tagIds) {
+            try {
+                long id = Long.parseLong(tagId);
+                if (!validIds.contains(id)) { errorHandler(req, resp, "Invalid tag selected", input); return null; }
+                selectedTagIds.add(id);
+            } catch (NumberFormatException e) {
+                errorHandler(req, resp, "Invalid tag", input);
+                return null;
+            }
+        }
+        return selectedTagIds;
+    }
+
+    private void cleanupFiles(List<String> filenames) {
+        for (String filename : filenames) {
+            try {
+                Files.deleteIfExists(Paths.get(uploadDir, filename));
+            }
+            catch (IOException ignore)
+            {}
+        }
+    }
+
+    private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message, AuctionFormInput input) throws ServletException, IOException {
+        req.setAttribute("Error", message);
+        stickyForm(req, input);
+        // req.getRequestDispatcher("???").forward(req, resp);
+    }
+
+    private void stickyForm(HttpServletRequest req, AuctionFormInput input) {
+        req.setAttribute("auction_name",    input.auctionName);
+        req.setAttribute("auction_details", input.auctionDetails);
+        req.setAttribute("start_date",      input.startDate);
+        req.setAttribute("end_date",        input.endDate);
+        req.setAttribute("start_price",     input.startPrice);
+        req.setAttribute("auction_type",    input.auctionType);
+        req.setAttribute("item_condition",  input.itemCondition);
     }
 }
