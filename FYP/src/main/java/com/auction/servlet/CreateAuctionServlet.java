@@ -1,6 +1,7 @@
 package com.auction.servlet;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -91,6 +92,7 @@ public class CreateAuctionServlet extends HttpServlet {
         Auction auction = new Auction(seller_id, input.auctionName, input.auctionDetails,
                 input.auctionStart, input.auctionEnd, input.price,
                 input.auctionTypeEnum, input.itemConditionEnum, selectedTagIds);
+        auction.setMaxPrice(input.maxPriceParsed);
 
         try {
             long auctionId = auctionDAO.createAuction(auction, savedFilenames);
@@ -109,9 +111,10 @@ public class CreateAuctionServlet extends HttpServlet {
 
 
     private static class AuctionFormInput {
-        String auctionName, auctionDetails, startDate, endDate, startPrice, auctionType, itemCondition;
+        String auctionName, auctionDetails, startDate, endDate, startPrice, maxPrice, auctionType, itemCondition;
         String[] tagIds;
         float price;
+        BigDecimal maxPriceParsed; // null when not provided (SCRUM-33)
         Instant auctionStart, auctionEnd;
         AuctionType auctionTypeEnum;
         ItemCondition itemConditionEnum;
@@ -128,6 +131,7 @@ public class CreateAuctionServlet extends HttpServlet {
         input.startDate      = trimOrNull(req.getParameter("start_date"));
         input.endDate        = trimOrNull(req.getParameter("end_date"));
         input.startPrice     = trimOrNull(req.getParameter("start_price"));
+        input.maxPrice       = trimOrNull(req.getParameter("max_price"));
         input.auctionType    = trimOrNull(req.getParameter("auction_type"));
         input.itemCondition  = trimOrNull(req.getParameter("item_condition"));
         input.tagIds         = req.getParameterValues("tags");
@@ -151,6 +155,21 @@ public class CreateAuctionServlet extends HttpServlet {
                 if (input.price <= 0) throw new NumberFormatException();
             } catch (NumberFormatException e) {
                 errorHandler(req, resp, "Invalid start price", input);
+                return false;
+            }
+        }
+
+        input.maxPriceParsed = null;
+        if (input.maxPrice != null && !input.maxPrice.isBlank()) {
+            try {
+                input.maxPriceParsed = new BigDecimal(input.maxPrice);
+                if (input.maxPriceParsed.compareTo(BigDecimal.ZERO) <= 0) throw new NumberFormatException();
+                if (input.price > 0 && input.maxPriceParsed.compareTo(BigDecimal.valueOf(input.price)) <= 0) {
+                    errorHandler(req, resp, "Max price must be greater than starting price", input);
+                    return false;
+                }
+            } catch (NumberFormatException e) {
+                errorHandler(req, resp, "Invalid max price", input);
                 return false;
             }
         }
@@ -275,6 +294,7 @@ public class CreateAuctionServlet extends HttpServlet {
         req.setAttribute("start_date",      input.startDate);
         req.setAttribute("end_date",        input.endDate);
         req.setAttribute("start_price",     input.startPrice);
+        req.setAttribute("max_price",       input.maxPrice);
         req.setAttribute("auction_type",    input.auctionType);
         req.setAttribute("item_condition",  input.itemCondition);
     }
