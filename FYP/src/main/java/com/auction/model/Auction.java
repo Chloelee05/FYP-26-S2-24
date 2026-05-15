@@ -1,6 +1,7 @@
 package com.auction.model;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -12,6 +13,7 @@ public class Auction implements  Serializable{
     private Instant start_date;
     private Instant end_date;
     private float starting_price;
+    private BigDecimal maxPrice;    // null = no cap (SCRUM-33)
     private AuctionType auctionType;
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
@@ -93,6 +95,10 @@ public class Auction implements  Serializable{
     public void setStarting_price(float starting_price) {
         this.starting_price = starting_price;
     }
+
+    public BigDecimal getMaxPrice() { return this.maxPrice; }
+
+    public void setMaxPrice(BigDecimal maxPrice) { this.maxPrice = maxPrice; }
 
     public AuctionType getAuctionType() {
         return this.auctionType;
