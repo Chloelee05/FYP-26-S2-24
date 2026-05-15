@@ -204,7 +204,7 @@ public class TestCreateAuctionServlet{
         @DisplayName("Test invalid Extension")
         public void testInvalidExtension() throws Exception {
             Part p1 = mockPart("Test1.jpg", 100L);
-            Part p2 = mockPart("Test2.gif", 100L);     // no extension
+            Part p2 = mockPart("Test2.gif", 100L);     // wrong extension
             Part p3 = mockPart("Test3.png", 100L);
 
             when(mockRequest.getParts()).thenReturn(List.of(p1, p2, p3));
