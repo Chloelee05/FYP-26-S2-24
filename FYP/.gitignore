@@ -1,7 +1,9 @@
+### Maven / Java build output ###
 target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+**/target/
+*.war
+*.class
+*.log
 
 ### IntelliJ IDEA ###
 .idea/modules.xml

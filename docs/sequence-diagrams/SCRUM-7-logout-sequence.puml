@@ -1,0 +1,62 @@
+@startuml SCRUM-7 Logout Sequence Diagram
+
+title Secure Logout – SCRUM-7
+
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam ParticipantPadding 20
+skinparam BoxPadding 10
+
+actor       User        as U
+participant "Browser"   as B
+participant "SecurityFilter\n@WebFilter(/*)" as SF
+participant "LogoutServlet\nPOST /logout" as LS
+participant "HttpSession"  as S
+participant "AuthFilter\n@WebFilter(/protected/*)" as AF
+
+== Logout Flow ==
+
+U  -> B  : Click "Logout" button
+B  -> SF : POST /logout\n(with JSESSIONID cookie)
+activate SF
+SF -> SF : Set security headers\n(X-Frame-Options, CSP, …)
+SF -> LS : filterChain.doFilter()
+deactivate SF
+
+activate LS
+LS -> S  : getSession(false)
+activate S
+S  --> LS : HttpSession (non-null)
+deactivate S
+
+LS -> S  : invalidate()
+activate S
+note right of S : Session removed from server;\nJSESSIONID cookie invalidated
+S  --> LS : (void)
+deactivate S
+
+LS -> LS : Set no-cache headers\n(Cache-Control, Pragma, Expires)
+LS -> B  : 302 Redirect → /login
+deactivate LS
+
+B  -> U  : Render login page
+
+== Attempt to Access Protected Page After Logout ==
+
+U  -> B  : Navigate to /protected/dashboard
+B  -> SF : GET /protected/dashboard\n(no valid JSESSIONID)
+activate SF
+SF -> AF : filterChain.doFilter()
+deactivate SF
+
+activate AF
+AF -> S  : getSession(false)
+activate S
+S  --> AF : null  (session was invalidated)
+deactivate S
+
+AF -> B  : 302 Redirect → /login
+deactivate AF
+note over B : User cannot access protected\npage after logout
+
+@enduml

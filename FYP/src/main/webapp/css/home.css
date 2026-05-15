@@ -1,0 +1,321 @@
+/* SCRUM-82 — Homepage (wireframe-aligned) */
+:root {
+  --ah-home-blue: #4a76a8;
+  --ah-home-blue-dark: #365d87;
+  --ah-home-btn: #8ebbff;
+  --hub-hero-start: #5b8fc9;
+  --hub-hero-end: #2d5590;
+}
+
+/* --- Header --- */
+.home-header {
+  background: #fff;
+  border-bottom: 1px solid #e8ecf1;
+  z-index: 1030;
+}
+
+.home-nav .home-brand {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--ah-home-blue) !important;
+}
+
+.home-nav .home-brand i {
+  margin-right: 0.25rem;
+}
+
+.home-nav .nav-link {
+  color: #374151 !important;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.home-nav .nav-link:hover {
+  color: var(--ah-home-blue) !important;
+}
+
+.home-search-group {
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  max-width: 220px;
+}
+
+.home-search-group .input-group-text {
+  border: none;
+  color: #9ca3af;
+}
+
+.home-search-group .form-control {
+  border: none;
+  box-shadow: none;
+}
+
+.home-search-group .form-control:focus {
+  box-shadow: none;
+}
+
+.home-search-wrap {
+  max-width: 260px;
+  width: 100%;
+}
+
+.home-search-wrap .invalid-feedback {
+  padding-left: 0.5rem;
+}
+
+.home-search-group.is-invalid {
+  border-color: #dc3545;
+}
+
+.home-btn-signin {
+  border-radius: 999px;
+  background: #111827;
+  color: #fff !important;
+  font-weight: 600;
+  padding: 0.45rem 1.25rem !important;
+  border: none;
+}
+
+.home-btn-signin:hover {
+  background: #374151;
+  color: #fff !important;
+}
+
+/* Category filter strip (SCRUM-106) */
+.home-category-filters {
+  display: none;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+}
+
+@media (max-width: 991.98px) {
+  .home-category-filters {
+    display: flex;
+  }
+}
+
+.home-category-filters .btn {
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+/* --- Hero --- */
+.home-hero {
+  background: linear-gradient(105deg, var(--hub-hero-start) 0%, var(--hub-hero-end) 100%);
+  color: #fff;
+  padding: 2.5rem 0 3rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.home-hero h1 {
+  font-size: clamp(1.85rem, 4vw, 2.75rem);
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: -0.02em;
+}
+
+.home-hero .lead {
+  opacity: 0.95;
+  max-width: 32rem;
+}
+
+.home-hero .btn-explore {
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.5rem 1.35rem;
+}
+
+.home-hero .btn-explore:hover {
+  background: #374151;
+  color: #fff;
+}
+
+.home-hero-collage {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  max-width: 380px;
+  margin-left: auto;
+}
+
+.home-hero-collage img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 0.6rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+}
+
+@media (max-width: 767.98px) {
+  .home-hero-collage {
+    margin-top: 1.5rem;
+    margin-left: 0;
+    max-width: 100%;
+  }
+}
+
+/* --- Popular categories --- */
+.home-section-title {
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: #111827;
+  margin-bottom: 1.25rem;
+}
+
+.home-cat-circle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  padding: 0.5rem;
+  border-radius: 1rem;
+  transition: background-color 0.15s ease;
+}
+
+.home-cat-circle:hover {
+  background: #f3f4f6;
+  color: inherit;
+}
+
+.home-cat-circle:focus-visible {
+  outline: 2px solid var(--ah-home-blue);
+  outline-offset: 2px;
+}
+
+.home-cat-circle .img-wrap {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid #e5e7eb;
+  margin-bottom: 0.5rem;
+}
+
+.home-cat-circle:hover .img-wrap {
+  border-color: var(--ah-home-blue);
+}
+
+.home-cat-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-cat-circle span {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+/* --- Auction cards --- */
+.auction-card {
+  border-radius: 0.85rem !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.auction-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.1) !important;
+}
+
+.auction-card .card-img-top {
+  height: 160px;
+  object-fit: cover;
+}
+
+.auction-card .card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  min-height: 2.5rem;
+}
+
+.auction-card .auction-countdown {
+  font-size: 0.8rem;
+}
+
+.auction-card .current-bid {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.auction-card .bid-amount {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #111827;
+}
+
+.auction-card .in-detail {
+  font-size: 0.85rem;
+}
+
+.btn-bid {
+  border-radius: 999px;
+  background: var(--ah-home-btn);
+  color: #1e3a5f !important;
+  font-weight: 600;
+  border: none;
+}
+
+.btn-bid:hover {
+  background: #6fa8f0;
+  color: #111 !important;
+}
+
+.auction-card.is-muted {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* --- Footer --- */
+.home-footer {
+  background: var(--ah-home-blue);
+  color: #fff;
+  padding: 2.5rem 0 1.25rem;
+  margin-top: 3rem;
+}
+
+.home-footer a {
+  color: #fff;
+  text-decoration: none;
+}
+
+.home-footer a:hover {
+  text-decoration: underline;
+  color: #e0e7ff;
+}
+
+.home-footer .footer-brand {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.home-footer .social a {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  margin-right: 0.35rem;
+}
+
+.home-footer .social a:hover {
+  background: rgba(255, 255, 255, 0.28);
+  text-decoration: none;
+}
+
+.home-footer .legal {
+  font-size: 0.75rem;
+  opacity: 0.9;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+}

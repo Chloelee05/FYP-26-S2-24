@@ -1,0 +1,139 @@
+/* Auth pages (SCRUM-81) — complements Bootstrap 5 */
+:root {
+  --ah-brand: #2563eb;
+  --ah-brand-hover: #1d4ed8;
+  --ah-page-bg: #f3f4f6;
+  --ah-card-radius: 1rem;
+}
+
+body.auth-page {
+  background-color: var(--ah-page-bg);
+  min-height: 100vh;
+}
+
+.auth-topbar {
+  padding: 1rem 1.25rem;
+}
+
+.auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--ah-brand);
+  text-decoration: none;
+}
+
+.auth-brand:hover {
+  color: var(--ah-brand-hover);
+}
+
+.auth-brand-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.auth-card {
+  border: none;
+  border-radius: var(--ah-card-radius);
+  box-shadow: 0 0.5rem 2rem rgba(15, 23, 42, 0.08);
+}
+
+.auth-title {
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.auth-input-pill {
+  border-radius: 999px;
+  padding: 0.7rem 1.15rem;
+  border: 1px solid #e5e7eb;
+}
+
+.auth-input-pill:focus {
+  border-color: var(--ah-brand);
+  box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.15);
+}
+
+.btn-auth-primary {
+  border-radius: 999px;
+  padding: 0.7rem 1.25rem;
+  font-weight: 600;
+  background-color: var(--ah-brand);
+  border-color: var(--ah-brand);
+}
+
+.btn-auth-primary:hover,
+.btn-auth-primary:focus {
+  background-color: var(--ah-brand-hover);
+  border-color: var(--ah-brand-hover);
+}
+
+.btn-auth-secondary {
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-weight: 500;
+  background-color: #e5e7eb;
+  border: 1px solid #e5e7eb;
+  color: #111827;
+}
+
+.btn-auth-secondary:hover {
+  background-color: #d1d5db;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+.auth-link-muted {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.auth-signin-inline {
+  font-size: 0.95rem;
+}
+
+.account-type-card {
+  border: 2px solid #e5e7eb;
+  border-radius: 0.85rem;
+  padding: 1rem 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  height: 100%;
+  text-align: center;
+}
+
+.account-type-card:hover {
+  border-color: #cbd5e1;
+}
+
+/* Selected account type — works with native radio inside label (:has supported in current browsers) */
+.account-type-card:has(input:checked) {
+  border-color: var(--ah-brand);
+  background-color: rgba(37, 99, 235, 0.06);
+}
+
+.account-type-card:has(input:checked) .role-icon.text-secondary {
+  color: var(--ah-brand) !important;
+}
+
+.account-type-card .role-icon {
+  font-size: 1.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.selected-account-bar {
+  background-color: rgba(37, 99, 235, 0.1);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: #1e40af;
+}
+
+@media (max-width: 575.98px) {
+  .auth-title {
+    font-size: 1.35rem;
+  }
+}

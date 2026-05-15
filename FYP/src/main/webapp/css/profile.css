@@ -1,0 +1,58 @@
+/* User profile (SCRUM-84) — wireframe layout + responsive (SCRUM-183) */
+.profile-page-header {
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.profile-avatar-lg {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.08);
+}
+
+.profile-avatar-placeholder {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 2.75rem;
+    box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.1);
+}
+
+.profile-card,
+.profile-rating-card,
+.profile-main-panel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+}
+
+.profile-contact-item {
+    font-size: 0.9rem;
+}
+
+.profile-star-row {
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.profile-tx-table th {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #4b5563;
+}
+
+@media (max-width: 991.98px) {
+    .profile-avatar-lg,
+    .profile-avatar-placeholder {
+        width: 88px;
+        height: 88px;
+        font-size: 2rem;
+    }
+}
