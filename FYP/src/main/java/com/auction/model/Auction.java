@@ -1,7 +1,6 @@
 package com.auction.model;
 
 import java.io.Serializable;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -16,7 +15,6 @@ public class Auction implements  Serializable{
     private AuctionType auctionType;
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
-    private BigDecimal maxPrice;
 
     public Auction(){
     }
@@ -119,13 +117,5 @@ public class Auction implements  Serializable{
     public void setAuctionTagsList(List<Long> newList)
     {
         auctionTagsList = newList;
-    }
-
-    public BigDecimal getMaxPrice() {
-        return maxPrice;
-    }
-
-    public void setMaxPrice(BigDecimal maxPrice) {
-        this.maxPrice = maxPrice;
     }
 }

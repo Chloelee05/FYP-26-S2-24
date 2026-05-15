@@ -8,6 +8,7 @@ import com.auction.servlet.ForgotPasswordServlet;
 import com.auction.servlet.ResetPasswordServlet;
 import com.auction.util.OtpStore;
 import com.auction.util.SecurityUtil;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,6 +21,11 @@ import org.mockito.Mockito;
 import java.io.IOException;
 
 public class TestPasswordResetServlet extends Mockito {
+
+    private static void stubForward(HttpServletRequest request) {
+        RequestDispatcher dispatcher = mock(RequestDispatcher.class);
+        when(request.getRequestDispatcher(anyString())).thenReturn(dispatcher);
+    }
 
     // Servlet wrappers 
 
@@ -48,6 +54,7 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn(identifier);
 
         servlet.doPost(request, response);
@@ -67,6 +74,7 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn(email);
 
         servlet.doPost(request, response);
@@ -86,6 +94,7 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn(phone);
 
         servlet.doPost(request, response);
@@ -113,6 +122,7 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
 
         servlet.doPost(request, response);
@@ -135,6 +145,7 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("ghost@email.com");
 
         servlet.doPost(request, response);
@@ -158,9 +169,11 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
         when(request.getParameter("otp")).thenReturn(otp);
         when(request.getParameter("newPassword")).thenReturn("Password1!");
+        when(request.getParameter("confirmNewPassword")).thenReturn("Password1!");
 
         servlet.doPost(request, response);
 
@@ -180,9 +193,11 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
         when(request.getParameter("otp")).thenReturn("123456");
         when(request.getParameter("newPassword")).thenReturn(weakPassword);
+        when(request.getParameter("confirmNewPassword")).thenReturn(weakPassword);
 
         servlet.doPost(request, response);
 
@@ -204,9 +219,11 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
         when(request.getParameter("otp")).thenReturn("000000");
         when(request.getParameter("newPassword")).thenReturn("Password1!");
+        when(request.getParameter("confirmNewPassword")).thenReturn("Password1!");
 
         servlet.doPost(request, response);
 
@@ -227,9 +244,11 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
         when(request.getParameter("otp")).thenReturn("123456");
         when(request.getParameter("newPassword")).thenReturn("Password1!");
+        when(request.getParameter("confirmNewPassword")).thenReturn("Password1!");
 
         servlet.doPost(request, response);
 
@@ -253,9 +272,11 @@ public class TestPasswordResetServlet extends Mockito {
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
         when(request.getParameter("otp")).thenReturn("482031");
         when(request.getParameter("newPassword")).thenReturn("NewPassword1!");
+        when(request.getParameter("confirmNewPassword")).thenReturn("NewPassword1!");
 
         servlet.doPost(request, response);
 

@@ -8,7 +8,6 @@ import com.auction.model.Auction;
 
 import java.math.BigDecimal;
 import java.sql.*;
-import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -199,18 +198,12 @@ public class AuctionDAO {
     }
 
     private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
-        String sql = "INSERT INTO auction_details (id, title, description, item_condition_id, starting_price, max_price) VALUES(?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO auction_details (id, title, description, item_condition_id) VALUES(?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, auctionId);
             stmt.setString(2, auction.getAuction_name());
             stmt.setString(3, auction.getAuction_details());
             stmt.setInt(4, auction.getItemCondition().getId());
-            stmt.setBigDecimal(5, BigDecimal.valueOf(auction.getStarting_price()));
-            if (auction.getMaxPrice() != null) {
-                stmt.setBigDecimal(6, auction.getMaxPrice());
-            } else {
-                stmt.setNull(6, Types.NUMERIC);
-            }
             int rowsAffected = stmt.executeUpdate();
             if (rowsAffected == 0) throw new Exception("Failed at auction_details");
         }

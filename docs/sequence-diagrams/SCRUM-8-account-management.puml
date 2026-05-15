@@ -1,0 +1,53 @@
+@startuml SCRUM-8 Account Management Sequence
+
+title View Own Account (SCRUM-8)
+
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+
+actor User as U
+participant "Browser" as B
+participant "AuthFilter\n/protected/*" as AF
+participant "AccountManagementServlet\nGET /protected/account" as AM
+participant "UserDAO" as DAO
+database "PostgreSQL\n(users)" as DB
+participant "SecurityUtil\nAES-GCM decrypt" as SU
+
+U -> B : Open My Account link
+B -> AF : GET /protected/account
+activate AF
+AF -> AF : session + RbacUtil.isAuthenticated
+AF -> AM : chain
+deactivate AF
+
+activate AM
+AM -> AM : readUserId(session)\n(ignores query params)
+AM -> DAO : getUserById(sessionUserId)
+activate DAO
+DAO -> DB : SELECT id, username, email,\nrole_id, two_factor_*,\nphone_encrypted, address_encrypted\nFROM users WHERE id = ?
+activate DB
+DB --> DAO : ResultSet
+deactivate DB
+DAO --> AM : User (ciphertext in PII fields)
+deactivate DAO
+
+AM -> SU : decrypt(phone_encrypted)
+activate SU
+SU --> AM : plaintext phone (or null)
+deactivate SU
+AM -> SU : decrypt(address_encrypted)
+activate SU
+SU --> AM : plaintext address (or null)
+deactivate SU
+
+AM -> AM : sanitize(username)\nset request attributes
+AM -> B : forward dashboard.jsp
+deactivate AM
+B -> U : Bootstrap account page
+
+note right of AM
+  Profile is always loaded by **session userId** only,
+  so another user's row cannot be requested via URL.
+end note
+
+@enduml
