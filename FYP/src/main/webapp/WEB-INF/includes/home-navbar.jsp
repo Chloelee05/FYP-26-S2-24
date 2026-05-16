@@ -35,7 +35,7 @@
                     </li>
                 </ul>
                 <form id="homeSearchForm" class="d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-2 ms-lg-2"
-                      action="${ctx}/" method="get" role="search">
+                      action="${ctx}/search" method="get" role="search">
                     <div class="home-search-wrap">
                         <div class="input-group home-search-group">
                         <span class="input-group-text bg-white border-end-0" aria-hidden="true"><i
