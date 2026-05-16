@@ -12,6 +12,8 @@
            href="${ctx}/admin/users"><i class="bi bi-people" aria-hidden="true"></i> User Moderation</a>
         <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'listings' ? 'active' : ''}"
            href="${ctx}/admin/listings"><i class="bi bi-list-ul" aria-hidden="true"></i> Listing Moderation</a>
+        <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'categories' ? 'active' : ''}"
+           href="${ctx}/admin/categories"><i class="bi bi-tags" aria-hidden="true"></i> Categories</a>
         <a class="admin-nav-link d-flex align-items-center gap-2 rounded py-2 px-3 ${adminActiveNav == 'analytics' ? 'active' : ''}"
            href="${ctx}/admin/analytics"><i class="bi bi-graph-up" aria-hidden="true"></i> Analytics</a>
     </nav>
