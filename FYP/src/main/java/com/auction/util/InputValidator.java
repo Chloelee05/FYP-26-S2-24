@@ -28,6 +28,11 @@ public final class InputValidator {
 
     public static final int DISPLAY_NAME_MAX_LENGTH = 64;
 
+    /** Maximum length for a category name stored in {@code categories.name}. */
+    public static final int CATEGORY_NAME_MAX_LENGTH = 100;
+    /** Maximum length for a category description stored in {@code categories.description}. */
+    public static final int CATEGORY_DESCRIPTION_MAX_LENGTH = 500;
+
     public static final int PROFILE_IMAGE_URL_MAX_LENGTH = 512;
     public static final int PASSWORD_MIN_LENGTH = 8;
     public static final int PASSWORD_MAX_LENGTH = 128;
@@ -196,6 +201,41 @@ public final class InputValidator {
         }
         if (address.trim().length() > ADDRESS_MAX_LENGTH) {
             return "Address must be at most " + ADDRESS_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Category name (SCRUM-23/SCRUM-218): required; 1–{@link #CATEGORY_NAME_MAX_LENGTH} characters.
+     * Must not be blank after trimming.
+     *
+     * @param name user-supplied category name
+     * @return {@code null} if valid; otherwise a short English message
+     */
+    public static String getCategoryNameViolation(String name) {
+        if (name == null || name.isBlank()) {
+            return "Category name is required.";
+        }
+        String t = name.trim();
+        if (t.length() > CATEGORY_NAME_MAX_LENGTH) {
+            return "Category name must be at most " + CATEGORY_NAME_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Category description (SCRUM-23/SCRUM-218): optional; if present must be within
+     * {@link #CATEGORY_DESCRIPTION_MAX_LENGTH} characters.
+     *
+     * @param description user-supplied description; blank is valid
+     * @return {@code null} if valid; otherwise a short English message
+     */
+    public static String getCategoryDescriptionViolation(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        if (description.trim().length() > CATEGORY_DESCRIPTION_MAX_LENGTH) {
+            return "Category description must be at most " + CATEGORY_DESCRIPTION_MAX_LENGTH + " characters.";
         }
         return null;
     }
