@@ -28,6 +28,12 @@ public final class InputValidator {
 
     public static final int DISPLAY_NAME_MAX_LENGTH = 64;
 
+    /**
+     * Maximum length for a buyer search query string (SCRUM-48/SCRUM-294).
+     * Matches the {@code maxlength} attribute on the home-navbar search input.
+     */
+    public static final int SEARCH_QUERY_MAX_LENGTH = 200;
+
     /** Maximum length for a category name stored in {@code categories.name}. */
     public static final int CATEGORY_NAME_MAX_LENGTH = 100;
     /** Maximum length for a category description stored in {@code categories.description}. */
@@ -201,6 +207,25 @@ public final class InputValidator {
         }
         if (address.trim().length() > ADDRESS_MAX_LENGTH) {
             return "Address must be at most " + ADDRESS_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Search query length cap (SCRUM-48/SCRUM-294).
+     * Returns {@code null} when the query is blank or within the allowed length (blank is
+     * handled by the caller as a redirect, not an error). Returns a message only when the
+     * trimmed query exceeds {@link #SEARCH_QUERY_MAX_LENGTH}.
+     *
+     * @param query user-supplied search string; {@code null} or blank yields {@code null}
+     * @return {@code null} if valid; otherwise a short English message
+     */
+    public static String getSearchQueryViolation(String query) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        if (query.trim().length() > SEARCH_QUERY_MAX_LENGTH) {
+            return "Search query must be at most " + SEARCH_QUERY_MAX_LENGTH + " characters.";
         }
         return null;
     }
