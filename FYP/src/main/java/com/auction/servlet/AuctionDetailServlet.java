@@ -1,5 +1,6 @@
 package com.auction.servlet;
 
+import com.auction.dao.AutoBidDAO;
 import com.auction.dao.BidDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.util.RbacUtil;
@@ -26,13 +27,16 @@ import java.io.IOException;
 public class AuctionDetailServlet extends HttpServlet {
 
     private BidDAO bidDAO;
+    private AutoBidDAO autoBidDAO;
 
     public AuctionDetailServlet() {
         this.bidDAO = new BidDAO();
+        this.autoBidDAO = new AutoBidDAO();
     }
 
-    public AuctionDetailServlet(BidDAO bidDAO) {
+    public AuctionDetailServlet(BidDAO bidDAO, AutoBidDAO autoBidDAO) {
         this.bidDAO = bidDAO;
+        this.autoBidDAO = autoBidDAO;
     }
 
     @Override
@@ -83,12 +87,27 @@ public class AuctionDetailServlet extends HttpServlet {
         req.setAttribute("isSelf",  isSelf);
         req.setAttribute("loggedIn", loggedIn);
 
-        // Flash messages set by PlaceBidServlet after redirect
+        // Load buyer's existing auto-bid max (decrypted) for display
+        if (loggedIn && isBuyer && !isSelf) {
+            int userId = ((Number) session.getAttribute("userId")).intValue();
+            try {
+                java.math.BigDecimal existingMax = autoBidDAO.getMaxAmountForUser(auctionId, userId);
+                req.setAttribute("existingAutoBidMax", existingMax);
+            } catch (RuntimeException ignored) {
+                // non-critical — just don't show the existing value
+            }
+        }
+
+        // Flash messages set by PlaceBidServlet / SetAutoBidServlet after redirect
         if (session != null) {
-            req.setAttribute("bidFlash",      session.getAttribute("bidFlash"));
-            req.setAttribute("bidFlashError", session.getAttribute("bidFlashError"));
+            req.setAttribute("bidFlash",         session.getAttribute("bidFlash"));
+            req.setAttribute("bidFlashError",    session.getAttribute("bidFlashError"));
+            req.setAttribute("autoBidFlash",     session.getAttribute("autoBidFlash"));
+            req.setAttribute("autoBidFlashError",session.getAttribute("autoBidFlashError"));
             session.removeAttribute("bidFlash");
             session.removeAttribute("bidFlashError");
+            session.removeAttribute("autoBidFlash");
+            session.removeAttribute("autoBidFlashError");
         }
 
         req.getRequestDispatcher("/WEB-INF/views/auction-detail.jsp").forward(req, resp);
