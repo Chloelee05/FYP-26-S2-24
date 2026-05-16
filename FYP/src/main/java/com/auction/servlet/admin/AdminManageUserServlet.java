@@ -1,11 +1,13 @@
 package com.auction.servlet.admin;
 
 import java.io.IOException;
+import java.util.logging.Logger;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
 import com.auction.model.User;
+import com.auction.util.SecurityUtil;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -15,6 +17,8 @@ import jakarta.servlet.http.HttpSession;
 
 @WebServlet("/admin/users/action")
 public class AdminManageUserServlet extends HttpServlet {
+
+    private static final Logger LOGGER = Logger.getLogger(AdminManageUserServlet.class.getName());
 
     private UserDAO userDAO;
 
@@ -46,6 +50,8 @@ public class AdminManageUserServlet extends HttpServlet {
             return;
         }
 
+        // SCRUM-279: userid is always parsed as an integer — non-numeric input is rejected
+        // with 400 before any DB lookup, preventing IDOR via crafted strings.
         int targetUserId;
         try {
             targetUserId = Integer.parseInt(userid.trim());
@@ -61,6 +67,8 @@ public class AdminManageUserServlet extends HttpServlet {
             return;
         }
 
+        // SCRUM-279: target user is loaded by server-side ID; no client-supplied role or
+        // status value is trusted — all authorization decisions are based on the DB row.
         User target = userDAO.getUserById(targetUserId);
         if (target == null) {
             session.setAttribute("adminFlashError", "User not found.");
@@ -79,16 +87,37 @@ public class AdminManageUserServlet extends HttpServlet {
         boolean ok;
         switch (action) {
             case "suspend":
+                // SCRUM-212: guard against redundant ban
+                if (target.getStatusId() == Status.SUSPENDED.getId()) {
+                    session.setAttribute("adminFlashError", "User account is already banned.");
+                    resp.sendRedirect(req.getContextPath() + "/admin/users");
+                    return;
+                }
                 ok = userDAO.updateStatus(targetUserId, Status.SUSPENDED.getId());
-                message = ok ? "Account successfully suspended!" : "Could not suspend account.";
-                if (!ok) {
+                message = ok ? "Account successfully banned." : "Could not ban account.";
+                if (ok) {
+                    // SCRUM-213: audit trail — sanitize username before logging (SCRUM-279)
+                    LOGGER.info(String.format("Admin [id=%d] banned user [id=%d, username=%s].",
+                            adminId, targetUserId, SecurityUtil.sanitize(target.getUsername())));
+                } else {
                     flashKey = "adminFlashError";
                 }
                 break;
             case "active":
+            case "unban":
+                // SCRUM-212: guard — only SUSPENDED accounts may be unbanned
+                if (target.getStatusId() != Status.SUSPENDED.getId()) {
+                    session.setAttribute("adminFlashError", "User account is not currently banned.");
+                    resp.sendRedirect(req.getContextPath() + "/admin/users");
+                    return;
+                }
                 ok = userDAO.updateStatus(targetUserId, Status.ACTIVE.getId());
-                message = ok ? "Account successfully unsuspended!" : "Could not reactivate account.";
-                if (!ok) {
+                message = ok ? "Account successfully unbanned." : "Could not unban account.";
+                if (ok) {
+                    // SCRUM-213: audit trail — sanitize username before logging (SCRUM-279)
+                    LOGGER.info(String.format("Admin [id=%d] unbanned user [id=%d, username=%s].",
+                            adminId, targetUserId, SecurityUtil.sanitize(target.getUsername())));
+                } else {
                     flashKey = "adminFlashError";
                 }
                 break;
