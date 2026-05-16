@@ -28,6 +28,10 @@ import java.util.List;
  * {@code NUMERIC(10,2)}, the effective minimum meaningful step is {@code 0.01}.
  * Equal bids are always rejected ({@code >}, not {@code >=}).</p>
  *
+ * <p><b>Auto-bid integration (SCRUM-52):</b> After each successful manual bid insert,
+ * {@link AutoBidDAO#processAutoBids(Connection, long)} is called within the same
+ * transaction to fire any proxy counter-bids before the lock is released.</p>
+ *
  * <p><b>Max-price cap (SCRUM-263):</b> The seller-set ceiling from
  * {@code auction_details.max_price} is re-checked inside the transaction.</p>
  *
@@ -36,6 +40,17 @@ import java.util.List;
  * as {@code long} (rejects non-numeric input) and then looked up in the DB.</p>
  */
 public class BidDAO {
+
+    private final AutoBidDAO autoBidDAO;
+
+    public BidDAO() {
+        this.autoBidDAO = new AutoBidDAO();
+    }
+
+    /** Injection constructor for testing (allows mocking {@link AutoBidDAO}). */
+    public BidDAO(AutoBidDAO autoBidDAO) {
+        this.autoBidDAO = autoBidDAO;
+    }
 
     /** Outcome codes returned by {@link #placeBid}. */
     public enum BidResult {
@@ -155,7 +170,7 @@ public class BidDAO {
                 return BidResult.EXCEEDS_MAX_PRICE;
             }
 
-            // All checks passed — insert bid
+            // All checks passed — insert manual bid
             String insertSql =
                     "INSERT INTO bids (auction_id, user_id, bid_amount, bid_time) "
                     + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)";
@@ -165,6 +180,9 @@ public class BidDAO {
                 ps.setBigDecimal(3, bidAmount);
                 ps.executeUpdate();
             }
+
+            // SCRUM-52: trigger proxy auto-bids within the same transaction
+            autoBidDAO.processAutoBids(conn, auctionId);
 
             conn.commit();
             return BidResult.SUCCESS;

@@ -153,6 +153,82 @@
                     </c:otherwise>
                 </c:choose>
             </div><%-- /bid-card --%>
+
+            <%-- Auto-bid accordion (buyers only, auction open) --%>
+            <c:if test="${canBid}">
+                <div class="accordion mt-2" id="autoBidAccordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed px-0 bg-transparent text-primary fw-semibold"
+                                    type="button" data-bs-toggle="collapse"
+                                    data-bs-target="#autoBidPanel">
+                                <i class="bi bi-robot me-2"></i>Set Maximum Auto-Bid
+                            </button>
+                        </h2>
+                        <div id="autoBidPanel" class="accordion-collapse collapse">
+                            <div class="accordion-body px-0">
+                                <c:if test="${not empty autoBidFlash}">
+                                    <div class="alert alert-success py-2 small">
+                                        <c:out value="${autoBidFlash}"/>
+                                    </div>
+                                </c:if>
+                                <c:if test="${not empty autoBidFlashError}">
+                                    <div class="alert alert-danger py-2 small">
+                                        <c:out value="${autoBidFlashError}"/>
+                                    </div>
+                                </c:if>
+                                <p class="text-muted small mb-2">
+                                    We'll automatically bid for you whenever someone outbids you,
+                                    up to your maximum. Your ceiling is kept private.
+                                </p>
+                                <c:if test="${not empty existingAutoBidMax}">
+                                    <div class="alert alert-info py-2 small">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Current auto-bid max:
+                                        <strong>$<fmt:formatNumber value="${existingAutoBidMax}" pattern="#,##0.00"/></strong>
+                                    </div>
+                                </c:if>
+                                <form method="post"
+                                      action="${pageContext.request.contextPath}/protected/auto-bid">
+                                    <input type="hidden" name="auctionId" value="${auction.auctionId}">
+                                    <input type="hidden" name="action" value="SET">
+                                    <div class="input-group mb-2">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" name="maxAmount" class="form-control"
+                                               placeholder="Your maximum bid" min="0.01" step="0.01"
+                                               value="${not empty existingAutoBidMax ? existingAutoBidMax : ''}"
+                                               required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <input type="text" name="note" class="form-control form-control-sm"
+                                               placeholder="Private note (optional, stored encrypted)"
+                                               maxlength="500">
+                                    </div>
+                                    <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                                        <i class="bi bi-robot me-1"></i>
+                                        <c:choose>
+                                            <c:when test="${not empty existingAutoBidMax}">Update Auto-Bid</c:when>
+                                            <c:otherwise>Activate Auto-Bid</c:otherwise>
+                                        </c:choose>
+                                    </button>
+                                </form>
+                                <c:if test="${not empty existingAutoBidMax}">
+                                    <form method="post"
+                                          action="${pageContext.request.contextPath}/protected/auto-bid"
+                                          class="mt-2">
+                                        <input type="hidden" name="auctionId" value="${auction.auctionId}">
+                                        <input type="hidden" name="action" value="CANCEL">
+                                        <button type="submit" class="btn btn-link btn-sm text-danger p-0">
+                                            <i class="bi bi-x-circle me-1"></i>Cancel auto-bid
+                                        </button>
+                                    </form>
+                                </c:if>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </c:if>
+
         </div><%-- /col --%>
     </div><%-- /row --%>
 

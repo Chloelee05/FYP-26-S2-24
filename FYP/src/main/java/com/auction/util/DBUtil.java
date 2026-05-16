@@ -35,4 +35,30 @@ public class DBUtil {
     public static Connection connectDB() throws Exception {
         return getDataSource().getConnection();
     }
+
+    /**
+     * Functional interface for a transactional block that may throw.
+     */
+    @FunctionalInterface
+    public interface TransactionBlock<T> {
+        T execute(Connection conn) throws Exception;
+    }
+
+    /**
+     * Runs {@code block} inside a single JDBC transaction.
+     * Commits on success; rolls back and rethrows on any exception.
+     */
+    public static <T> T runInTransaction(TransactionBlock<T> block) throws Exception {
+        try (Connection conn = connectDB()) {
+            conn.setAutoCommit(false);
+            try {
+                T result = block.execute(conn);
+                conn.commit();
+                return result;
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        }
+    }
 }
