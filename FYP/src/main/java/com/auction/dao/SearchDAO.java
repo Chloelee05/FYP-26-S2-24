@@ -37,15 +37,16 @@ public class SearchDAO {
     // -------------------------------------------------------------------------
 
     /**
-     * Searches active, non-expired auctions whose title or description contains the keyword
-     * (case-insensitive). Results are ordered by most-recently created first.
+     * Searches active, non-expired auctions whose title or description contains the keyword,
+     * optionally restricted to a single category.
      *
-     * @param keyword  raw keyword from the user; must not be {@code null} or blank
-     * @param page     1-based page number
-     * @param pageSize rows per page; caller should clamp to [1, {@link #MAX_PAGE_SIZE}]
+     * @param keyword      raw keyword; must not be {@code null} or blank
+     * @param categoryName exact category name from the DB (already validated); {@code null} = no filter
+     * @param page         1-based page number
+     * @param pageSize     rows per page; caller should clamp to [1, {@link #MAX_PAGE_SIZE}]
      * @return ordered page of matching {@link SearchResultItem}s; empty list if none found
      */
-    public List<SearchResultItem> search(String keyword, int page, int pageSize) {
+    public List<SearchResultItem> search(String keyword, String categoryName, int page, int pageSize) {
         String pattern = likePattern(keyword);
         int offset = pageSize * (page - 1);
 
@@ -61,6 +62,7 @@ public class SearchDAO {
                 + "WHERE a.moderation_state = 'active' "
                 + "  AND a.date_end > CURRENT_TIMESTAMP "
                 + "  AND (d.title ILIKE ? OR d.description ILIKE ?) "
+                + (categoryName != null ? "  AND LOWER(d.category) = LOWER(?) " : "")
                 + "ORDER BY a.date_created DESC "
                 + "LIMIT ? OFFSET ?";
 
@@ -69,8 +71,10 @@ public class SearchDAO {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, pattern);
             ps.setString(2, pattern);
-            ps.setInt(3, pageSize);
-            ps.setInt(4, offset);
+            int idx = 3;
+            if (categoryName != null) ps.setString(idx++, categoryName);
+            ps.setInt(idx++, pageSize);
+            ps.setInt(idx, offset);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(mapRow(rs));
@@ -83,23 +87,35 @@ public class SearchDAO {
     }
 
     /**
-     * Returns the total count of active, non-expired auctions matching the keyword.
-     * Used to compute {@code totalPages} for pagination.
+     * Backward-compatible overload — no category filter applied.
      *
-     * @param keyword  raw keyword; must not be {@code null} or blank
+     * @see #search(String, String, int, int)
+     */
+    public List<SearchResultItem> search(String keyword, int page, int pageSize) {
+        return search(keyword, null, page, pageSize);
+    }
+
+    /**
+     * Returns the total count of active, non-expired auctions matching the keyword,
+     * optionally restricted to a single category.
+     *
+     * @param keyword      raw keyword; must not be {@code null} or blank
+     * @param categoryName exact category name from the DB; {@code null} = no filter
      * @return number of matching rows
      */
-    public int count(String keyword) {
+    public int count(String keyword, String categoryName) {
         String pattern = likePattern(keyword);
         String sql = "SELECT COUNT(*)::int FROM auction a "
                 + "JOIN auction_details d ON d.id = a.auction_id "
                 + "WHERE a.moderation_state = 'active' "
                 + "  AND a.date_end > CURRENT_TIMESTAMP "
-                + "  AND (d.title ILIKE ? OR d.description ILIKE ?)";
+                + "  AND (d.title ILIKE ? OR d.description ILIKE ?) "
+                + (categoryName != null ? "  AND LOWER(d.category) = LOWER(?) " : "");
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, pattern);
             ps.setString(2, pattern);
+            if (categoryName != null) ps.setString(3, categoryName);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt(1);
             }
@@ -107,6 +123,15 @@ public class SearchDAO {
             throw new RuntimeException(e);
         }
         return 0;
+    }
+
+    /**
+     * Backward-compatible overload — no category filter applied.
+     *
+     * @see #count(String, String)
+     */
+    public int count(String keyword) {
+        return count(keyword, null);
     }
 
     // -------------------------------------------------------------------------

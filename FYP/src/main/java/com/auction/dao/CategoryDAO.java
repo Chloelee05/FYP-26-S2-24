@@ -61,6 +61,27 @@ public class CategoryDAO {
         return loadList(sql);
     }
 
+    /** Returns the active {@link Category} with the given {@code slug}, or {@code null} if not found or soft-deleted. */
+    public Category findBySlug(String slug) {
+        String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
+                + "c.is_deleted, c.created_at, "
+                + "COUNT(ad.id)::int AS auction_count "
+                + "FROM categories c "
+                + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
+                + "WHERE c.slug = ? AND c.is_deleted = FALSE "
+                + "GROUP BY c.id";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, slug);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return mapRow(rs);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
+    }
+
     /** Returns the {@link Category} with the given {@code id}, or {@code null} if not found. */
     public Category findById(int id) {
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
