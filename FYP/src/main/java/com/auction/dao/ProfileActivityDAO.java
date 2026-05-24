@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.profile.BidHistoryRow;
 import com.auction.model.profile.ProfileReviewRow;
 import com.auction.model.profile.ProfileTransactionRow;
 import com.auction.model.profile.RatingSummary;
@@ -11,7 +12,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -146,6 +149,57 @@ public class ProfileActivityDAO {
             throw new RuntimeException(e);
         }
         return new RatingSummary(avg, count, hist);
+    }
+
+    public List<BidHistoryRow> getBidHistory(int userId, int page, int size) {
+        List<BidHistoryRow> list = new ArrayList<>();
+        String sql = "SELECT b.auction_id, d.title, b.bid_amount, b.bid_time, a.date_end, "
+                + "CASE WHEN d.winner_id = ? AND d.winning_bid IS NOT NULL THEN true ELSE false END AS won "
+                + "FROM bids b "
+                + "JOIN auction a ON a.auction_id = b.auction_id "
+                + "JOIN auction_details d ON d.id = b.auction_id "
+                + "WHERE b.user_id = ? "
+                + "ORDER BY b.bid_time DESC "
+                + "LIMIT ? OFFSET ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setInt(2, userId);
+            ps.setInt(3, size);
+            ps.setInt(4, (page - 1) * size);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    long auctionId = rs.getLong("auction_id");
+                    String title = rs.getString("title");
+                    BigDecimal amount = rs.getBigDecimal("bid_amount");
+                    Timestamp bidTs = rs.getTimestamp("bid_time");
+                    LocalDateTime bidTime = bidTs == null
+                            ? LocalDateTime.now()
+                            : bidTs.toInstant().atZone(ZONE).toLocalDateTime();
+                    Timestamp endTs = rs.getTimestamp("date_end");
+                    boolean ended = endTs != null && endTs.toInstant().isBefore(Instant.now());
+                    String status = ended ? "Ended" : "Live";
+                    boolean won = rs.getBoolean("won");
+                    list.add(new BidHistoryRow(auctionId, title, amount, bidTime, status, won));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return list;
+    }
+
+    public int countBidHistory(int userId) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT COUNT(*) FROM bids WHERE user_id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public List<ProfileReviewRow> listReviewsAboutUser(int userId) {
