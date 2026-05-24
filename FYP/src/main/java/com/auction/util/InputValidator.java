@@ -39,6 +39,9 @@ public final class InputValidator {
     /** Maximum length for a category description stored in {@code categories.description}. */
     public static final int CATEGORY_DESCRIPTION_MAX_LENGTH = 500;
 
+    /** Maximum length for a buyer report description stored in {@code seller_reports.description}. */
+    public static final int REPORT_DESCRIPTION_MAX_LENGTH = 1000;
+
     public static final int PROFILE_IMAGE_URL_MAX_LENGTH = 512;
     public static final int PASSWORD_MIN_LENGTH = 8;
     public static final int PASSWORD_MAX_LENGTH = 128;

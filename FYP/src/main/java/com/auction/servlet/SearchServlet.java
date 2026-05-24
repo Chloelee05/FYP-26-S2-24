@@ -1,7 +1,9 @@
 package com.auction.servlet;
 
+import com.auction.dao.CategoryDAO;
 import com.auction.dao.SearchDAO;
 import com.auction.model.SearchResultItem;
+import com.auction.model.admin.Category;
 import com.auction.util.InputValidator;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.ServletException;
@@ -24,6 +26,8 @@ import java.util.logging.Logger;
  * <p><b>Request parameters:</b>
  * <ul>
  *   <li>{@code q} — keyword; blank → redirect to {@code /}; too long → error banner</li>
+ *   <li>{@code category} — category slug (optional); validated against DB — unknown slug is
+ *       silently ignored (not a 400), so buyers are never blocked by a stale or mistyped value</li>
  *   <li>{@code page} — 1-based page number, default 1</li>
  *   <li>{@code size} — rows per page, default 12, max {@value SearchDAO#MAX_PAGE_SIZE}</li>
  * </ul>
@@ -47,17 +51,29 @@ public class SearchServlet extends HttpServlet {
     public static final int DEFAULT_PAGE_SIZE = 12;
 
     private SearchDAO searchDAO;
+    private CategoryDAO categoryDAO;
 
     public SearchServlet() {
         this.searchDAO = new SearchDAO();
+        this.categoryDAO = new CategoryDAO();
     }
 
     public SearchServlet(SearchDAO searchDAO) {
         this.searchDAO = searchDAO;
+        this.categoryDAO = new CategoryDAO();
+    }
+
+    public SearchServlet(SearchDAO searchDAO, CategoryDAO categoryDAO) {
+        this.searchDAO = searchDAO;
+        this.categoryDAO = categoryDAO;
     }
 
     public void setSearchDAO(SearchDAO searchDAO) {
         this.searchDAO = searchDAO;
+    }
+
+    public void setCategoryDAO(CategoryDAO categoryDAO) {
+        this.categoryDAO = categoryDAO;
     }
 
     @Override
@@ -89,21 +105,36 @@ public class SearchServlet extends HttpServlet {
         int page = parsePage(req);
         int size = parseSize(req);
 
-        List<SearchResultItem> results = searchDAO.search(keyword, page, size);
-        int total = searchDAO.count(keyword);
+        // Category filter — validated against DB; unknown slug is silently ignored (not a 400)
+        String categorySlug = req.getParameter("category");
+        String categoryName = null;
+        String safeCategorySlug = null;
+        if (categorySlug != null && !categorySlug.isBlank()) {
+            categorySlug = categorySlug.trim();
+            Category cat = categoryDAO.findBySlug(categorySlug);
+            if (cat != null) {
+                categoryName = cat.getName();
+            }
+            safeCategorySlug = SecurityUtil.sanitize(categorySlug);
+        }
+
+        List<SearchResultItem> results = searchDAO.search(keyword, categoryName, page, size);
+        int total = searchDAO.count(keyword, categoryName);
         int totalPages = (total == 0) ? 1 : (int) Math.ceil((double) total / size);
 
         // Clamp page within valid range after we know totalPages
         if (page > totalPages) {
             page = totalPages;
-            results = searchDAO.search(keyword, page, size);
+            results = searchDAO.search(keyword, categoryName, page, size);
         }
 
-        LOGGER.fine(String.format("Search [q=%s] returned %d results (page %d/%d).",
-                safeQuery, total, page, totalPages));
+        LOGGER.fine(String.format("Search [q=%s, category=%s] returned %d results (page %d/%d).",
+                safeQuery, safeCategorySlug, total, page, totalPages));
 
         req.setAttribute("results", results);
         req.setAttribute("query", safeQuery);
+        req.setAttribute("categorySlug", safeCategorySlug);
+        req.setAttribute("categoryName", categoryName);
         req.setAttribute("total", total);
         req.setAttribute("currentPage", page);
         req.setAttribute("totalPages", totalPages);
