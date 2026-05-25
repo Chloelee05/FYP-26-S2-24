@@ -1,12 +1,9 @@
 package com.auction.dao;
 
+import com.auction.model.AccountReport;
 import com.auction.util.DBUtil;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
+import java.sql.*;
 
 /**
  * Data-access layer for buyer reports against sellers.
@@ -124,6 +121,23 @@ public class ReportDAO {
                     conn.close();
                 } catch (SQLException ignored) { }
             }
+        }
+    }
+
+    public boolean reportUser(AccountReport accountReport)throws Exception
+    {
+        String sqlString = "INSERT INTO account_reports (reporter_id, target_id, reason, comment, created_at) VALUES(? ,? , ?, ?, ?)";
+        try(Connection conn = DBUtil.connectDB();
+        PreparedStatement stmt = conn.prepareStatement(sqlString))
+        {
+            stmt.setLong(1, accountReport.getReporter_id()); //reporter id
+            stmt.setLong(2, accountReport.getTarget_id()); //target id
+            stmt.setString(3, accountReport.getReason()); //reason
+            stmt.setString(4, accountReport.getComment()); //comment
+            stmt.setTimestamp(5, Timestamp.from(accountReport.getCreated_at())); //date_time
+            return stmt.executeUpdate() > 0;
+        } catch (Exception e) {
+            throw new Exception("Failed to report user", e);
         }
     }
 }

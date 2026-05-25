@@ -248,4 +248,25 @@ public class AuctionDAO {
             throw new Exception("Failed to save tags to database", e);
         }
     }
+
+    public boolean removeAuction(long auction_id) throws Exception {
+        String sqlString = "UPDATE auction SET moderation_state = ? WHERE auction_id = ?";
+        try(Connection conn = DBUtil.connectDB())
+        {
+            try(PreparedStatement stmt = conn.prepareStatement(sqlString))
+            {
+                stmt.setString(1, "removed");
+                stmt.setLong(2, auction_id);
+                int rs = stmt.executeUpdate();
+                if(rs > 0)
+                {
+                    return true;
+                }
+            }
+        }catch(Exception e)
+        {
+            throw new Exception("remove auction failed", e);
+        }
+        return false;
+    }
 }
