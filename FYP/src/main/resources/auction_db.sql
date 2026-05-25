@@ -13,6 +13,7 @@ COMMENT ON DATABASE auction_db
     IS 'FYP';
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS account_reports;
 DROP TABLE IF EXISTS auction_tag_info;
 DROP TABLE IF EXISTS auction_images;
 DROP TABLE IF EXISTS auction_details;
@@ -158,10 +159,23 @@ CREATE TABLE user_reviews (
   auction_id         BIGINT,
   rating             SMALLINT     NOT NULL CHECK (rating >= 1 AND rating <= 5),
   comment            TEXT,
-  created_at         TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at         TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT user_reviews_reviewer_fk  FOREIGN KEY (reviewer_user_id) REFERENCES users (id),
   CONSTRAINT user_reviews_reviewee_fk  FOREIGN KEY (reviewee_user_id) REFERENCES users (id),
   CONSTRAINT user_reviews_auction_fk   FOREIGN KEY (auction_id)       REFERENCES auction (auction_id),
   CONSTRAINT user_reviews_no_self      CHECK (reviewer_user_id <> reviewee_user_id),
   CONSTRAINT user_reviews_one_per_auction UNIQUE (auction_id, reviewer_user_id)
+);
+
+--Account reports
+CREATE TABLE account_reports (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    reporter_id BIGINT NOT NULL,
+    target_id   BIGINT NOT NULL,
+    reason      TEXT   NOT NULL,
+    comment     TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_id_reporter FOREIGN KEY (reporter_id) REFERENCES users (id),
+    CONSTRAINT user_id_target   FOREIGN KEY (target_id)   REFERENCES users (id),
+    CONSTRAINT one_per_reporter_target UNIQUE (reporter_id, target_id)
 );
