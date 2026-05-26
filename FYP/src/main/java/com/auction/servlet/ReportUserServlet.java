@@ -15,16 +15,13 @@ import java.time.Instant;
 
 public class ReportUserServlet extends HttpServlet {
 
-    private UserDAO userDAO;
     private ReportDAO reportDAO;
 
     public ReportUserServlet() {
-        userDAO = new UserDAO();
         reportDAO = new ReportDAO();
     }
 
-    public void setDAO(UserDAO userDAO, ReportDAO reportDAO) {
-        this.userDAO = userDAO;
+    public void setDAO(ReportDAO reportDAO) {
         this.reportDAO = reportDAO;
     }
 
@@ -47,8 +44,10 @@ public class ReportUserServlet extends HttpServlet {
         }
         Long user_id = (long) user.getId();
         String target_id_param = req.getParameter("target_id");
-        String reason = req.getParameter("reason").trim();
+        String reason = req.getParameter("reason");
         String comment = req.getParameter("comment");
+        reason = (reason == null) ? null : reason.trim();
+        comment = (comment == null) ? null : comment.trim();
         Instant created_at = Instant.now();
 
         if (target_id_param == null || target_id_param.isBlank()) {
@@ -73,11 +72,12 @@ public class ReportUserServlet extends HttpServlet {
         try {
             if (reportDAO.reportUser(accountReport)) {
                 //resp.sendRedirect(req.getContextPath() + "???");
+                req.setAttribute("success", "Success");
             } else {
                 errorHandler(req, resp, "Failed to submit report", target_id, reason, comment);
             }
         } catch (Exception e) {
-            getServletContext().log("Report user error", e);
+            //getServletContext().log("Report user error", e);
             errorHandler(req, resp, "Could not reach the database", target_id, reason, comment);
         }
     }

@@ -1,18 +1,16 @@
 package com.auction.dao;
 
-import com.auction.model.AuctionStatus;
-import com.auction.model.AuctionTags;
+import com.auction.model.*;
 import com.auction.model.admin.AdminListingRow;
+import com.auction.model.admin.TopStatistics;
 import com.auction.util.DBUtil;
-import com.auction.model.Auction;
 
 import java.math.BigDecimal;
 import java.sql.*;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * Auction persistence for admin moderation and dashboard metrics.
@@ -268,5 +266,65 @@ public class AuctionDAO {
             throw new Exception("remove auction failed", e);
         }
         return false;
+    }
+
+    public List<TopStatistics> getTopAuctionCreator() throws Exception
+    {
+        String sqlString = "SELECT u.id, u.username, COUNT(a.auction_id) AS total_auctions" +
+                "FROM auction a " +
+                "JOIN users u ON a.seller_id = u.id " +
+                "GROUP BY u.id, u.username " +
+                "ORDER BY total_auctions DESC " +
+                "LIMIT 10;";
+        try(Connection conn = DBUtil.connectDB();
+        PreparedStatement stmt = conn.prepareStatement(sqlString))
+        {
+            List<TopStatistics> result = new ArrayList<>();
+            try(ResultSet rs = stmt.executeQuery())
+            {
+                while(rs.next())
+                {
+                    User temp = new User();
+                    TopStatistics tsTemp = new TopStatistics();
+                    tsTemp.setUser(temp);
+                    tsTemp.setAuction_count(rs.getInt("total_auctions"));
+                    result.add(tsTemp);
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public List<TopStatistics> getTopSellerRevenue()throws Exception{
+        String sqlString = "SELECT u.id, u.username, SUM(ad.winning_bid) AS total_revenue " +
+                "FROM auction a " +
+                "JOIN users u ON a.seller_id = u.id " +
+                "JOIN auction_details ad ON a.auction_id = ad.id " +
+                "WHERE ad.winning_bid IS NOT NULL " +
+                "GROUP BY u.id, u.username " +
+                "ORDER BY total_revenue DESC " +
+                "LIMIT 10";
+        try(Connection conn = DBUtil.connectDB();
+        PreparedStatement stmt = conn.prepareStatement(sqlString))
+        {
+            List<TopStatistics> result = new ArrayList<>();
+            try(ResultSet rs = stmt.executeQuery())
+            {
+                while(rs.next()){
+                    User temp = new User();
+                    TopStatistics tsTemp = new TopStatistics();
+                    temp.setId((int) rs.getLong("id"));
+                    temp.setUsername(rs.getString("username"));
+                    tsTemp.setUser(temp);
+                    tsTemp.setTotal_revenue(rs.getFloat("total_revenue"));
+                    result.add(tsTemp);
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }
