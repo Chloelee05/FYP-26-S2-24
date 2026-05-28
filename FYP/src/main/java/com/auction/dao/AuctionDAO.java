@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Auction persistence for admin moderation and dashboard metrics.
@@ -247,25 +248,35 @@ public class AuctionDAO {
         }
     }
 
-    public boolean removeAuction(long auction_id) throws Exception {
+    public boolean updateAuctionState(long auction_id, String value) throws Exception {
         String sqlString = "UPDATE auction SET moderation_state = ? WHERE auction_id = ?";
+        if(value == null || value.isBlank())
+        {
+            return false;
+        }
         try(Connection conn = DBUtil.connectDB())
         {
             try(PreparedStatement stmt = conn.prepareStatement(sqlString))
             {
-                stmt.setString(1, "removed");
-                stmt.setLong(2, auction_id);
-                int rs = stmt.executeUpdate();
-                if(rs > 0)
+                String status;
+                switch(value.trim().toLowerCase())
                 {
-                    return true;
+                    case("active"):
+                    case("flagged"):
+                    case("removed"):
+                        status = value.trim().toLowerCase();
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Invalid moderation state: " + value);
                 }
+                stmt.setString(1, status);
+                stmt.setLong(2, auction_id);
+                return stmt.executeUpdate() > 0;
             }
         }catch(Exception e)
         {
             throw new Exception("remove auction failed", e);
         }
-        return false;
     }
 
     public List<TopStatistics> getTopAuctionCreator() throws Exception
