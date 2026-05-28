@@ -3,9 +3,15 @@ import static org.mockito.Mockito.*;
 
 import com.auction.dao.SellerAuctionDAO;
 import com.auction.model.AuctionStatus;
+import com.auction.model.Bid;
+import com.auction.model.Role;
+import com.auction.model.User;
 import com.auction.model.seller.SellerAuctionRow;
 import com.auction.servlet.seller.SellerDashboardServlet;
+import com.auction.util.RbacUtil;
 import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -31,6 +38,11 @@ public class TestSellerDashboardServlet {
         @Override
         public void doGet(HttpServletRequest req, HttpServletResponse resp)
                 throws ServletException, IOException { super.doGet(req, resp); }
+
+        @Override
+        protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+            super.doPost(req, resp);
+        }
     }
 
     private Wrapper servlet;
@@ -40,8 +52,10 @@ public class TestSellerDashboardServlet {
     private HttpSession session;
     private RequestDispatcher dispatcher;
 
+    private User mockUser = mock(User.class);
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws ServletException {
         mockDao    = mock(SellerAuctionDAO.class);
         servlet    = new Wrapper();
         servlet.setDao(mockDao);
@@ -51,6 +65,17 @@ public class TestSellerDashboardServlet {
         session    = mock(HttpSession.class);
         dispatcher = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher(anyString())).thenReturn(dispatcher);
+
+        when(req.getSession(false)).thenReturn(session);
+        when(session.getAttribute("user")).thenReturn(mockUser);
+        when(mockUser.getRole()).thenReturn(Role.SELLER);
+        when(mockUser.getId()).thenReturn(1);
+        when(req.getParameter("auction_id")).thenReturn("1");
+
+        ServletContext mockContext = mock(ServletContext.class);
+        ServletConfig mockConfig = mock(ServletConfig.class);
+        when(mockConfig.getServletContext()).thenReturn(mockContext);
+        servlet.init(mockConfig);
     }
 
     private void stubSellerSession(int userId) {
@@ -319,5 +344,88 @@ public class TestSellerDashboardServlet {
             verify(req).setAttribute("statusFilter", null);
             verify(dispatcher).forward(req, resp);
         }
+    }
+
+    @Nested
+    @DisplayName("Test doPost parsing")
+    class TestDoPostParsing {
+
+        @Test
+        @DisplayName("Null auction ID returns error")
+        public void testNullAuctionId() throws Exception {
+            when(req.getParameter("auction_id")).thenReturn(null);
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("Error"), eq("Invalid auction_id"));
+        }
+
+        @Test
+        @DisplayName("Blank auction ID returns error")
+        public void testBlankAuctionId() throws Exception {
+            when(req.getParameter("auction_id")).thenReturn("  ");
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("Error"), eq("Invalid auction_id"));
+        }
+
+        @Test
+        @DisplayName("Non-numeric auction ID returns error")
+        public void testNonNumericAuctionId() throws Exception {
+            when(req.getParameter("auction_id")).thenReturn("abc");
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("Error"), eq("Invalid auction id"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Test getBidHistory auth")
+    class TestGetBidHistoryAuth {
+
+        @Test
+        @DisplayName("No session returns 401")
+        public void testNoSession() throws Exception {
+            when(req.getSession(false)).thenReturn(null);
+            servlet.doPost(req, resp);
+            verify(resp).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        }
+
+        @Test
+        @DisplayName("No user returns 401")
+        public void testNoUser() throws Exception {
+            when(session.getAttribute("user")).thenReturn(null);
+            servlet.doPost(req, resp);
+            verify(resp).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        }
+    }
+
+    @Nested
+    @DisplayName("Test getBidHistory data retrieval")
+    class TestGetBidHistoryData {
+            @Test
+            @DisplayName("Returns bids and sets attribute")
+            public void testReturnsBids () throws Exception {
+                stubSellerSession(42);
+            List<Bid> bids = List.of(new Bid(), new Bid());
+            when(mockDao.getBidHistory(anyLong(), anyLong())).thenReturn(bids);
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("bids"), eq(bids));
+        }
+
+            @Test
+            @DisplayName("Empty result sets info attribute")
+            public void testEmptyBids () throws Exception {
+                stubSellerSession(42);
+            when(mockDao.getBidHistory(anyLong(), anyLong())).thenReturn(List.of());
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("info"), eq("No bids found for this auction"));
+        }
+
+            @Test
+            @DisplayName("Database error sets error attribute")
+            public void testDatabaseError () throws Exception {
+                stubSellerSession(42);
+            when(mockDao.getBidHistory(anyLong(), anyLong())).thenThrow(new Exception("DB error"));
+            servlet.doPost(req, resp);
+            verify(req).setAttribute(eq("Error"), eq("Could not reach the database"));
+        }
+
     }
 }

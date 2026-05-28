@@ -286,22 +286,22 @@ public class BidDAO {
         String sqlString = "SELECT user_id, bid_amount, bid_time FROM bids WHERE auction_id =?";
         try(Connection conn = DBUtil.connectDB())
         {
-            try(PreparedStatement stmt = conn.prepareStatement(sqlString))
-            {
-                List<Bid> result = new ArrayList<>();
-                stmt.setLong(1, auction_id);
-                try(ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        Bid temp = new Bid();
-                        temp.setUser_id(rs.getLong("user_id"));
-                        temp.setBid_amount(rs.getFloat("bid_amount"));
-                        temp.setBid_time(rs.getTimestamp("bid_time").toInstant());
-                        result.add(temp);
-                    }
+        try(PreparedStatement stmt = conn.prepareStatement(sqlString))
+        {
+            List<Bid> result = new ArrayList<>();
+            stmt.setLong(1, auction_id);
+            try(ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Bid temp = new Bid();
+                    temp.setUser_id(rs.getLong("user_id"));
+                    temp.setBid_amount(rs.getFloat("bid_amount"));
+                    temp.setBid_time(rs.getTimestamp("bid_time").toInstant());
+                    result.add(temp);
                 }
-                return result;
             }
-        }catch(Exception e)
+            return result;
+        }
+    }catch(Exception e)
         {
             throw new Exception("retrieve failed. try again", e);
         }
