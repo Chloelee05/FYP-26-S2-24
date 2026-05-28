@@ -2,6 +2,9 @@ package com.auction.servlet.seller;
 
 import com.auction.dao.SellerAuctionDAO;
 import com.auction.model.AuctionStatus;
+import com.auction.model.Bid;
+import com.auction.model.Role;
+import com.auction.model.User;
 import com.auction.model.seller.SellerAuctionRow;
 import com.auction.util.RbacUtil;
 
@@ -10,6 +13,7 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.*;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -74,6 +78,28 @@ public class SellerDashboardServlet extends HttpServlet {
         }
     }
 
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String temp = req.getParameter("auction_id");
+        temp = (temp == null) ? null : temp.trim();
+        if (temp == null || temp.isBlank()) {
+            errorHandler(req, resp, "Invalid auction_id");
+            return;
+        }
+        Long auctionId;
+        try {
+            auctionId = Long.parseLong(temp);
+        } catch (NumberFormatException e) {
+            errorHandler(req, resp, "Invalid auction id");
+            return;
+        }
+
+        List<Bid> bids = getBidHistory(req, resp, auctionId);
+        if (bids == null) return;
+        req.setAttribute("bids", bids);
+        // req.getRequestDispatcher("???").forward(req, resp);
+    }
+
     /**
      * Maps the "status" query parameter to an AuctionStatus id.
      * Returns null for "all", Integer.MIN_VALUE (boxed) when the value is invalid
@@ -110,5 +136,39 @@ public class SellerDashboardServlet extends HttpServlet {
             return null;
         }
         return new int[]{page, pageSize};
+    }
+
+    private List<Bid> getBidHistory(HttpServletRequest req, HttpServletResponse resp, Long auctionId) throws ServletException, IOException {
+        HttpSession session = req.getSession(false);
+        if (session == null) {
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return null;
+        }
+
+        User user = (User) session.getAttribute("user");
+        if (user == null) {
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return null;
+        }
+        if (!RbacUtil.isSeller(session)) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+            return null;
+        }
+        try {
+            List<Bid> result = dao.getBidHistory(auctionId, (long) user.getId());
+            if (result.isEmpty()) {
+                req.setAttribute("info", "No bids found for this auction");
+            }
+            return result;
+        } catch (Exception e) {
+            getServletContext().log("Get bid history error", e);
+            errorHandler(req, resp, "Could not reach the database");
+            return null;
+        }
+    }
+
+    private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message) throws ServletException, IOException {
+        req.setAttribute("Error", message);
+        // req.getRequestDispatcher("???").forward(req, resp);
     }
 }

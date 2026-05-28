@@ -1,6 +1,7 @@
 package com.auction.dao;
 
 import com.auction.model.AuctionStatus;
+import com.auction.model.Bid;
 import com.auction.model.seller.SellerAuctionRow;
 import com.auction.util.DBUtil;
 
@@ -298,6 +299,35 @@ public class SellerAuctionDAO {
         return list;
     }
 
+    public List<Bid> getBidHistory(Long auctionId, Long sellerId) throws Exception
+    {
+        String sqlString = "SELECT b.user_id, b.bid_amount, b.bid_time " +
+                "FROM bids b " +
+                "JOIN auction a ON b.auction_id = a.auction_id " +
+                "WHERE b.auction_id = ? AND a.seller_id = ?";
+        try(Connection conn = DBUtil.connectDB())
+        {
+            try(PreparedStatement stmt = conn.prepareStatement(sqlString))
+            {
+                List<Bid> result = new ArrayList<>();
+                stmt.setLong(1, auctionId);
+                stmt.setLong(2, sellerId);
+                try(ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Bid temp = new Bid();
+                        temp.setUser_id(rs.getLong("user_id"));
+                        temp.setBid_amount(rs.getFloat("bid_amount"));
+                        temp.setBid_time(rs.getTimestamp("bid_time").toInstant());
+                        result.add(temp);
+                    }
+                }
+                return result;
+            }
+        }catch(Exception e)
+        {
+            throw new Exception("retrieve failed. try again", e);
+        }
+    }
     // ------------------------------------------------------------------ value types
 
     public static final class AuctionEditData {
