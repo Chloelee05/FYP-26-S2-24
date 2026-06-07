@@ -5,6 +5,7 @@ import com.auction.dao.SearchDAO;
 import com.auction.model.ItemCondition;
 import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
+import com.auction.model.SearchSort;
 import com.auction.model.admin.Category;
 import com.auction.util.InputValidator;
 import com.auction.util.SecurityUtil;
@@ -20,7 +21,7 @@ import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * Public keyword + multi-filter search endpoint for buyers (SCRUM-48 / SCRUM-59).
+ * Public keyword + multi-filter + sort search endpoint for buyers (SCRUM-48 / SCRUM-59 / SCRUM-60).
  *
  * <p><b>Auth policy (SCRUM-260):</b> This servlet is mapped to {@code /search}, which is
  * <em>outside</em> {@code /protected/*} and {@code /admin/*}. No session is required;
@@ -35,12 +36,14 @@ import java.util.logging.Logger;
  *   <li>{@code condition} — {@link ItemCondition} name whitelist (SCRUM-345)</li>
  *   <li>{@code location}  — free-text location hint; max {@value #LOCATION_MAX_LENGTH} chars</li>
  *   <li>{@code endWithin} — positive integer hours; auction must end within this window</li>
+ *   <li>{@code sortBy}    — {@link SearchSort} whitelist: {@code newest}, {@code endingSoon},
+ *       {@code priceLow}, {@code priceHigh}; invalid → default {@code newest} (SCRUM-349)</li>
  *   <li>{@code page}      — 1-based page number, default 1</li>
  *   <li>{@code size}      — rows per page, default 12, max {@value SearchDAO#MAX_PAGE_SIZE}</li>
  * </ul>
  * </p>
  *
- * <p><b>Security (SCRUM-294 / SCRUM-345):</b>
+ * <p><b>Security (SCRUM-294 / SCRUM-345 / SCRUM-349):</b>
  * <ul>
  *   <li>Keyword length is capped at {@link InputValidator#SEARCH_QUERY_MAX_LENGTH} chars.</li>
  *   <li>Keyword/location/query echo is sanitized via {@link SecurityUtil#sanitize(String)}.</li>
@@ -48,6 +51,9 @@ import java.util.logging.Logger;
  *       value is <em>silently dropped</em> (not a 400 response).</li>
  *   <li>{@code condition} is validated against the {@link ItemCondition} enum whitelist;
  *       unknown strings are silently dropped — arbitrary strings never reach SQL.</li>
+ *   <li>{@code sortBy} is validated against the {@link SearchSort} enum whitelist via
+ *       {@link #parseSortBy(HttpServletRequest)}; unknown values default to {@code newest}.
+ *       ORDER BY fragments are hard-coded in {@link SearchSort} — never concatenated raw.</li>
  *   <li>All values reaching the DAO are bound as {@code PreparedStatement} parameters.</li>
  * </ul>
  * </p>
@@ -125,20 +131,24 @@ public class SearchServlet extends HttpServlet {
         // SCRUM-59 / SCRUM-345: parse and validate multi-dimensional filters
         SearchFilter filter = parseFilter(req);
 
-        List<SearchResultItem> results = searchDAO.search(keyword, categoryName, filter, page, size);
+        // SCRUM-60 / SCRUM-349: sortBy whitelist — invalid → newest default
+        SearchSort sort = parseSortBy(req);
+
+        List<SearchResultItem> results = searchDAO.search(keyword, categoryName, filter, sort, page, size);
         int total      = searchDAO.count(keyword, categoryName, filter);
         int totalPages = (total == 0) ? 1 : (int) Math.ceil((double) total / size);
 
         // Clamp page after knowing totalPages
         if (page > totalPages) {
             page    = totalPages;
-            results = searchDAO.search(keyword, categoryName, filter, page, size);
+            results = searchDAO.search(keyword, categoryName, filter, sort, page, size);
         }
 
         LOGGER.fine(String.format(
-                "Search [q=%s, category=%s, filter=%s] → %d results (page %d/%d).",
+                "Search [q=%s, category=%s, filter=%s, sort=%s] → %d results (page %d/%d).",
                 safeQuery, safeCategorySlug,
                 filter == null || filter.isEmpty() ? "none" : "active",
+                sort.getParamValue(),
                 total, page, totalPages));
 
         // Core attrs
@@ -151,6 +161,7 @@ public class SearchServlet extends HttpServlet {
         req.setAttribute("totalPages",   totalPages);
         req.setAttribute("pageSize",     size);
         req.setAttribute("searchEmpty",  results.isEmpty());
+        req.setAttribute("sortBy",       sort.getParamValue());
 
         // SCRUM-59: pass sanitized filter values back to JSP for display / pagination links
         if (filter != null) {
@@ -244,6 +255,25 @@ public class SearchServlet extends HttpServlet {
         }
 
         return hasAny ? b.build() : null;
+    }
+
+    // =========================================================================
+    // Sort parsing (SCRUM-60 / SCRUM-349)
+    // =========================================================================
+
+    /**
+     * Parses the {@code sortBy} request parameter against the {@link SearchSort} enum whitelist.
+     *
+     * <p>Per SCRUM-349, unknown or malicious values (including SQL injection attempts) are
+     * silently mapped to {@link SearchSort#DEFAULT} ({@code newest}) — no 400 response is
+     * returned. The resolved enum's {@code orderBy*} methods supply fixed SQL fragments;
+     * user input never reaches the ORDER BY clause.</p>
+     *
+     * @param req incoming request
+     * @return validated {@link SearchSort}; never {@code null}
+     */
+    public static SearchSort parseSortBy(HttpServletRequest req) {
+        return SearchSort.fromParam(req.getParameter("sortBy"));
     }
 
     // =========================================================================

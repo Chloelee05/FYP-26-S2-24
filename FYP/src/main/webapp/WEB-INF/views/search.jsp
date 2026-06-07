@@ -183,6 +183,47 @@
             <%-- ===== Results column ===== --%>
             <div class="col-12 col-md-9">
 
+                <%-- SCRUM-60: Sort bar --%>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                    <span class="text-muted small fw-semibold">
+                        <i class="bi bi-sort-down me-1"></i>Sort by
+                    </span>
+                    <form method="get" action="${pageContext.request.contextPath}/search"
+                          class="d-flex align-items-center gap-2" id="sortForm">
+                        <input type="hidden" name="q" value="<c:out value="${query}"/>">
+                        <c:if test="${not empty categorySlug}">
+                            <input type="hidden" name="category" value="<c:out value="${categorySlug}"/>">
+                        </c:if>
+                        <c:if test="${not empty filterMinPrice}">
+                            <input type="hidden" name="minPrice" value="<c:out value="${filterMinPrice}"/>">
+                        </c:if>
+                        <c:if test="${not empty filterMaxPrice}">
+                            <input type="hidden" name="maxPrice" value="<c:out value="${filterMaxPrice}"/>">
+                        </c:if>
+                        <c:if test="${not empty filterConditionId}">
+                            <c:choose>
+                                <c:when test="${filterConditionId == 1}"><input type="hidden" name="condition" value="BRAND_NEW"></c:when>
+                                <c:when test="${filterConditionId == 2}"><input type="hidden" name="condition" value="SLIGHTLY_USED"></c:when>
+                                <c:when test="${filterConditionId == 3}"><input type="hidden" name="condition" value="USED"></c:when>
+                                <c:when test="${filterConditionId == 4}"><input type="hidden" name="condition" value="DAMAGED"></c:when>
+                            </c:choose>
+                        </c:if>
+                        <c:if test="${not empty filterLocation}">
+                            <input type="hidden" name="location" value="<c:out value="${filterLocation}"/>">
+                        </c:if>
+                        <c:if test="${not empty filterEndWithin}">
+                            <input type="hidden" name="endWithin" value="<c:out value="${filterEndWithin}"/>">
+                        </c:if>
+                        <select class="form-select form-select-sm" name="sortBy" style="width:auto"
+                                onchange="this.form.submit()" aria-label="Sort results">
+                            <option value="newest"      ${sortBy == 'newest' or empty sortBy ? 'selected' : ''}>Newly listed</option>
+                            <option value="endingSoon"  ${sortBy == 'endingSoon' ? 'selected' : ''}>Ending soonest</option>
+                            <option value="priceLow"    ${sortBy == 'priceLow' ? 'selected' : ''}>Price: low to high</option>
+                            <option value="priceHigh"   ${sortBy == 'priceHigh' ? 'selected' : ''}>Price: high to low</option>
+                        </select>
+                    </form>
+                </div>
+
                 <%-- SCRUM-259: empty results UX --%>
                 <c:if test="${searchEmpty}">
                     <div class="text-center py-5">
@@ -278,6 +319,9 @@
                         </c:if>
                         <c:if test="${not empty filterEndWithin}">
                             <c:set var="pagerBase" value="${pagerBase}&amp;endWithin=${filterEndWithin}"/>
+                        </c:if>
+                        <c:if test="${not empty sortBy and sortBy ne 'newest'}">
+                            <c:set var="pagerBase" value="${pagerBase}&amp;sortBy=${sortBy}"/>
                         </c:if>
                         <c:set var="pagerBase" value="${pagerBase}&amp;size=${pageSize}"/>
 

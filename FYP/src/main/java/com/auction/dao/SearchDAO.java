@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
+import com.auction.model.SearchSort;
 import com.auction.util.DBUtil;
 
 import java.math.BigDecimal;
@@ -11,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Data-access layer for the public buyer keyword search (SCRUM-48 / SCRUM-59).
+ * Data-access layer for the public buyer keyword search (SCRUM-48 / SCRUM-59 / SCRUM-60).
  *
  * <p><b>Case sensitivity (SCRUM-259):</b> PostgreSQL {@code ILIKE} is used for
  * case-insensitive matching — "Electronics" matches "electronics" and "ELECTRONICS".</p>
@@ -31,6 +32,10 @@ import java.util.List;
  * query is wrapped in a derived-table (sub-query) so that the computed column
  * {@code current_price = COALESCE(MAX(bid_amount), starting_price)} can be used in the
  * outer {@code WHERE} clause without repeating the correlated sub-select.</p>
+ *
+ * <p><b>Sort (SCRUM-60 / SCRUM-349):</b> The {@code sort} parameter selects a fixed
+ * {@code ORDER BY} fragment from the {@link SearchSort} enum whitelist. User input is
+ * never concatenated into the ORDER BY clause — ORDER BY injection is prevented.</p>
  */
 public class SearchDAO {
 
@@ -51,19 +56,22 @@ public class SearchDAO {
      * @param keyword      raw keyword; must not be {@code null} or blank
      * @param categoryName exact category name from the DB (already validated); {@code null} = no filter
      * @param filter       optional filters (price range, condition, location, end-time); {@code null} = no filter
+     * @param sort         sort order from {@link SearchSort} whitelist; {@code null} → {@link SearchSort#DEFAULT}
      * @param page         1-based page number
      * @param pageSize     rows per page; caller should clamp to [1, {@link #MAX_PAGE_SIZE}]
      * @return ordered page of matching {@link SearchResultItem}s; empty list if none found
      */
     public List<SearchResultItem> search(String keyword, String categoryName,
-                                         SearchFilter filter, int page, int pageSize) {
+                                         SearchFilter filter, SearchSort sort,
+                                         int page, int pageSize) {
+        if (sort == null) sort = SearchSort.DEFAULT;
         List<Object> params = new ArrayList<>();
         int offset = pageSize * (page - 1);
 
         boolean needsPriceWrap = hasPriceFilter(filter);
         String sql = needsPriceWrap
-                ? buildPriceWrappedSearchSql(keyword, categoryName, filter, params, pageSize, offset)
-                : buildSimpleSearchSql(keyword, categoryName, filter, params, pageSize, offset);
+                ? buildPriceWrappedSearchSql(keyword, categoryName, filter, sort, params, pageSize, offset)
+                : buildSimpleSearchSql(keyword, categoryName, filter, sort, params, pageSize, offset);
 
         List<SearchResultItem> results = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
@@ -111,14 +119,20 @@ public class SearchDAO {
     // Backward-compatible overloads (SCRUM-48)
     // =========================================================================
 
-    /** No category and no extra filters. */
+    /** No category and no extra filters; default sort (newest). */
     public List<SearchResultItem> search(String keyword, int page, int pageSize) {
-        return search(keyword, null, null, page, pageSize);
+        return search(keyword, null, null, SearchSort.DEFAULT, page, pageSize);
     }
 
-    /** Category filter only — no extra filters. */
+    /** Category filter only — no extra filters; default sort (newest). */
     public List<SearchResultItem> search(String keyword, String categoryName, int page, int pageSize) {
-        return search(keyword, categoryName, null, page, pageSize);
+        return search(keyword, categoryName, null, SearchSort.DEFAULT, page, pageSize);
+    }
+
+    /** Filters only — default sort (newest). Backward-compatible with SCRUM-59 callers. */
+    public List<SearchResultItem> search(String keyword, String categoryName,
+                                         SearchFilter filter, int page, int pageSize) {
+        return search(keyword, categoryName, filter, SearchSort.DEFAULT, page, pageSize);
     }
 
     /** No category filter, no extra filters. */
@@ -179,7 +193,8 @@ public class SearchDAO {
      * only needed in the SELECT list; WHERE conditions are applied directly.
      */
     private static String buildSimpleSearchSql(String keyword, String categoryName,
-                                                SearchFilter filter, List<Object> params,
+                                                SearchFilter filter, SearchSort sort,
+                                                List<Object> params,
                                                 int pageSize, int offset) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
         params.add(pageSize);
@@ -191,7 +206,8 @@ public class SearchDAO {
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url "
                 + fromWhere
-                + "ORDER BY a.date_created DESC LIMIT ? OFFSET ?";
+                + sort.orderBySimple()
+                + "LIMIT ? OFFSET ?";
     }
 
     /**
@@ -199,7 +215,8 @@ public class SearchDAO {
      * {@code current_price} column can be used in an outer {@code WHERE} clause.
      */
     private static String buildPriceWrappedSearchSql(String keyword, String categoryName,
-                                                      SearchFilter filter, List<Object> params,
+                                                      SearchFilter filter, SearchSort sort,
+                                                      List<Object> params,
                                                       int pageSize, int offset) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
         String inner = "SELECT a.auction_id, d.title, d.category, a.date_created, "
@@ -213,7 +230,7 @@ public class SearchDAO {
         StringBuilder outer = new StringBuilder("SELECT * FROM (")
                 .append(inner).append(") AS base WHERE 1=1 ");
         appendPriceConditions(filter, outer, params);
-        outer.append("ORDER BY date_created DESC LIMIT ? OFFSET ?");
+        outer.append(sort.orderByWrapped()).append("LIMIT ? OFFSET ?");
         params.add(pageSize);
         params.add(offset);
         return outer.toString();

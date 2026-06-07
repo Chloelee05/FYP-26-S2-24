@@ -3,6 +3,7 @@ import com.auction.dao.SearchDAO;
 import com.auction.model.ItemCondition;
 import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
+import com.auction.model.SearchSort;
 import com.auction.servlet.SearchServlet;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
@@ -72,6 +73,7 @@ public class TestSearchServletFilters extends Mockito {
         when(req.getParameter("category")).thenReturn(null);
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
+        when(req.getParameter("sortBy")).thenReturn(null);
     }
 
     // =========================================================================
@@ -84,10 +86,10 @@ public class TestSearchServletFilters extends Mockito {
     }
 
     private void stubDaoAny(List<SearchResultItem> results, int count) {
-        when(mockDAO.search(any(), any(), any(SearchFilter.class), anyInt(), anyInt()))
+        when(mockDAO.search(any(), any(), any(SearchFilter.class), any(SearchSort.class), anyInt(), anyInt()))
                 .thenReturn(results);
         when(mockDAO.count(any(), any(), any(SearchFilter.class))).thenReturn(count);
-        when(mockDAO.search(any(), any(), isNull(), anyInt(), anyInt()))
+        when(mockDAO.search(any(), any(), isNull(), any(SearchSort.class), anyInt(), anyInt()))
                 .thenReturn(results);
         when(mockDAO.count(any(), any(), isNull())).thenReturn(count);
     }
@@ -362,7 +364,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             ArgumentCaptor<SearchFilter> captor = ArgumentCaptor.forClass(SearchFilter.class);
-            verify(mockDAO).search(eq("watch"), isNull(), captor.capture(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("watch"), isNull(), captor.capture(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             SearchFilter captured = captor.getValue();
             assertNotNull(captured);
             assertEquals(new BigDecimal("50"),  captured.getMinPrice());
@@ -385,7 +387,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             ArgumentCaptor<SearchFilter> captor = ArgumentCaptor.forClass(SearchFilter.class);
-            verify(mockDAO).search(eq("laptop"), isNull(), captor.capture(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("laptop"), isNull(), captor.capture(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             SearchFilter captured = captor.getValue();
             assertNotNull(captured);
             assertEquals(ItemCondition.BRAND_NEW.getId(), captured.getItemConditionId());
@@ -407,7 +409,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             ArgumentCaptor<SearchFilter> captor = ArgumentCaptor.forClass(SearchFilter.class);
-            verify(mockDAO).search(eq("phone"), isNull(), captor.capture(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("phone"), isNull(), captor.capture(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             SearchFilter f = captor.getValue();
             assertNotNull(f);
             assertEquals(new BigDecimal("100"), f.getMinPrice());
@@ -430,7 +432,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             // filter should be null (no valid filter dimensions)
-            verify(mockDAO).search(eq("camera"), isNull(), isNull(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("camera"), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
         }
 
         @Test
@@ -447,7 +449,7 @@ public class TestSearchServletFilters extends Mockito {
 
             servlet.doGet(req, resp);
 
-            verify(mockDAO).search(eq("bike"), isNull(), isNull(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("bike"), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
         }
 
         @Test
@@ -465,7 +467,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             // Verify null filter (injection string failed BigDecimal parse → dropped)
-            verify(mockDAO).search(eq("tv"), isNull(), isNull(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("tv"), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             verify(resp, never()).sendError(anyInt());
         }
 
@@ -483,7 +485,7 @@ public class TestSearchServletFilters extends Mockito {
 
             servlet.doGet(req, resp);
 
-            verify(mockDAO).search(eq("book"), isNull(), isNull(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("book"), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
         }
 
         @Test
@@ -501,7 +503,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             ArgumentCaptor<SearchFilter> captor = ArgumentCaptor.forClass(SearchFilter.class);
-            verify(mockDAO).search(eq("chair"), isNull(), captor.capture(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("chair"), isNull(), captor.capture(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             assertNotNull(captor.getValue());
             assertEquals("Singapore", captor.getValue().getLocation());
         }
@@ -521,7 +523,7 @@ public class TestSearchServletFilters extends Mockito {
             servlet.doGet(req, resp);
 
             ArgumentCaptor<SearchFilter> captor = ArgumentCaptor.forClass(SearchFilter.class);
-            verify(mockDAO).search(eq("desk"), isNull(), captor.capture(), anyInt(), anyInt());
+            verify(mockDAO).search(eq("desk"), isNull(), captor.capture(), eq(SearchSort.NEWEST), anyInt(), anyInt());
             assertNotNull(captor.getValue());
             assertEquals(24, captor.getValue().getEndWithinHours());
         }
