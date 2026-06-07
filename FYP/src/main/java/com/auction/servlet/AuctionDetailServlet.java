@@ -3,6 +3,7 @@ package com.auction.servlet;
 import com.auction.dao.AutoBidDAO;
 import com.auction.dao.BidDAO;
 import com.auction.dao.QuestionDAO;
+import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionQuestion;
 import com.auction.util.RbacUtil;
@@ -87,6 +88,30 @@ public class AuctionDetailServlet extends HttpServlet {
             questions = List.of();
         }
 
+        // Public bid history (SCRUM-58) — first page embedded on detail page
+        int bidPage = AuctionBidHistoryServlet.parsePage(req);
+        int bidPageSize = AuctionBidHistoryServlet.parsePageSize(req);
+        List<AuctionBidHistoryEntry> bidHistory;
+        int bidTotalCount;
+        try {
+            bidTotalCount = bidDAO.countBidHistory(auctionId);
+            bidHistory = bidDAO.getBidHistory(auctionId, bidPage, bidPageSize);
+        } catch (RuntimeException e) {
+            getServletContext().log("AuctionDetailServlet: bid history error for auction " + auctionId, e);
+            bidHistory = List.of();
+            bidTotalCount = 0;
+        }
+        int bidTotalPages = bidTotalCount == 0 ? 1
+                : (int) Math.ceil((double) bidTotalCount / bidPageSize);
+        if (bidPage > bidTotalPages && bidTotalCount > 0) {
+            bidPage = bidTotalPages;
+            try {
+                bidHistory = bidDAO.getBidHistory(auctionId, bidPage, bidPageSize);
+            } catch (RuntimeException e) {
+                bidHistory = List.of();
+            }
+        }
+
         // Determine whether the current user can bid / ask / answer
         HttpSession session = req.getSession(false);
         boolean loggedIn = session != null && session.getAttribute("userId") != null;
@@ -103,6 +128,12 @@ public class AuctionDetailServlet extends HttpServlet {
 
         req.setAttribute("auction", auction);
         req.setAttribute("questions", questions);
+        req.setAttribute("bidHistory", bidHistory);
+        req.setAttribute("bidPage", bidPage);
+        req.setAttribute("bidTotalPages", bidTotalPages);
+        req.setAttribute("bidPageSize", bidPageSize);
+        req.setAttribute("bidTotalCount", bidTotalCount);
+        req.setAttribute("bidHistoryEmpty", bidHistory.isEmpty());
         req.setAttribute("canBid",  canBid);
         req.setAttribute("canAsk",  canAsk);
         req.setAttribute("canAnswer", canAnswer);
