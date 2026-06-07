@@ -246,6 +246,88 @@
         </div>
     </div>
 
+    <%-- Bid history (SCRUM-58) --%>
+    <div class="row mt-4" id="bid-history">
+        <div class="col-lg-8">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-semibold mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Bid History
+                </h5>
+                <a href="${pageContext.request.contextPath}/auction-bids?auctionId=${auction.auctionId}"
+                   class="small text-decoration-none">
+                    Full list <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+            </div>
+
+            <c:choose>
+                <c:when test="${bidHistoryEmpty}">
+                    <p class="text-muted">No bids yet. Be the first to place a bid.</p>
+                </c:when>
+                <c:otherwise>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm table-hover align-middle bg-white rounded shadow-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Bidder</th>
+                                    <th class="text-end">Amount</th>
+                                    <th class="text-end">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <c:forEach var="b" items="${bidHistory}">
+                                    <tr class="${b.currentLeader ? 'table-success' : ''}">
+                                        <td>
+                                            <c:out value="${b.maskedBidderName}"/>
+                                            <c:if test="${b.currentLeader}">
+                                                <span class="badge text-bg-success ms-1">Leading</span>
+                                            </c:if>
+                                        </td>
+                                        <td class="text-end fw-semibold">
+                                            $<fmt:formatNumber value="${b.bidAmount}" pattern="#,##0.00"/>
+                                        </td>
+                                        <td class="text-end text-muted small text-nowrap">
+                                            <fmt:formatDate value="${b.bidTimeDate}"
+                                                            pattern="dd MMM yyyy, HH:mm"/>
+                                        </td>
+                                    </tr>
+                                </c:forEach>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <c:if test="${bidTotalPages > 1}">
+                        <nav aria-label="Bid history pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item ${bidPage <= 1 ? 'disabled' : ''}">
+                                    <a class="page-link"
+                                       href="?bidPage=${bidPage - 1}&amp;bidSize=${bidPageSize}#bid-history">
+                                        Previous
+                                    </a>
+                                </li>
+                                <c:forEach var="p" begin="1" end="${bidTotalPages}">
+                                    <li class="page-item ${p == bidPage ? 'active' : ''}">
+                                        <a class="page-link"
+                                           href="?bidPage=${p}&amp;bidSize=${bidPageSize}#bid-history">${p}</a>
+                                    </li>
+                                </c:forEach>
+                                <li class="page-item ${bidPage >= bidTotalPages ? 'disabled' : ''}">
+                                    <a class="page-link"
+                                       href="?bidPage=${bidPage + 1}&amp;bidSize=${bidPageSize}#bid-history">
+                                        Next
+                                    </a>
+                                </li>
+                            </ul>
+                        </nav>
+                        <p class="text-muted small mt-2 mb-0">
+                            Showing page ${bidPage} of ${bidTotalPages}
+                            (${bidTotalCount} bid<c:if test="${bidTotalCount != 1}">s</c:if> total)
+                        </p>
+                    </c:if>
+                </c:otherwise>
+            </c:choose>
+        </div>
+    </div>
+
     <%-- Q&A section (SCRUM-62) --%>
     <div class="row mt-4" id="questions">
         <div class="col-lg-8">

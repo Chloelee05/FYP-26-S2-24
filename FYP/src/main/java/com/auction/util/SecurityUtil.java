@@ -227,6 +227,20 @@ public final class SecurityUtil {
     }
 
     /**
+     * Fully masks a username for non-leading bidders in public bid history (SCRUM-58).
+     * No characters from the original name are revealed — unlike {@link #maskUsername}
+     * which keeps the first and last character visible for the current leader.
+     *
+     * @param username display name; {@code null} or blank returns {@code "****"}
+     */
+    public static String maskUsernameFully(String username) {
+        if (username == null || username.isBlank()) {
+            return "****";
+        }
+        return "****";
+    }
+
+    /**
      * Masks a phone number for public listings / PDPA (keeps only the last 4 digits, normalised digits only).
      *
      * @param phone plaintext phone; {@code null} or blank returns {@code null}
