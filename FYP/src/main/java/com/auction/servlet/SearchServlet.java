@@ -177,7 +177,7 @@ public class SearchServlet extends HttpServlet {
      * @return a {@link SearchFilter} (possibly empty), or {@code null} if no filter
      *         parameters were present
      */
-    static SearchFilter parseFilter(HttpServletRequest req) {
+    public static SearchFilter parseFilter(HttpServletRequest req) {
         SearchFilter.Builder b = SearchFilter.builder();
         boolean hasAny = false;
 
