@@ -73,7 +73,11 @@
             <span class="badge bg-secondary mb-2"><c:out value="${auction.category}"/></span>
             <h1 class="h3 fw-bold mb-1"><c:out value="${auction.title}"/></h1>
             <p class="text-muted small mb-3">
-                <i class="bi bi-person me-1"></i>Sold by <strong><c:out value="${auction.sellerUsername}"/></strong>
+                <i class="bi bi-person me-1"></i>Sold by
+                <a href="${pageContext.request.contextPath}/seller/${auction.sellerId}"
+                   class="text-decoration-none fw-semibold">
+                    <c:out value="${auction.sellerUsername}"/>
+                </a>
             </p>
 
             <%-- Bid card --%>
