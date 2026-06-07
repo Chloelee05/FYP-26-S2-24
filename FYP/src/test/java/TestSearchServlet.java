@@ -1,5 +1,7 @@
 import com.auction.dao.SearchDAO;
+import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
+import com.auction.model.SearchSort;
 import com.auction.servlet.SearchServlet;
 import com.auction.util.InputValidator;
 import jakarta.servlet.RequestDispatcher;
@@ -56,6 +58,20 @@ public class TestSearchServlet extends Mockito {
         req = mock(HttpServletRequest.class);
         resp = mock(HttpServletResponse.class);
         when(req.getContextPath()).thenReturn("");
+        when(req.getParameter("category")).thenReturn(null);
+        when(req.getParameter("sortBy")).thenReturn(null);
+        when(req.getParameter("minPrice")).thenReturn(null);
+        when(req.getParameter("maxPrice")).thenReturn(null);
+        when(req.getParameter("condition")).thenReturn(null);
+        when(req.getParameter("location")).thenReturn(null);
+        when(req.getParameter("endWithin")).thenReturn(null);
+    }
+
+    private void stubSearch(String keyword, int page, int size,
+                            List<SearchResultItem> results, int total) {
+        when(mockDAO.search(eq(keyword), isNull(), isNull(), eq(SearchSort.NEWEST), eq(page), eq(size)))
+                .thenReturn(results);
+        when(mockDAO.count(keyword, null, null)).thenReturn(total);
     }
 
     // =========================================================================
@@ -69,9 +85,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("electronics");
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search("electronics", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockDAO.count("electronics", null)).thenReturn(0);
+        stubSearch("electronics", 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
@@ -92,7 +106,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn(null);
         servlet.doGet(req, resp);
         verify(resp).sendRedirect("/");
-        verify(mockDAO, never()).search(any(), anyInt(), anyInt());
+        verify(mockDAO, never()).search(any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -101,7 +115,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("   ");
         servlet.doGet(req, resp);
         verify(resp).sendRedirect("/");
-        verify(mockDAO, never()).search(any(), anyInt(), anyInt());
+        verify(mockDAO, never()).search(any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     // =========================================================================
@@ -119,7 +133,7 @@ public class TestSearchServlet extends Mockito {
         servlet.doGet(req, resp);
 
         verify(req).setAttribute(eq("searchError"), contains("200 characters"));
-        verify(mockDAO, never()).search(any(), anyInt(), anyInt());
+        verify(mockDAO, never()).search(any(), any(), any(), any(), anyInt(), anyInt());
         verify(rd).forward(req, resp);
     }
 
@@ -130,15 +144,14 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn(maxQuery);
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search(maxQuery, null, 1, SearchServlet.DEFAULT_PAGE_SIZE)).thenReturn(Collections.emptyList());
-        when(mockDAO.count(maxQuery, null)).thenReturn(0);
+        stubSearch(maxQuery, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
         servlet.doGet(req, resp);
 
         verify(req, never()).setAttribute(eq("searchError"), any());
-        verify(mockDAO).search(maxQuery, null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockDAO).search(maxQuery, null, null, SearchSort.NEWEST, 1, SearchServlet.DEFAULT_PAGE_SIZE);
         verify(rd).forward(req, resp);
     }
 
@@ -154,8 +167,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("Watch");
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search("Watch", null, 1, SearchServlet.DEFAULT_PAGE_SIZE)).thenReturn(List.of(item));
-        when(mockDAO.count("Watch", null)).thenReturn(1);
+        stubSearch("Watch", 1, SearchServlet.DEFAULT_PAGE_SIZE, List.of(item), 1);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
@@ -175,9 +187,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("XyzNotExisting");
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search("XyzNotExisting", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockDAO.count("XyzNotExisting", null)).thenReturn(0);
+        stubSearch("XyzNotExisting", 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
@@ -198,16 +208,14 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn(injection);
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search(injection, null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockDAO.count(injection, null)).thenReturn(0);
+        stubSearch(injection, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
         servlet.doGet(req, resp);
 
         // Verify that the raw injection string reaches the DAO (PreparedStatement handles it safely)
-        verify(mockDAO).search(eq(injection), isNull(), anyInt(), anyInt());
+        verify(mockDAO).search(eq(injection), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
         verify(resp, never()).sendError(anyInt());
         verify(rd).forward(req, resp);
     }
@@ -219,15 +227,13 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn(injection);
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search(injection, null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockDAO.count(injection, null)).thenReturn(0);
+        stubSearch(injection, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
         servlet.doGet(req, resp);
 
-        verify(mockDAO).search(eq(injection), isNull(), anyInt(), anyInt());
+        verify(mockDAO).search(eq(injection), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), anyInt());
         verify(resp, never()).sendError(anyInt());
     }
 
@@ -238,9 +244,7 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn(xssAttempt);
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
-        when(mockDAO.search(xssAttempt, null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockDAO.count(xssAttempt, null)).thenReturn(0);
+        stubSearch(xssAttempt, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
@@ -263,14 +267,15 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("laptop");
         when(req.getParameter("page")).thenReturn("2");
         when(req.getParameter("size")).thenReturn("999"); // above max → clamped to 50
-        when(mockDAO.search("laptop", null, 2, SearchDAO.MAX_PAGE_SIZE)).thenReturn(Collections.emptyList());
-        when(mockDAO.count("laptop", null)).thenReturn(0);
+        when(mockDAO.search(eq("laptop"), isNull(), isNull(), eq(SearchSort.NEWEST), anyInt(), eq(SearchDAO.MAX_PAGE_SIZE)))
+                .thenReturn(Collections.emptyList());
+        when(mockDAO.count("laptop", null, null)).thenReturn(0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
         servlet.doGet(req, resp);
 
-        verify(mockDAO).search("laptop", null, 2, SearchDAO.MAX_PAGE_SIZE);
+        verify(mockDAO).search("laptop", null, null, SearchSort.NEWEST, 2, SearchDAO.MAX_PAGE_SIZE);
     }
 
     @Test
@@ -279,14 +284,13 @@ public class TestSearchServlet extends Mockito {
         when(req.getParameter("q")).thenReturn("phone");
         when(req.getParameter("page")).thenReturn("abc");
         when(req.getParameter("size")).thenReturn("xyz");
-        when(mockDAO.search("phone", null, 1, SearchServlet.DEFAULT_PAGE_SIZE)).thenReturn(Collections.emptyList());
-        when(mockDAO.count("phone", null)).thenReturn(0);
+        stubSearch("phone", 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
         RequestDispatcher rd = mock(RequestDispatcher.class);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
 
         servlet.doGet(req, resp);
 
-        verify(mockDAO).search("phone", null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockDAO).search("phone", null, null, SearchSort.NEWEST, 1, SearchServlet.DEFAULT_PAGE_SIZE);
     }
 
     // =========================================================================

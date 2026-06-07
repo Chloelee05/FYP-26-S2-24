@@ -1,9 +1,11 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionStatus;
 import com.auction.model.Bid;
 import com.auction.util.DBUtil;
+import com.auction.util.SecurityUtil;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -41,6 +43,9 @@ import java.util.List;
  * as {@code long} (rejects non-numeric input) and then looked up in the DB.</p>
  */
 public class BidDAO {
+
+    /** Maximum page size for public bid history (SCRUM-58). */
+    public static final int MAX_BID_HISTORY_PAGE_SIZE = 50;
 
     private final AutoBidDAO autoBidDAO;
 
@@ -279,6 +284,116 @@ public class BidDAO {
             }
         }
         return urls;
+    }
+
+    // -------------------------------------------------------------------------
+    // Public bid history (SCRUM-58)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a paginated page of bids for an auction, newest first.
+     *
+     * <p><b>Masking (SCRUM-361):</b> The current highest bidder's username is partially
+     * masked via {@link SecurityUtil#maskUsername(String)}; all other bidders are fully
+     * masked via {@link SecurityUtil#maskUsernameFully(String)}. Raw usernames never
+     * leave the DAO.</p>
+     *
+     * @param auctionId auction primary key
+     * @param page      1-based page number
+     * @param pageSize  rows per page (caller should clamp to [1, {@link #MAX_BID_HISTORY_PAGE_SIZE}])
+     * @return ordered list; empty when the auction has no bids
+     */
+    public List<AuctionBidHistoryEntry> getBidHistory(long auctionId, int page, int pageSize) {
+        Integer leaderUserId = findCurrentLeaderUserId(auctionId);
+        int offset = pageSize * (page - 1);
+
+        String sql =
+                "SELECT b.bid_amount, b.bid_time, b.user_id, u.username "
+                + "FROM bids b "
+                + "JOIN users u ON u.id = b.user_id "
+                + "WHERE b.auction_id = ? "
+                + "ORDER BY b.bid_time DESC "
+                + "LIMIT ? OFFSET ?";
+
+        List<AuctionBidHistoryEntry> list = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, pageSize);
+            ps.setInt(3, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int bidderId = rs.getInt("user_id");
+                    String rawUsername = rs.getString("username");
+                    boolean isLeader = leaderUserId != null && leaderUserId == bidderId;
+                    String masked = isLeader
+                            ? SecurityUtil.maskUsername(rawUsername)
+                            : SecurityUtil.maskUsernameFully(rawUsername);
+
+                    Timestamp bidTs = rs.getTimestamp("bid_time");
+                    BigDecimal amount = rs.getBigDecimal("bid_amount");
+                    if (amount == null) amount = BigDecimal.ZERO;
+
+                    list.add(new AuctionBidHistoryEntry(
+                            amount,
+                            bidTs != null ? bidTs.toInstant() : null,
+                            masked,
+                            isLeader));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return list;
+    }
+
+    /** Total bid count for an auction (used for pagination). */
+    public int countBidHistory(long auctionId) {
+        String sql = "SELECT COUNT(*)::int FROM bids WHERE auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return 0;
+    }
+
+    /** Returns {@code true} when an auction row exists (any moderation state). */
+    public boolean auctionExists(long auctionId) {
+        String sql = "SELECT 1 FROM auction WHERE auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns the {@code user_id} of the current highest bidder, or {@code null} when
+     * no bids exist. Ties on amount are broken by latest {@code bid_time}.
+     */
+    Integer findCurrentLeaderUserId(long auctionId) {
+        String sql =
+                "SELECT user_id FROM bids WHERE auction_id = ? "
+                + "ORDER BY bid_amount DESC, bid_time DESC LIMIT 1";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt("user_id");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 
     public List<Bid> auctionBidHistory(Long auction_id)throws Exception

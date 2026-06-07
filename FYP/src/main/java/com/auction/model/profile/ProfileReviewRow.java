@@ -35,6 +35,11 @@ public final class ProfileReviewRow {
         return reviewDate;
     }
 
+    /** JSP {@code fmt:formatDate} helper. */
+    public java.sql.Date getReviewDateUtil() {
+        return reviewDate == null ? null : java.sql.Date.valueOf(reviewDate);
+    }
+
     public String getAuctionTitle() {
         return auctionTitle;
     }
