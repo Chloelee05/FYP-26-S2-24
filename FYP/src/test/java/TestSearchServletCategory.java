@@ -1,6 +1,7 @@
 import com.auction.dao.CategoryDAO;
 import com.auction.dao.SearchDAO;
 import com.auction.model.SearchResultItem;
+import com.auction.model.SearchSort;
 import com.auction.model.admin.Category;
 import com.auction.servlet.SearchServlet;
 import jakarta.servlet.RequestDispatcher;
@@ -65,7 +66,21 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getContextPath()).thenReturn("");
         when(req.getParameter("page")).thenReturn(null);
         when(req.getParameter("size")).thenReturn(null);
+        when(req.getParameter("sortBy")).thenReturn(null);
+        when(req.getParameter("minPrice")).thenReturn(null);
+        when(req.getParameter("maxPrice")).thenReturn(null);
+        when(req.getParameter("condition")).thenReturn(null);
+        when(req.getParameter("location")).thenReturn(null);
+        when(req.getParameter("endWithin")).thenReturn(null);
         when(req.getRequestDispatcher("/WEB-INF/views/search.jsp")).thenReturn(rd);
+    }
+
+    private void stubSearch(String keyword, String categoryName, int page, int size,
+                            List<SearchResultItem> results, int total) {
+        when(mockSearchDAO.search(eq(keyword), eq(categoryName), isNull(),
+                eq(SearchSort.NEWEST), eq(page), eq(size)))
+                .thenReturn(results);
+        when(mockSearchDAO.count(keyword, categoryName, null)).thenReturn(total);
     }
 
     // =========================================================================
@@ -91,15 +106,14 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getParameter("q")).thenReturn("laptop");
         when(req.getParameter("category")).thenReturn("electronics");
         when(mockCategoryDAO.findBySlug("electronics")).thenReturn(electronics);
-        when(mockSearchDAO.search("laptop", "Electronics", 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(List.of(item));
-        when(mockSearchDAO.count("laptop", "Electronics")).thenReturn(1);
+        stubSearch("laptop", "Electronics", 1, SearchServlet.DEFAULT_PAGE_SIZE, List.of(item), 1);
 
         servlet.doGet(req, resp);
 
         verify(mockCategoryDAO).findBySlug("electronics");
-        verify(mockSearchDAO).search("laptop", "Electronics", 1, SearchServlet.DEFAULT_PAGE_SIZE);
-        verify(mockSearchDAO).count("laptop", "Electronics");
+        verify(mockSearchDAO).search("laptop", "Electronics", null, SearchSort.NEWEST,
+                1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockSearchDAO).count("laptop", "Electronics", null);
         verify(req).setAttribute(eq("categorySlug"), eq("electronics"));
         verify(req).setAttribute(eq("categoryName"), eq("Electronics"));
         verify(rd).forward(req, resp);
@@ -116,9 +130,7 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getParameter("q")).thenReturn("watch");
         when(req.getParameter("category")).thenReturn("collectibles");
         when(mockCategoryDAO.findBySlug("collectibles")).thenReturn(collectibles);
-        when(mockSearchDAO.search("watch", "Collectibles", 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(List.of(item));
-        when(mockSearchDAO.count("watch", "Collectibles")).thenReturn(1);
+        stubSearch("watch", "Collectibles", 1, SearchServlet.DEFAULT_PAGE_SIZE, List.of(item), 1);
 
         servlet.doGet(req, resp);
 
@@ -137,9 +149,7 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getParameter("q")).thenReturn("camera");
         when(req.getParameter("category")).thenReturn("nonexistent-category");
         when(mockCategoryDAO.findBySlug("nonexistent-category")).thenReturn(null);
-        when(mockSearchDAO.search("camera", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockSearchDAO.count("camera", null)).thenReturn(0);
+        stubSearch("camera", null, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
 
         servlet.doGet(req, resp);
 
@@ -147,8 +157,9 @@ public class TestSearchServletCategory extends Mockito {
         verify(resp, never()).sendError(anyInt());
         verify(resp, never()).sendError(anyInt(), anyString());
         // Must call DAO with null categoryName (no filter)
-        verify(mockSearchDAO).search("camera", null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
-        verify(mockSearchDAO).count("camera", null);
+        verify(mockSearchDAO).search("camera", null, null, SearchSort.NEWEST,
+                1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockSearchDAO).count("camera", null, null);
         // categoryName attribute is null since slug was invalid
         verify(req).setAttribute(eq("categoryName"), isNull());
         verify(rd).forward(req, resp);
@@ -159,14 +170,13 @@ public class TestSearchServletCategory extends Mockito {
     void testNoCategoryParamRunsUnfiltered() throws Exception {
         when(req.getParameter("q")).thenReturn("phone");
         when(req.getParameter("category")).thenReturn(null);
-        when(mockSearchDAO.search("phone", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockSearchDAO.count("phone", null)).thenReturn(0);
+        stubSearch("phone", null, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
 
         servlet.doGet(req, resp);
 
         verify(mockCategoryDAO, never()).findBySlug(any());
-        verify(mockSearchDAO).search("phone", null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockSearchDAO).search("phone", null, null, SearchSort.NEWEST,
+                1, SearchServlet.DEFAULT_PAGE_SIZE);
         verify(req).setAttribute(eq("categorySlug"), isNull());
         verify(req).setAttribute(eq("categoryName"), isNull());
         verify(rd).forward(req, resp);
@@ -184,17 +194,16 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getParameter("category")).thenReturn(injection);
         // Injection string passed to findBySlug as a bound PreparedStatement param — returns no match
         when(mockCategoryDAO.findBySlug(injection)).thenReturn(null);
-        when(mockSearchDAO.search("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockSearchDAO.count("item", null)).thenReturn(0);
+        stubSearch("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
 
         servlet.doGet(req, resp);
 
         // Injection slug reaches findBySlug safely (parameterized) and returns no category
         verify(mockCategoryDAO).findBySlug(injection);
         // Search proceeds without category filter — injection string never enters the search SQL
-        verify(mockSearchDAO).search("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
-        verify(mockSearchDAO).count("item", null);
+        verify(mockSearchDAO).search("item", null, null, SearchSort.NEWEST,
+                1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockSearchDAO).count("item", null, null);
         verify(resp, never()).sendError(anyInt());
         verify(rd).forward(req, resp);
     }
@@ -206,14 +215,13 @@ public class TestSearchServletCategory extends Mockito {
         when(req.getParameter("q")).thenReturn("item");
         when(req.getParameter("category")).thenReturn(injection);
         when(mockCategoryDAO.findBySlug(injection)).thenReturn(null);
-        when(mockSearchDAO.search("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE))
-                .thenReturn(Collections.emptyList());
-        when(mockSearchDAO.count("item", null)).thenReturn(0);
+        stubSearch("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE, Collections.emptyList(), 0);
 
         servlet.doGet(req, resp);
 
         verify(mockCategoryDAO).findBySlug(injection);
-        verify(mockSearchDAO).search("item", null, 1, SearchServlet.DEFAULT_PAGE_SIZE);
+        verify(mockSearchDAO).search("item", null, null, SearchSort.NEWEST,
+                1, SearchServlet.DEFAULT_PAGE_SIZE);
         verify(resp, never()).sendError(anyInt());
         verify(rd).forward(req, resp);
     }
