@@ -42,6 +42,12 @@ public final class InputValidator {
     /** Maximum length for a buyer report description stored in {@code seller_reports.description}. */
     public static final int REPORT_DESCRIPTION_MAX_LENGTH = 1000;
 
+    /** Maximum length for a buyer question on an auction listing (SCRUM-62). */
+    public static final int QUESTION_MAX_LENGTH = 1000;
+
+    /** Maximum length for a seller reply to an auction question (SCRUM-62). */
+    public static final int ANSWER_MAX_LENGTH = 2000;
+
     public static final int PROFILE_IMAGE_URL_MAX_LENGTH = 512;
     public static final int PASSWORD_MIN_LENGTH = 8;
     public static final int PASSWORD_MAX_LENGTH = 128;
@@ -264,6 +270,32 @@ public final class InputValidator {
         }
         if (description.trim().length() > CATEGORY_DESCRIPTION_MAX_LENGTH) {
             return "Category description must be at most " + CATEGORY_DESCRIPTION_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Auction question text (SCRUM-62): required; max {@link #QUESTION_MAX_LENGTH} characters.
+     */
+    public static String getQuestionViolation(String question) {
+        if (question == null || question.isBlank()) {
+            return "Question text is required.";
+        }
+        if (question.trim().length() > QUESTION_MAX_LENGTH) {
+            return "Question must be at most " + QUESTION_MAX_LENGTH + " characters.";
+        }
+        return null;
+    }
+
+    /**
+     * Seller reply text (SCRUM-62): required; max {@link #ANSWER_MAX_LENGTH} characters.
+     */
+    public static String getAnswerViolation(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return "Answer text is required.";
+        }
+        if (answer.trim().length() > ANSWER_MAX_LENGTH) {
+            return "Answer must be at most " + ANSWER_MAX_LENGTH + " characters.";
         }
         return null;
     }
