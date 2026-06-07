@@ -73,7 +73,11 @@
             <span class="badge bg-secondary mb-2"><c:out value="${auction.category}"/></span>
             <h1 class="h3 fw-bold mb-1"><c:out value="${auction.title}"/></h1>
             <p class="text-muted small mb-3">
-                <i class="bi bi-person me-1"></i>Sold by <strong><c:out value="${auction.sellerUsername}"/></strong>
+                <i class="bi bi-person me-1"></i>Sold by
+                <a href="${pageContext.request.contextPath}/seller/${auction.sellerId}"
+                   class="text-decoration-none fw-semibold">
+                    <c:out value="${auction.sellerUsername}"/>
+                </a>
             </p>
 
             <%-- Bid card --%>
@@ -239,6 +243,207 @@
             <p class="text-body-secondary" style="white-space:pre-line;">
                 <c:out value="${auction.description}"/>
             </p>
+        </div>
+    </div>
+
+    <%-- Bid history (SCRUM-58) --%>
+    <div class="row mt-4" id="bid-history">
+        <div class="col-lg-8">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-semibold mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Bid History
+                </h5>
+                <a href="${pageContext.request.contextPath}/auction-bids?auctionId=${auction.auctionId}"
+                   class="small text-decoration-none">
+                    Full list <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+            </div>
+
+            <c:choose>
+                <c:when test="${bidHistoryEmpty}">
+                    <p class="text-muted">No bids yet. Be the first to place a bid.</p>
+                </c:when>
+                <c:otherwise>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm table-hover align-middle bg-white rounded shadow-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Bidder</th>
+                                    <th class="text-end">Amount</th>
+                                    <th class="text-end">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <c:forEach var="b" items="${bidHistory}">
+                                    <tr class="${b.currentLeader ? 'table-success' : ''}">
+                                        <td>
+                                            <c:out value="${b.maskedBidderName}"/>
+                                            <c:if test="${b.currentLeader}">
+                                                <span class="badge text-bg-success ms-1">Leading</span>
+                                            </c:if>
+                                        </td>
+                                        <td class="text-end fw-semibold">
+                                            $<fmt:formatNumber value="${b.bidAmount}" pattern="#,##0.00"/>
+                                        </td>
+                                        <td class="text-end text-muted small text-nowrap">
+                                            <fmt:formatDate value="${b.bidTimeDate}"
+                                                            pattern="dd MMM yyyy, HH:mm"/>
+                                        </td>
+                                    </tr>
+                                </c:forEach>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <c:if test="${bidTotalPages > 1}">
+                        <nav aria-label="Bid history pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item ${bidPage <= 1 ? 'disabled' : ''}">
+                                    <a class="page-link"
+                                       href="?bidPage=${bidPage - 1}&amp;bidSize=${bidPageSize}#bid-history">
+                                        Previous
+                                    </a>
+                                </li>
+                                <c:forEach var="p" begin="1" end="${bidTotalPages}">
+                                    <li class="page-item ${p == bidPage ? 'active' : ''}">
+                                        <a class="page-link"
+                                           href="?bidPage=${p}&amp;bidSize=${bidPageSize}#bid-history">${p}</a>
+                                    </li>
+                                </c:forEach>
+                                <li class="page-item ${bidPage >= bidTotalPages ? 'disabled' : ''}">
+                                    <a class="page-link"
+                                       href="?bidPage=${bidPage + 1}&amp;bidSize=${bidPageSize}#bid-history">
+                                        Next
+                                    </a>
+                                </li>
+                            </ul>
+                        </nav>
+                        <p class="text-muted small mt-2 mb-0">
+                            Showing page ${bidPage} of ${bidTotalPages}
+                            (${bidTotalCount} bid<c:if test="${bidTotalCount != 1}">s</c:if> total)
+                        </p>
+                    </c:if>
+                </c:otherwise>
+            </c:choose>
+        </div>
+    </div>
+
+    <%-- Q&A section (SCRUM-62) --%>
+    <div class="row mt-4" id="questions">
+        <div class="col-lg-8">
+            <h5 class="fw-semibold mb-3">
+                <i class="bi bi-chat-left-text me-2"></i>Questions &amp; Answers
+            </h5>
+
+            <c:if test="${not empty questionFlash}">
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="bi bi-check-circle-fill me-2"></i><c:out value="${questionFlash}"/>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            </c:if>
+            <c:if test="${not empty questionFlashError}">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i><c:out value="${questionFlashError}"/>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            </c:if>
+
+            <c:choose>
+                <c:when test="${empty questions}">
+                    <p class="text-muted">No questions yet. Be the first to ask about this item.</p>
+                </c:when>
+                <c:otherwise>
+                    <div class="list-group list-group-flush mb-4">
+                        <c:forEach var="q" items="${questions}">
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <span class="badge text-bg-light border text-dark me-1">
+                                            <i class="bi bi-person me-1"></i><c:out value="${q.askerUsername}"/>
+                                        </span>
+                                        <c:if test="${q.answered}">
+                                            <span class="badge text-bg-success">Answered</span>
+                                        </c:if>
+                                    </div>
+                                    <small class="text-muted text-nowrap">
+                                        <fmt:formatDate value="${q.askedAtDate}"
+                                                        pattern="dd MMM yyyy, HH:mm"/>
+                                    </small>
+                                </div>
+                                <p class="mb-2 mt-2"><c:out value="${q.questionText}"/></p>
+
+                                <c:if test="${q.answered}">
+                                    <div class="bg-light rounded p-3 ms-3 border-start border-3 border-primary">
+                                        <div class="d-flex justify-content-between align-items-start gap-2">
+                                            <strong class="small text-primary">
+                                                <i class="bi bi-shop me-1"></i>Seller reply
+                                            </strong>
+                                            <small class="text-muted text-nowrap">
+                                                <fmt:formatDate value="${q.answeredAtDate}"
+                                                                pattern="dd MMM yyyy, HH:mm"/>
+                                            </small>
+                                        </div>
+                                        <p class="mb-0 mt-1 small"><c:out value="${q.answerText}"/></p>
+                                    </div>
+                                </c:if>
+
+                                <%-- Seller reply form (unanswered questions only) --%>
+                                <c:if test="${canAnswer and not q.answered}">
+                                    <form method="post"
+                                          action="${pageContext.request.contextPath}/protected/auction-question"
+                                          class="mt-3 ms-3">
+                                        <input type="hidden" name="action" value="REPLY">
+                                        <input type="hidden" name="auctionId" value="${auction.auctionId}">
+                                        <input type="hidden" name="questionId" value="${q.id}">
+                                        <div class="mb-2">
+                                            <textarea name="answer" class="form-control form-control-sm"
+                                                      rows="2" maxlength="2000" required
+                                                      placeholder="Write your reply…"></textarea>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary btn-sm">
+                                            <i class="bi bi-reply me-1"></i>Post Reply
+                                        </button>
+                                    </form>
+                                </c:if>
+                            </div>
+                        </c:forEach>
+                    </div>
+                </c:otherwise>
+            </c:choose>
+
+            <%-- Buyer ask form --%>
+            <c:choose>
+                <c:when test="${canAsk}">
+                    <div class="card shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title fw-semibold">Ask a question</h6>
+                            <form method="post"
+                                  action="${pageContext.request.contextPath}/protected/auction-question">
+                                <input type="hidden" name="action" value="ASK">
+                                <input type="hidden" name="auctionId" value="${auction.auctionId}">
+                                <textarea name="question" class="form-control mb-2" rows="3"
+                                          maxlength="1000" required
+                                          placeholder="What would you like to know about this item?"></textarea>
+                                <button type="submit" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-send me-1"></i>Submit Question
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </c:when>
+                <c:when test="${isSelf}">
+                    <p class="text-muted small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Buyers can ask questions here. You can reply to unanswered questions above.
+                    </p>
+                </c:when>
+                <c:when test="${not loggedIn}">
+                    <a href="${pageContext.request.contextPath}/login"
+                       class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>Log in to ask a question
+                    </a>
+                </c:when>
+            </c:choose>
         </div>
     </div>
 
