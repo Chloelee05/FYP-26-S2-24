@@ -4,6 +4,9 @@ import com.auction.model.AccountReport;
 import com.auction.util.DBUtil;
 
 import java.sql.*;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Data-access layer for buyer reports against sellers.
@@ -138,6 +141,39 @@ public class ReportDAO {
             return stmt.executeUpdate() > 0;
         } catch (Exception e) {
             throw new Exception("Failed to report user", e);
+        }
+    }
+
+    public List<AccountReport> getAllReports() throws Exception
+    {
+        String sqlString = "SELECT * FROM account_reports";
+        List<AccountReport> result = new ArrayList<>();
+        try(Connection conn = DBUtil.connectDB();
+            PreparedStatement stmt = conn.prepareStatement(sqlString)){
+            ResultSet rs = stmt.executeQuery();
+            while(rs.next())
+            {
+                AccountReport accountReport = new AccountReport();
+                accountReport.setReporter_id(rs.getLong("reporter_id"));
+                accountReport.setTarget_id(rs.getLong("target_id"));
+                accountReport.setReason(rs.getString("reason"));
+                accountReport.setComment(rs.getString("comment"));
+                accountReport.setCreated_at(rs.getTimestamp("created_at").toInstant());
+                result.add(accountReport);
+            }
+        }
+        return result;
+    }
+
+    public boolean setReportStatus(Long id, String status) throws Exception{
+        String sqlString = "UPDATE account_reports SET resolved = ? WHERE id = ?";
+        try(Connection conn = DBUtil.connectDB();
+            PreparedStatement stmt = conn.prepareStatement(sqlString)){
+            boolean value = status.equalsIgnoreCase("true");
+            stmt.setBoolean(1, value);
+            stmt.setLong(2, id);
+            int result = stmt.executeUpdate();
+            return result > 0;
         }
     }
 }
