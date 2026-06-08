@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.time.Instant;
 
 public class AccountReport implements Serializable {
+    private Long id;
     private Long reporter_id;
     private Long target_id;
     private String reason;
@@ -15,12 +16,19 @@ public class AccountReport implements Serializable {
 
     }
 
-    public AccountReport(Long reporter_id, Long target_id, String reason, String comment, Instant created_at){
+    public AccountReport(Long id, Long reporter_id, Long target_id, String reason, String comment, Instant created_at){
+        this.id = id;
         this.reporter_id = reporter_id;
         this.target_id = target_id;
         this.reason = reason;
         this.comment = comment;
         this.created_at = created_at;
+    }
+
+    public Long getId(){return this.id;}
+
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public Long getReporter_id() {
