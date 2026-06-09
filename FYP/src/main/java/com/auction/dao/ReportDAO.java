@@ -176,4 +176,27 @@ public class ReportDAO {
             return result > 0;
         }
     }
+
+    public AccountReport findById(Long report_id) throws Exception{
+        String sqlString = "SELECT * FROM account_reports WHERE id = ?";
+        try(Connection conn = DBUtil.connectDB();
+            PreparedStatement stmt = conn.prepareStatement(sqlString)) {
+            stmt.setLong(1, report_id);
+            try(ResultSet rs = stmt.executeQuery())
+            {
+                AccountReport accountReport = new AccountReport();
+                while (rs.next())
+                {
+                    accountReport.setId(rs.getLong("id"));
+                    accountReport.setReporter_id(rs.getLong("reporter_id"));
+                    accountReport.setTarget_id(rs.getLong("target_id"));
+                    accountReport.setReason(rs.getString("reason"));
+                    accountReport.setComment(rs.getString("comment"));
+                    accountReport.setCreated_at(rs.getTimestamp("created_at").toInstant());
+                    accountReport.setResolved(rs.getBoolean("resolved"));
+                }
+                return accountReport;
+            }
+        }
+    }
 }
