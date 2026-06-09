@@ -138,4 +138,107 @@ public class ReviewDAO {
             }
         }
     }
+
+    public enum BuyerRatingResult {
+        SUCCESS,
+        AUCTION_NOT_FOUND,
+        /** Auction status is not FINISHED. */
+        AUCTION_NOT_FINISHED,
+        /** The session seller does not own this auction. */
+        NOT_AUCTION_OWNER,
+        /** The auction has no winner yet (winner_id is NULL). */
+        NO_WINNER,
+        /** A rating from this seller for this auction already exists. */
+        ALREADY_RATED
+    }
+
+    public BuyerRatingResult insertBuyerRating(long auctionId, int buyerId, int score) {
+        Connection conn = null;
+        try {
+            conn = DBUtil.connectDB();
+            conn.setAutoCommit(false);
+
+            String selectSql =
+                    "SELECT a.status_id, a.buyer_id, d.seller_id "
+                            + "FROM auction a "
+                            + "JOIN auction_details d ON d.id = a.auction_id "
+                            + "WHERE a.auction_id = ?";
+
+            int statusId;
+            int dbBuyerId;
+            Integer winnerId;
+
+            try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return BuyerRatingResult.AUCTION_NOT_FOUND;
+                    }
+                    statusId  = rs.getInt("status_id");
+                    dbBuyerId = rs.getInt("buyer_id");
+                    int w = rs.getInt("winner_id");
+                    winnerId = rs.wasNull() ? null : w;
+                }
+            }
+
+            if (statusId != AuctionStatus.FINISHED.getId()) {
+                conn.rollback();
+                return BuyerRatingResult.AUCTION_NOT_FINISHED;
+            }
+            if (dbBuyerId != buyerId) {
+                conn.rollback();
+                return BuyerRatingResult.NOT_AUCTION_OWNER;
+            }
+            if (winnerId == null) {
+                conn.rollback();
+                return BuyerRatingResult.NO_WINNER;
+            }
+
+            // Friendly duplicate check before hitting the UNIQUE constraint
+            String existsSql =
+                    "SELECT 1 FROM user_reviews "
+                            + "WHERE reviewer_user_id = ? AND auction_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(existsSql)) {
+                ps.setInt(1, buyerId);
+                ps.setLong(2, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        conn.rollback();
+                        return BuyerRatingResult.ALREADY_RATED;
+                    }
+                }
+            }
+
+            // buyerId resolved from winner_id — never from the request (IDOR prevention)
+            String insertSql =
+                    "INSERT INTO user_reviews "
+                            + "(reviewer_user_id, reviewee_user_id, auction_id, rating) "
+                            + "VALUES (?, ?, ?, ?)";
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                ps.setInt(1, buyerId);
+                ps.setInt(2, winnerId);
+                ps.setLong(3, auctionId);
+                ps.setInt(4, score);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            return BuyerRatingResult.SUCCESS;
+
+        } catch (Exception e) {
+            if (conn != null) {
+                try { conn.rollback(); } catch (SQLException ignored) { }
+            }
+            throw new RuntimeException(e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException ignored) { }
+            }
+        }
+    }
+
 }
