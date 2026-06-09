@@ -31,7 +31,7 @@ public class AdminDashboardServlet extends HttpServlet {
         this.auctionDAO = new AuctionDAO();
     }
 
-    AdminDashboardServlet(UserDAO userDAO, AuctionDAO auctionDAO) {
+    public AdminDashboardServlet(UserDAO userDAO, AuctionDAO auctionDAO) {
         this.userDAO = userDAO;
         this.auctionDAO = auctionDAO;
     }
