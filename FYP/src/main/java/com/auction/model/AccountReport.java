@@ -10,14 +10,14 @@ public class AccountReport implements Serializable {
     private String reason;
     private String comment;
     private Instant created_at;
+    private boolean resolved;
 
     public AccountReport()
     {
 
     }
 
-    public AccountReport(Long id, Long reporter_id, Long target_id, String reason, String comment, Instant created_at){
-        this.id = id;
+    public AccountReport(Long reporter_id, Long target_id, String reason, String comment, Instant created_at){
         this.reporter_id = reporter_id;
         this.target_id = target_id;
         this.reason = reason;
@@ -72,5 +72,13 @@ public class AccountReport implements Serializable {
 
     public void setCreated_at(Instant created_at) {
         this.created_at = created_at;
+    }
+
+    public boolean getResolved() {
+        return this.resolved;
+    }
+
+    public void setResolved(boolean resolved) {
+        this.resolved = resolved;
     }
 }
