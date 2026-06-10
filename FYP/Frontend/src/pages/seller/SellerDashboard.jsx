@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Edit2, XCircle, RotateCcw, Eye, Star } from 'lucide-react';
-import { getSellerAuctions, cancelAuction, relistAuction, rateBuyer } from '../../api/seller';
+import { Plus, Edit2, XCircle, RotateCcw, Eye, Star, BarChart3, Mail } from 'lucide-react';
+import {
+  getSellerAuctions, cancelAuction, relistAuction, rateBuyer,
+  getSellerAnalytics, emailSellerAnalytics,
+} from '../../api/seller';
 import { formatCurrency } from '../../utils/helpers';
 import CountdownTimer from '../../components/CountdownTimer';
 import StarRating from '../../components/StarRating';
@@ -25,12 +28,29 @@ export default function SellerDashboard() {
   const [ratingComment, setRatingComment] = useState('');
   const [ratingLoading, setRatingLoading] = useState(false);
   const [ratedIds, setRatedIds] = useState(new Set()); // auctionIds already rated this session
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsMsg, setAnalyticsMsg] = useState('');
+  const [emailing, setEmailing] = useState(false);
 
   useEffect(() => {
     getSellerAuctions()
       .then(r => setAuctions(r.data.auctions ?? r.data ?? []))
       .catch(() => {});
+    getSellerAnalytics().then(r => setAnalytics(r.data)).catch(() => {});
   }, []);
+
+  const handleEmailAnalytics = async () => {
+    setEmailing(true);
+    setAnalyticsMsg('');
+    try {
+      const r = await emailSellerAnalytics();
+      setAnalyticsMsg(r.data.message || 'Analytics report emailed.');
+    } catch (err) {
+      setAnalyticsMsg(err.response?.data?.error || 'Could not send report.');
+    } finally {
+      setEmailing(false);
+    }
+  };
 
   const s = (a) => a.statusName?.toUpperCase();
   const active    = auctions.filter(a => s(a) === 'ACTIVE' || s(a) === 'PENDING');
@@ -127,6 +147,54 @@ export default function SellerDashboard() {
           </div>
         ))}
       </div>
+
+      {/* Analytics */}
+      {analytics && (
+        <div className="card p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-gray-900 flex items-center gap-2">
+              <BarChart3 size={18} className="text-blue-500" /> Performance Analytics
+            </h2>
+            <button
+              onClick={handleEmailAnalytics}
+              disabled={emailing}
+              className="flex items-center gap-2 border border-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Mail size={14} /> {emailing ? 'Sending…' : 'Email me this report'}
+            </button>
+          </div>
+          {analyticsMsg && <div className="text-sm text-blue-600 mb-3">{analyticsMsg}</div>}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            {[
+              { label: 'Items Sold', value: analytics.soldCount },
+              { label: 'Revenue', value: formatCurrency(analytics.totalRevenue) },
+              { label: 'Avg Sale', value: formatCurrency(analytics.avgSalePrice) },
+              { label: 'Sell-through', value: `${analytics.sellThroughRate}%` },
+              { label: 'Total Listings', value: analytics.totalListings },
+              { label: 'Active', value: analytics.activeListings },
+              { label: 'Bids Received', value: analytics.bidsReceived },
+            ].map(m => (
+              <div key={m.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                <span className="block text-lg font-bold text-gray-900">{m.value}</span>
+                <span className="text-xs text-gray-400">{m.label}</span>
+              </div>
+            ))}
+          </div>
+          {analytics.topListings?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-2">Top listings by bids</p>
+              <div className="space-y-1">
+                {analytics.topListings.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm border-b border-gray-50 pb-1">
+                    <span className="text-gray-700 truncate">{t.title}</span>
+                    <span className="text-gray-400 shrink-0 ml-2">{t.bidCount} bids · {formatCurrency(t.topBid)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-4">

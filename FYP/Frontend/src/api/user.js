@@ -23,3 +23,12 @@ export const uploadProfilePhoto = (file) => {
 
 export const deleteAccount = () =>
   api.post('/account/delete', form({ confirm: 'DELETE' }), F);
+
+// Payment methods (PAN stored AES-GCM encrypted server-side)
+export const getPaymentMethods = () => api.get('/account/payment-methods');
+export const addPaymentMethod = (data) =>
+  api.post('/account/payment-methods', form({ action: 'add', ...data }), F);
+export const deletePaymentMethod = (id) =>
+  api.post('/account/payment-methods', form({ action: 'delete', id }), F);
+export const setDefaultPaymentMethod = (id) =>
+  api.post('/account/payment-methods', form({ action: 'default', id }), F);

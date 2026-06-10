@@ -32,6 +32,14 @@ public final class AuctionDetail {
      */
     private final boolean open;
 
+    // ── Strategy / extended fields (set post-construction to keep the core
+    //    constructor stable for existing callers and tests) ──
+    private int auctionTypeId = AuctionType.PRICE_UP.getId();
+    private BigDecimal dutchFloorPrice; // Dutch clock floor; null = unset
+    private Instant dateCreated;        // auction open time (for Dutch clock)
+    private int quantity = 1;
+    private BigDecimal costPrice;       // seller-private; never exposed to buyers
+
     public AuctionDetail(long auctionId, String title, String description, String category,
                          String condition, BigDecimal startingPrice, BigDecimal currentBid,
                          int bidCount, BigDecimal maxPrice, Instant endDate, int sellerId,
@@ -66,4 +74,15 @@ public final class AuctionDetail {
     public String getSellerUsername()  { return sellerUsername; }
     public List<String> getImageUrls() { return imageUrls; }
     public boolean isOpen()            { return open; }
+
+    public int getAuctionTypeId()              { return auctionTypeId; }
+    public void setAuctionTypeId(int id)       { this.auctionTypeId = id; }
+    public BigDecimal getDutchFloorPrice()     { return dutchFloorPrice; }
+    public void setDutchFloorPrice(BigDecimal p) { this.dutchFloorPrice = p; }
+    public Instant getDateCreated()            { return dateCreated; }
+    public void setDateCreated(Instant t)      { this.dateCreated = t; }
+    public int getQuantity()                   { return quantity; }
+    public void setQuantity(int q)             { this.quantity = q; }
+    public BigDecimal getCostPrice()           { return costPrice; }
+    public void setCostPrice(BigDecimal c)     { this.costPrice = c; }
 }

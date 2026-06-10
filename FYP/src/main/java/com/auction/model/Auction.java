@@ -14,6 +14,9 @@ public class Auction implements  Serializable{
     private Instant end_date;
     private float starting_price;
     private BigDecimal maxPrice;    // null = no cap (SCRUM-33)
+    private int quantity = 1;
+    private BigDecimal costPrice;       // seller's private cost; null = unset
+    private BigDecimal dutchFloorPrice; // Dutch clock floor; null = unset
     private AuctionType auctionType;
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
@@ -100,6 +103,18 @@ public class Auction implements  Serializable{
     public BigDecimal getMaxPrice() { return this.maxPrice; }
 
     public void setMaxPrice(BigDecimal maxPrice) { this.maxPrice = maxPrice; }
+
+    public int getQuantity() { return this.quantity; }
+
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+
+    public BigDecimal getCostPrice() { return this.costPrice; }
+
+    public void setCostPrice(BigDecimal costPrice) { this.costPrice = costPrice; }
+
+    public BigDecimal getDutchFloorPrice() { return this.dutchFloorPrice; }
+
+    public void setDutchFloorPrice(BigDecimal dutchFloorPrice) { this.dutchFloorPrice = dutchFloorPrice; }
 
     public AuctionType getAuctionType() {
         return this.auctionType;

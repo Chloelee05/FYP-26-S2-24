@@ -4,8 +4,13 @@ import com.auction.dao.AuctionDAO;
 import com.auction.dao.AuctionTagsDAO;
 import com.auction.dao.ReviewDAO;
 import com.auction.dao.ReviewDAO.SellerRatingResult;
+import com.auction.dao.SellerAnalyticsDAO;
 import com.auction.dao.SellerAuctionDAO;
 import com.auction.dao.SellerProfileDAO;
+import com.auction.dao.UserDAO;
+import com.auction.model.User;
+import com.auction.util.MailConfig;
+import com.auction.util.OtpMailer;
 import com.auction.model.Auction;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
@@ -48,6 +53,8 @@ public class SellerApiServlet extends ApiBase {
     private final AuctionDAO       mainDAO     = new AuctionDAO();
     private final AuctionTagsDAO   tagsDAO     = new AuctionTagsDAO();
     private final ReviewDAO        reviewDAO   = new ReviewDAO();
+    private final SellerAnalyticsDAO analyticsDAO = new SellerAnalyticsDAO();
+    private final UserDAO          userDAO     = new UserDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -59,6 +66,8 @@ public class SellerApiServlet extends ApiBase {
 
         if ("auctions".equals(parts[0])) {
             handleListAuctions(req, resp);
+        } else if ("analytics".equals(parts[0])) {
+            handleAnalytics(req, resp);
         } else {
             // /api/seller/{id} or /api/seller/{id}/edit
             long sellerId;
@@ -84,7 +93,55 @@ public class SellerApiServlet extends ApiBase {
             case "edit":       handleEdit(req, resp);       break;
             case "relist":     handleRelist(req, resp);     break;
             case "rate-buyer": handleRateBuyer(req, resp);  break;
+            case "analytics":  handleAnalyticsEmail(req, resp); break;
             default: error(resp, 404, "Not found."); break;
+        }
+    }
+
+    // ── GET: seller analytics ────────────────────────────────────────────────
+
+    private void handleAnalytics(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        AuthSession session = authSession(req);
+        if (!isSeller(session)) { forbidden(resp); return; }
+        int sellerId = ((Number) session.getAttribute("userId")).intValue();
+        try {
+            ok(resp, analyticsDAO.generate(sellerId));
+        } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Seller analytics failed for " + sellerId, e);
+            serverError(resp, "Could not generate analytics.");
+        }
+    }
+
+    // ── POST: email the seller their analytics report ────────────────────────
+
+    private void handleAnalyticsEmail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        AuthSession session = authSession(req);
+        if (!isSeller(session)) { forbidden(resp); return; }
+        int sellerId = ((Number) session.getAttribute("userId")).intValue();
+
+        try {
+            Map<String, Object> analytics = analyticsDAO.generate(sellerId);
+            User seller = userDAO.getUserById(sellerId);
+            if (seller == null || seller.getEmail() == null) {
+                serverError(resp, "Seller email not found."); return;
+            }
+            if (!MailConfig.isSmtpConfigured()) {
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("message", "Email is not configured on this server; showing the report inline instead.");
+                body.put("emailConfigured", false);
+                body.put("report", SellerAnalyticsDAO.toEmailBody(seller.getUsername(), analytics));
+                ok(resp, body);
+                return;
+            }
+            OtpMailer.sendNotification(seller.getEmail(),
+                    "Your AuctionHub seller analytics report",
+                    SellerAnalyticsDAO.toEmailBody(seller.getUsername(), analytics));
+            okMsg(resp, "Analytics report emailed to " + seller.getEmail() + ".");
+        } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Seller analytics email failed for " + sellerId, e);
+            serverError(resp, "Could not send analytics report.");
         }
     }
 
@@ -198,6 +255,9 @@ public class SellerApiServlet extends ApiBase {
         String startDateStr   = param(req, "startDate");
         String startPriceStr  = param(req, "startPrice");
         String maxPriceStr    = param(req, "maxPrice");
+        String quantityStr    = param(req, "quantity");
+        String costPriceStr   = param(req, "costPrice");
+        String dutchFloorStr  = param(req, "dutchFloorPrice");
         String auctionTypeStr = param(req, "auctionType");
         String itemCondStr    = param(req, "itemCondition");
         String[] tagIdsArr    = req.getParameterValues("tags");
@@ -248,6 +308,46 @@ public class SellerApiServlet extends ApiBase {
             catch (IllegalArgumentException e) { badRequest(resp, "Invalid auction type."); return; }
         }
 
+        int quantity = 1;
+        if (quantityStr != null && !quantityStr.isBlank()) {
+            try {
+                quantity = Integer.parseInt(quantityStr);
+                if (quantity < 1) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Quantity must be a whole number of at least 1."); return;
+            }
+        }
+
+        BigDecimal costPrice = null;
+        if (costPriceStr != null && !costPriceStr.isBlank()) {
+            try {
+                costPrice = new BigDecimal(costPriceStr);
+                if (costPrice.compareTo(BigDecimal.ZERO) < 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid cost price."); return;
+            }
+        }
+
+        // Dutch auctions need a floor price strictly below the (high) starting price.
+        BigDecimal dutchFloor = null;
+        if (auctionType == AuctionType.DUTCH_AUCTION) {
+            if (dutchFloorStr == null || dutchFloorStr.isBlank()) {
+                badRequest(resp, "Dutch auctions require a floor price."); return;
+            }
+            try {
+                dutchFloor = new BigDecimal(dutchFloorStr);
+                if (dutchFloor.compareTo(BigDecimal.ZERO) < 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid Dutch floor price."); return;
+            }
+            if (startPrice <= 0) {
+                badRequest(resp, "Dutch auctions require a starting (high) price."); return;
+            }
+            if (dutchFloor.compareTo(BigDecimal.valueOf(startPrice)) >= 0) {
+                badRequest(resp, "Dutch floor price must be below the starting price."); return;
+            }
+        }
+
         ItemCondition itemCondition;
         try {
             itemCondition = ItemCondition.getItemCondition(Integer.parseInt(itemCondStr));
@@ -272,6 +372,9 @@ public class SellerApiServlet extends ApiBase {
         Auction auction = new Auction(sellerId, auctionName, auctionDetails,
                 startDate, endDate, startPrice, auctionType, itemCondition, tagIds);
         auction.setMaxPrice(maxPrice);
+        auction.setQuantity(quantity);
+        auction.setCostPrice(costPrice);
+        auction.setDutchFloorPrice(dutchFloor);
         auction.setCategory(category != null ? category : "");
 
         try {

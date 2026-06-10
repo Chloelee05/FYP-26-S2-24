@@ -202,6 +202,28 @@ public class AdminApiServlet extends ApiBase {
                     serverError(resp, "Could not unban account.");
                 }
                 break;
+            case "approve":
+                if (target.getStatusId() != Status.PENDING.getId()) {
+                    error(resp, 400, "This account is not awaiting approval."); return;
+                }
+                if (userDAO.updateStatus(targetId, Status.ACTIVE.getId())) {
+                    com.auction.notification.NotificationService.notifyAccountApproved(targetId);
+                    okMsg(resp, "Account approved.");
+                } else {
+                    serverError(resp, "Could not approve account.");
+                }
+                break;
+            case "reject":
+                if (target.getStatusId() != Status.PENDING.getId()) {
+                    error(resp, 400, "This account is not awaiting approval."); return;
+                }
+                if (userDAO.updateStatus(targetId, Status.REJECTED.getId())) {
+                    com.auction.notification.NotificationService.notifyAccountRejected(targetId);
+                    okMsg(resp, "Account rejected.");
+                } else {
+                    serverError(resp, "Could not reject account.");
+                }
+                break;
             default:
                 badRequest(resp, "Unknown action: " + action);
         }

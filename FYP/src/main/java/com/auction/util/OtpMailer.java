@@ -31,6 +31,11 @@ public final class OtpMailer {
                         + "This code expires in 5 minutes. If you did not attempt to log in, please secure your account.");
     }
 
+    /** Generic transactional email (e.g. bidding-result and account notifications). */
+    public static void sendNotification(String toEmail, String subject, String body) throws MessagingException {
+        send(toEmail, subject, body);
+    }
+
     private static void send(String toEmail, String subject, String body) throws MessagingException {
         Properties props = new Properties();
         String host = MailConfig.smtpHost();

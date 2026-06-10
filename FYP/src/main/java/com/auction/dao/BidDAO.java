@@ -3,9 +3,11 @@ package com.auction.dao;
 import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionStatus;
+import com.auction.model.AuctionType;
 import com.auction.model.Bid;
 import com.auction.model.ItemCondition;
 import com.auction.util.DBUtil;
+import com.auction.util.DutchClock;
 import com.auction.util.SecurityUtil;
 
 import java.math.BigDecimal;
@@ -72,7 +74,11 @@ public class BidDAO {
         /** Bid amount ≤ current floor (current highest bid or starting price). */
         BID_TOO_LOW,
         /** Bid amount exceeds the seller-set max-price cap. */
-        EXCEEDS_MAX_PRICE
+        EXCEEDS_MAX_PRICE,
+        /** Sealed (blind) auction: this buyer has already submitted a bid. */
+        ALREADY_BID,
+        /** Wrong strategy for the requested action (e.g. accept on a non-Dutch auction). */
+        WRONG_AUCTION_TYPE
     }
 
     // -------------------------------------------------------------------------
@@ -209,6 +215,188 @@ public class BidDAO {
         }
     }
 
+    /** Returns the {@code auction_type} id, or -1 when the auction does not exist. */
+    public int getAuctionTypeId(long auctionId) {
+        String sql = "SELECT auction_type FROM auction WHERE auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return -1;
+    }
+
+    // -------------------------------------------------------------------------
+    // Dutch auction: accept the current descending clock price (first acceptance wins)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Accepts the current Dutch clock price for {@code auctionId}. The first valid
+     * acceptance records a winning bid at the computed clock price and finishes the
+     * auction. Row-locked to serialise concurrent acceptances (only the first wins).
+     */
+    public BidResult acceptDutchBid(long auctionId, int buyerId) {
+        Connection conn = null;
+        try {
+            conn = DBUtil.connectDB();
+            conn.setAutoCommit(false);
+
+            String lockSql =
+                    "SELECT a.status_id, a.date_created, a.date_end, a.moderation_state, "
+                    + "a.seller_id, a.auction_type, d.starting_price, d.dutch_floor_price "
+                    + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+                    + "WHERE a.auction_id = ? FOR UPDATE";
+
+            int statusId, sellerId, typeId;
+            Instant dateCreated, dateEnd;
+            String moderationState;
+            BigDecimal startingPrice, dutchFloor;
+            try (PreparedStatement ps = conn.prepareStatement(lockSql)) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return BidResult.AUCTION_NOT_FOUND; }
+                    statusId = rs.getInt("status_id");
+                    dateCreated = rs.getTimestamp("date_created").toInstant();
+                    dateEnd = rs.getTimestamp("date_end").toInstant();
+                    moderationState = rs.getString("moderation_state");
+                    sellerId = rs.getInt("seller_id");
+                    typeId = rs.getInt("auction_type");
+                    startingPrice = rs.getBigDecimal("starting_price");
+                    if (startingPrice == null) startingPrice = BigDecimal.ZERO;
+                    dutchFloor = rs.getBigDecimal("dutch_floor_price");
+                }
+            }
+
+            if (typeId != AuctionType.DUTCH_AUCTION.getId()) { conn.rollback(); return BidResult.WRONG_AUCTION_TYPE; }
+            if (statusId != AuctionStatus.ACTIVE.getId() || Instant.now().isAfter(dateEnd)) {
+                conn.rollback(); return BidResult.AUCTION_CLOSED;
+            }
+            if (!"active".equals(moderationState)) { conn.rollback(); return BidResult.AUCTION_REMOVED; }
+            if (sellerId == buyerId) { conn.rollback(); return BidResult.SELF_BID; }
+
+            BigDecimal clockPrice = DutchClock.currentPrice(
+                    startingPrice, dutchFloor, dateCreated, dateEnd, Instant.now());
+
+            String insertSql = "INSERT INTO bids (auction_id, user_id, bid_amount, bid_time) "
+                    + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)";
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                ps.setLong(1, auctionId);
+                ps.setInt(2, buyerId);
+                ps.setBigDecimal(3, clockPrice);
+                ps.executeUpdate();
+            }
+
+            // First acceptance ends the auction and records the winner.
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE auction SET status_id = ? WHERE auction_id = ?")) {
+                ps.setInt(1, AuctionStatus.FINISHED.getId());
+                ps.setLong(2, auctionId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
+                ps.setInt(1, buyerId);
+                ps.setInt(2, clockPrice.setScale(0, java.math.RoundingMode.HALF_UP).intValue());
+                ps.setLong(3, auctionId);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            return BidResult.SUCCESS;
+        } catch (Exception e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) { } }
+            throw new RuntimeException(e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) { }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Blind (sealed-bid) auction: one hidden bid per buyer; revealed at close
+    // -------------------------------------------------------------------------
+
+    /**
+     * Records a sealed bid for a BLIND auction. No floor-vs-others check (bids are
+     * hidden); the amount must merely meet the starting price. Each buyer may submit
+     * only one sealed bid.
+     */
+    public BidResult placeSealedBid(long auctionId, int buyerId, BigDecimal bidAmount) {
+        if (bidAmount == null || bidAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BidResult.BID_TOO_LOW;
+        }
+        Connection conn = null;
+        try {
+            conn = DBUtil.connectDB();
+            conn.setAutoCommit(false);
+
+            String lockSql =
+                    "SELECT a.status_id, a.date_end, a.moderation_state, a.seller_id, a.auction_type, "
+                    + "d.starting_price FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+                    + "WHERE a.auction_id = ? FOR UPDATE";
+
+            int statusId, sellerId, typeId;
+            Instant dateEnd;
+            String moderationState;
+            BigDecimal startingPrice;
+            try (PreparedStatement ps = conn.prepareStatement(lockSql)) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return BidResult.AUCTION_NOT_FOUND; }
+                    statusId = rs.getInt("status_id");
+                    dateEnd = rs.getTimestamp("date_end").toInstant();
+                    moderationState = rs.getString("moderation_state");
+                    sellerId = rs.getInt("seller_id");
+                    typeId = rs.getInt("auction_type");
+                    startingPrice = rs.getBigDecimal("starting_price");
+                    if (startingPrice == null) startingPrice = BigDecimal.ZERO;
+                }
+            }
+
+            if (typeId != AuctionType.BLIND.getId()) { conn.rollback(); return BidResult.WRONG_AUCTION_TYPE; }
+            if (statusId != AuctionStatus.ACTIVE.getId() || Instant.now().isAfter(dateEnd)) {
+                conn.rollback(); return BidResult.AUCTION_CLOSED;
+            }
+            if (!"active".equals(moderationState)) { conn.rollback(); return BidResult.AUCTION_REMOVED; }
+            if (sellerId == buyerId) { conn.rollback(); return BidResult.SELF_BID; }
+            if (bidAmount.compareTo(startingPrice) < 0) { conn.rollback(); return BidResult.BID_TOO_LOW; }
+
+            // One sealed bid per buyer
+            String existsSql = "SELECT 1 FROM bids WHERE auction_id = ? AND user_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(existsSql)) {
+                ps.setLong(1, auctionId);
+                ps.setInt(2, buyerId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) { conn.rollback(); return BidResult.ALREADY_BID; }
+                }
+            }
+
+            String insertSql = "INSERT INTO bids (auction_id, user_id, bid_amount, bid_time) "
+                    + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)";
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                ps.setLong(1, auctionId);
+                ps.setInt(2, buyerId);
+                ps.setBigDecimal(3, bidAmount);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            return BidResult.SUCCESS;
+        } catch (Exception e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) { } }
+            throw new RuntimeException(e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) { }
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Fetch auction detail for the public detail page (SCRUM-264)
     // -------------------------------------------------------------------------
@@ -221,9 +409,11 @@ public class BidDAO {
      */
     public AuctionDetail findByIdForDisplay(long auctionId) {
         String sql =
-                "SELECT a.auction_id, a.status_id, a.date_end, a.moderation_state, a.seller_id, "
+                "SELECT a.auction_id, a.status_id, a.date_created, a.date_end, a.moderation_state, "
+                + "a.seller_id, a.auction_type, "
                 + "u.username AS seller_username, "
                 + "d.title, d.description, d.category, d.item_condition_id, d.starting_price, d.max_price, "
+                + "d.quantity, d.cost_price, d.dutch_floor_price, "
                 + "COALESCE(MAX(b.bid_amount), d.starting_price) AS current_bid, "
                 + "COUNT(b.bid_id)::int AS bid_count "
                 + "FROM auction a "
@@ -231,9 +421,10 @@ public class BidDAO {
                 + "JOIN users u ON u.id = a.seller_id "
                 + "LEFT JOIN bids b ON b.auction_id = a.auction_id "
                 + "WHERE a.auction_id = ? "
-                + "GROUP BY a.auction_id, a.status_id, a.date_end, a.moderation_state, "
-                + "         a.seller_id, u.username, d.title, d.description, d.category, "
-                + "         d.item_condition_id, d.starting_price, d.max_price";
+                + "GROUP BY a.auction_id, a.status_id, a.date_created, a.date_end, a.moderation_state, "
+                + "         a.seller_id, a.auction_type, u.username, d.title, d.description, d.category, "
+                + "         d.item_condition_id, d.starting_price, d.max_price, "
+                + "         d.quantity, d.cost_price, d.dutch_floor_price";
 
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -263,7 +454,7 @@ public class BidDAO {
                     conditionName = "";
                 }
 
-                return new AuctionDetail(
+                AuctionDetail detail = new AuctionDetail(
                         rs.getLong("auction_id"),
                         rs.getString("title"),
                         rs.getString("description"),
@@ -278,6 +469,13 @@ public class BidDAO {
                         rs.getString("seller_username"),
                         images,
                         open);
+                detail.setAuctionTypeId(rs.getInt("auction_type"));
+                detail.setDutchFloorPrice(rs.getBigDecimal("dutch_floor_price"));
+                Timestamp created = rs.getTimestamp("date_created");
+                detail.setDateCreated(created != null ? created.toInstant() : null);
+                detail.setQuantity(rs.getInt("quantity"));
+                detail.setCostPrice(rs.getBigDecimal("cost_price"));
+                return detail;
             }
         } catch (Exception e) {
             throw new RuntimeException(e);

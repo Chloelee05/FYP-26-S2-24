@@ -79,6 +79,14 @@ public class AuthApiServlet extends ApiBase {
             error(resp, 403, "This account is no longer available.");
             return;
         }
+        if (user.getStatusId() == Status.PENDING.getId()) {
+            error(resp, 403, "Your account is awaiting administrator approval.");
+            return;
+        }
+        if (user.getStatusId() == Status.REJECTED.getId()) {
+            error(resp, 403, "Your registration was not approved. Please contact support.");
+            return;
+        }
 
         if (user.isTwoFactorEnabled()) {
             String otp = otpStore.generateAndStore(user.getEmail().toLowerCase());
@@ -194,7 +202,7 @@ public class AuthApiServlet extends ApiBase {
             return;
         }
 
-        okMsg(resp, "Account created successfully.");
+        okMsg(resp, "Account created. An administrator will review and approve it before you can sign in.");
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────

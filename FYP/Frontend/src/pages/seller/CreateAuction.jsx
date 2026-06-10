@@ -13,6 +13,13 @@ const CONDITIONS = [
   { label: 'Damaged',       id: 4 },
 ];
 
+// Auction strategy ids must match the backend AuctionType enum.
+const STRATEGIES = [
+  { id: '1', label: 'Standard (Ascending / Price Up)', help: 'Buyers bid upward; the highest bid at close wins. Supports auto-bidding.' },
+  { id: '2', label: 'Dutch (Low Start High → Descending)', help: 'Price starts high and falls over time; the first buyer to accept the current price wins immediately.' },
+  { id: '3', label: 'Blind (Public / Sealed Bid)', help: 'Each buyer submits one hidden bid; amounts stay secret until the auction ends, then the highest wins.' },
+];
+
 const toIso = (datetimeLocal) =>
   datetimeLocal ? new Date(datetimeLocal).toISOString() : null;
 
@@ -24,6 +31,7 @@ export default function CreateAuction() {
   const [selectedTags, setSelectedTags] = useState([]);   // array of tag ids (numbers)
   const [form, setForm] = useState({
     auctionName: '', auctionDetails: '', itemCondition: '1', category: '',
+    auctionType: '1', quantity: '1', costPrice: '', dutchFloorPrice: '',
     startPrice: '', maxPrice: '', startDate: '', endDate: '',
   });
   const [imageUrls, setImageUrls] = useState([]);
@@ -55,19 +63,30 @@ export default function CreateAuction() {
       setError('At least one photo is required.');
       return;
     }
+    if (form.auctionType === '2') {
+      const start = Number(form.startPrice);
+      const floor = Number(form.dutchFloorPrice);
+      if (!start || start <= 0) { setError('Dutch auctions need a starting (high) price.'); return; }
+      if (form.dutchFloorPrice === '' || floor < 0) { setError('Dutch auctions need a floor (low) price.'); return; }
+      if (floor >= start) { setError('Floor price must be below the starting price.'); return; }
+    }
     setError(''); setLoading(true);
     try {
       await createAuction({
-        auctionName:    form.auctionName,
-        auctionDetails: form.auctionDetails,
-        itemCondition:  form.itemCondition,
-        category:       form.category     || undefined,
-        startPrice:     form.startPrice   || undefined,
-        maxPrice:       form.maxPrice     || undefined,
-        startDate:      toIso(form.startDate) || undefined,
-        endDate:        toIso(form.endDate),
+        auctionName:     form.auctionName,
+        auctionDetails:  form.auctionDetails,
+        itemCondition:   form.itemCondition,
+        auctionType:     form.auctionType,
+        quantity:        form.quantity     || '1',
+        costPrice:       form.costPrice    || undefined,
+        dutchFloorPrice: form.auctionType === '2' ? form.dutchFloorPrice : undefined,
+        category:        form.category     || undefined,
+        startPrice:      form.startPrice   || undefined,
+        maxPrice:        form.maxPrice     || undefined,
+        startDate:       toIso(form.startDate) || undefined,
+        endDate:         toIso(form.endDate),
         imageUrls,
-        tags:           selectedTags,
+        tags:            selectedTags,
       });
       navigate('/seller/dashboard');
     } catch (err) {
@@ -116,6 +135,17 @@ export default function CreateAuction() {
             {categoryError && <p className="text-xs text-amber-600 mt-1">{categoryError}</p>}
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Auction Strategy *</label>
+            <select value={form.auctionType} onChange={e => update('auctionType', e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              {STRATEGIES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {STRATEGIES.find(s => s.id === form.auctionType)?.help}
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Condition *</label>
@@ -125,19 +155,48 @@ export default function CreateAuction() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Starting Bid ($)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
+              <input type="number" min="1" step="1" value={form.quantity}
+                onChange={e => update('quantity', e.target.value)}
+                className="input-field" placeholder="1" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {form.auctionType === '2' ? 'Starting (High) Price ($) *' : 'Starting Bid ($)'}
+              </label>
               <input type="number" min="0.01" step="0.01" value={form.startPrice}
                 onChange={e => update('startPrice', e.target.value)}
                 className="input-field" placeholder="0.00" />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cost Price ($) <span className="text-gray-400 font-normal">(private)</span>
+              </label>
+              <input type="number" min="0" step="0.01" value={form.costPrice}
+                onChange={e => update('costPrice', e.target.value)}
+                className="input-field" placeholder="Your cost (not shown to buyers)" />
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Reserve / Max Price ($) <span className="text-gray-400 font-normal">(optional)</span></label>
-            <input type="number" min="0.01" step="0.01" value={form.maxPrice}
-              onChange={e => update('maxPrice', e.target.value)}
-              className="input-field" placeholder="Max value" />
-          </div>
+          {form.auctionType === '2' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Floor (Low) Price ($) *</label>
+              <input type="number" min="0" step="0.01" value={form.dutchFloorPrice}
+                onChange={e => update('dutchFloorPrice', e.target.value)}
+                className="input-field" placeholder="Lowest price the clock may reach" />
+              <p className="text-xs text-gray-500 mt-1">The price falls from the starting price to this floor by the end time.</p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reserve / Max Price ($) <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input type="number" min="0.01" step="0.01" value={form.maxPrice}
+                onChange={e => update('maxPrice', e.target.value)}
+                className="input-field" placeholder="Max value" />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
