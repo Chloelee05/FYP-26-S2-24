@@ -313,8 +313,70 @@ public class OrderDAO {
         return null;
     }
 
+    /**
+     * Creates a {@code PENDING_PAYMENT} order when an auction already has a winner but no order row.
+     * Idempotent — no-op if an order exists or the auction has no winner yet.
+     */
+    public void ensureOrderForAuction(Connection conn, long auctionId) throws SQLException {
+        try (PreparedStatement check = conn.prepareStatement(
+                "SELECT 1 FROM orders WHERE auction_id = ?")) {
+            check.setLong(1, auctionId);
+            try (ResultSet rs = check.executeQuery()) {
+                if (rs.next()) return;
+            }
+        }
+
+        int winnerId, sellerId;
+        BigDecimal amount;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT a.seller_id, d.winner_id, d.winning_bid "
+              + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+              + "WHERE a.auction_id = ?")) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return;
+                sellerId = rs.getInt("seller_id");
+                winnerId = rs.getInt("winner_id");
+                if (rs.wasNull() || winnerId <= 0) return;
+                amount = rs.getBigDecimal("winning_bid");
+                if (amount == null) return;
+            }
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO orders (auction_id, buyer_id, seller_id, amount, status) "
+              + "VALUES (?, ?, ?, ?, 'PENDING_PAYMENT')")) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, winnerId);
+            ps.setInt(3, sellerId);
+            ps.setBigDecimal(4, amount);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Backfill order rows for finalized auctions that have a winner but were never declared via {@link #declareWinner}. */
+    private void syncMissingOrdersForUser(int userId) {
+        String sql =
+            "INSERT INTO orders (auction_id, buyer_id, seller_id, amount, status) "
+          + "SELECT a.auction_id, d.winner_id, a.seller_id, d.winning_bid, 'PENDING_PAYMENT' "
+          + "FROM auction a "
+          + "JOIN auction_details d ON d.id = a.auction_id "
+          + "WHERE d.winner_id IS NOT NULL AND d.winning_bid IS NOT NULL "
+          + "AND (a.seller_id = ? OR d.winner_id = ?) "
+          + "AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.auction_id = a.auction_id)";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setInt(2, userId);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /** All orders where the user is buyer or seller, newest first, framed for that user. */
     public List<Order> listForUser(int userId) {
+        syncMissingOrdersForUser(userId);
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "

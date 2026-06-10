@@ -198,7 +198,7 @@
               <artifactId>${project.artifactId}</artifactId>
               <type>war</type>
               <properties>
-                <context>/</context>
+                <context>/online-auction</context>
               </properties>
             </deployable>
           </deployables>

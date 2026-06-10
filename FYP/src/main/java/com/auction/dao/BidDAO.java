@@ -304,6 +304,7 @@ public class BidDAO {
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            new OrderDAO().ensureOrderForAuction(conn, auctionId);
 
             conn.commit();
             return BidResult.SUCCESS;

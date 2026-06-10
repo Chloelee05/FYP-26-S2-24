@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage } from '../api/support';
+import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from '../components/ChatMessage';
 import SupportChatInput from '../components/SupportChatInput';
 
@@ -18,14 +19,19 @@ export default function SupportChat() {
   const loadThreads = () => getSupportThreads().then(r => {
     const list = r.data ?? [];
     setThreads(list);
-    if (!selectedId && list.length > 0) setSelectedId(list[0].id);
-  }).catch(() => {});
+    setSelectedId(prev => {
+      const id = prev ?? list[0]?.id;
+      return id != null ? Number(id) : null;
+    });
+  }).catch(err => setMsg(apiErrorMessage(err, 'Could not load threads.')));
 
   useEffect(() => { loadThreads(); }, []);
 
   useEffect(() => {
     if (!selectedId) return;
-    const load = () => getSupportMessages(selectedId).then(r => setMessages(r.data ?? [])).catch(() => {});
+    const load = () => getSupportMessages(selectedId)
+      .then(r => setMessages(r.data ?? []))
+      .catch(err => setMsg(apiErrorMessage(err, 'Could not load messages.')));
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -33,7 +39,7 @@ export default function SupportChat() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  const selected = threads.find(t => t.id === selectedId);
+  const selected = threads.find(t => Number(t.id) === Number(selectedId));
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -43,12 +49,14 @@ export default function SupportChat() {
       setShowNew(false);
       setNewSubject('');
       setNewBody('');
-      const id = r.data.threadId;
+      const id = Number(r.data.threadId);
       await loadThreads();
       setSelectedId(id);
+      const msgs = await getSupportMessages(id);
+      setMessages(msgs.data ?? []);
       setMsg('Support request sent. An admin will respond soon.');
-    } catch {
-      setMsg('Could not start conversation.');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not start conversation.'));
     }
   };
 
@@ -59,7 +67,7 @@ export default function SupportChat() {
       const r = await getSupportMessages(selectedId);
       setMessages(r.data ?? []);
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Could not send message.');
+      setMsg(apiErrorMessage(err, 'Could not send message.'));
     }
   };
 
@@ -117,8 +125,8 @@ export default function SupportChat() {
                 {threads.map(t => (
                   <button
                     key={t.id}
-                    onClick={() => setSelectedId(t.id)}
-                    className={`w-full text-left px-3 py-2 text-sm border-b border-gray-50 hover:bg-gray-50 ${selectedId === t.id ? 'bg-blue-50' : ''}`}
+                    onClick={() => setSelectedId(Number(t.id))}
+                    className={`w-full text-left px-3 py-2 text-sm border-b border-gray-50 hover:bg-gray-50 ${Number(selectedId) === Number(t.id) ? 'bg-blue-50' : ''}`}
                   >
                     <p className="font-medium truncate">{t.subject}</p>
                     <p className="text-xs text-gray-400">{t.status}</p>
