@@ -51,6 +51,7 @@ public class ProfileActivityDAO {
             loadPurchaseCompleted(conn, userId, raw);
             loadSaleCompleted(conn, userId, raw);
             loadSalePending(conn, userId, raw);
+            loadSaleCancelled(conn, userId, raw);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -153,25 +154,30 @@ public class ProfileActivityDAO {
 
     public List<BidHistoryRow> getBidHistory(int userId, int page, int size) {
         List<BidHistoryRow> list = new ArrayList<>();
-        String sql = "SELECT b.auction_id, d.title, b.bid_amount, b.bid_time, a.date_end, "
-                + "CASE WHEN d.winner_id = ? AND d.winning_bid IS NOT NULL THEN true ELSE false END AS won "
-                + "FROM bids b "
-                + "JOIN auction a ON a.auction_id = b.auction_id "
-                + "JOIN auction_details d ON d.id = b.auction_id "
-                + "WHERE b.user_id = ? "
-                + "ORDER BY b.bid_time DESC "
-                + "LIMIT ? OFFSET ?";
+        // One row per auction; retrieve both the user's max bid and the overall max bid,
+        // then compare in Java to avoid any SQL type/precision equality edge cases.
+        String sql =
+            "SELECT ub.auction_id, d.title, ub.my_max AS bid_amount, ub.last_bid AS bid_time, "
+          + "       a.date_end, top.max_bid AS auction_max_bid "
+          + "FROM (SELECT auction_id, MAX(bid_amount) AS my_max, MAX(bid_time) AS last_bid "
+          + "      FROM bids WHERE user_id = ? GROUP BY auction_id) ub "
+          + "JOIN auction a          ON a.auction_id = ub.auction_id "
+          + "JOIN auction_details d  ON d.id         = ub.auction_id "
+          + "JOIN (SELECT auction_id, MAX(bid_amount) AS max_bid FROM bids GROUP BY auction_id) top "
+          + "     ON top.auction_id = ub.auction_id "
+          + "ORDER BY ub.last_bid DESC "
+          + "LIMIT ? OFFSET ?";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, userId);
-            ps.setInt(2, userId);
-            ps.setInt(3, size);
-            ps.setInt(4, (page - 1) * size);
+            ps.setInt(2, size);
+            ps.setInt(3, (page - 1) * size);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     long auctionId = rs.getLong("auction_id");
                     String title = rs.getString("title");
                     BigDecimal amount = rs.getBigDecimal("bid_amount");
+                    BigDecimal auctionMax = rs.getBigDecimal("auction_max_bid");
                     Timestamp bidTs = rs.getTimestamp("bid_time");
                     LocalDateTime bidTime = bidTs == null
                             ? LocalDateTime.now()
@@ -179,7 +185,9 @@ public class ProfileActivityDAO {
                     Timestamp endTs = rs.getTimestamp("date_end");
                     boolean ended = endTs != null && endTs.toInstant().isBefore(Instant.now());
                     String status = ended ? "Ended" : "Live";
-                    boolean won = rs.getBoolean("won");
+                    boolean won = ended
+                            && amount != null && auctionMax != null
+                            && amount.compareTo(auctionMax) >= 0;
                     list.add(new BidHistoryRow(auctionId, title, amount, bidTime, status, won));
                 }
             }
@@ -192,7 +200,7 @@ public class ProfileActivityDAO {
     public int countBidHistory(int userId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM bids WHERE user_id = ?")) {
+                     "SELECT COUNT(DISTINCT auction_id) FROM bids WHERE user_id = ?")) {
             ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
@@ -273,7 +281,9 @@ public class ProfileActivityDAO {
                 + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), 0) AS cur_bid "
                 + "FROM auction a "
                 + "JOIN auction_details d ON d.id = a.auction_id "
-                + "WHERE a.seller_id = ? AND d.winning_bid IS NULL AND a.date_end > CURRENT_TIMESTAMP";
+                + "JOIN auction_status s ON s.id = a.status_id "
+                + "WHERE a.seller_id = ? AND d.winning_bid IS NULL AND a.date_end > CURRENT_TIMESTAMP "
+                + "AND s.status NOT IN ('Cancelled', 'Finished')";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
@@ -282,13 +292,27 @@ public class ProfileActivityDAO {
                     LocalDate dt = ts == null ? LocalDate.now() : ts.toInstant().atZone(ZONE).toLocalDate();
                     String title = rs.getString("title");
                     BigDecimal amt = rs.getBigDecimal("cur_bid");
-                    out.add(new ProfileTransactionRow(
-                            "",
-                            dt,
-                            title,
-                            "sale",
-                            amt,
-                            "Pending"));
+                    out.add(new ProfileTransactionRow("", dt, title, "sale", amt, "Pending"));
+                }
+            }
+        }
+    }
+
+    private static void loadSaleCancelled(Connection conn, int userId, List<ProfileTransactionRow> out)
+            throws Exception {
+        String sql = "SELECT a.date_end, d.title "
+                + "FROM auction a "
+                + "JOIN auction_details d ON d.id = a.auction_id "
+                + "JOIN auction_status s ON s.id = a.status_id "
+                + "WHERE a.seller_id = ? AND s.status = 'Cancelled'";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Timestamp ts = rs.getTimestamp("date_end");
+                    LocalDate dt = ts == null ? LocalDate.now() : ts.toInstant().atZone(ZONE).toLocalDate();
+                    String title = rs.getString("title");
+                    out.add(new ProfileTransactionRow("", dt, title, "sale", BigDecimal.ZERO, "Cancelled"));
                 }
             }
         }

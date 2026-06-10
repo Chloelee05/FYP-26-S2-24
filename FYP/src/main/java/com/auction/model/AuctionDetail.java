@@ -14,6 +14,7 @@ public final class AuctionDetail {
     private final String title;
     private final String description;
     private final String category;
+    private final String condition;
     private final BigDecimal startingPrice;
     /** Current highest bid, or {@link #startingPrice} when no bids have been placed. */
     private final BigDecimal currentBid;
@@ -32,13 +33,14 @@ public final class AuctionDetail {
     private final boolean open;
 
     public AuctionDetail(long auctionId, String title, String description, String category,
-                         BigDecimal startingPrice, BigDecimal currentBid, int bidCount,
-                         BigDecimal maxPrice, Instant endDate, int sellerId,
+                         String condition, BigDecimal startingPrice, BigDecimal currentBid,
+                         int bidCount, BigDecimal maxPrice, Instant endDate, int sellerId,
                          String sellerUsername, List<String> imageUrls, boolean open) {
         this.auctionId = auctionId;
         this.title = title;
         this.description = description;
         this.category = category;
+        this.condition = condition;
         this.startingPrice = startingPrice;
         this.currentBid = currentBid;
         this.bidCount = bidCount;
@@ -54,6 +56,7 @@ public final class AuctionDetail {
     public String getTitle()           { return title; }
     public String getDescription()     { return description; }
     public String getCategory()        { return category; }
+    public String getCondition()       { return condition; }
     public BigDecimal getStartingPrice() { return startingPrice; }
     public BigDecimal getCurrentBid()  { return currentBid; }
     public int getBidCount()           { return bidCount; }

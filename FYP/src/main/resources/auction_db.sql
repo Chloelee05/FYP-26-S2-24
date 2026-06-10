@@ -75,17 +75,37 @@ CREATE TABLE auction_status (
   status  VARCHAR(50) NOT NULL
 );
 
+-- IDs must match AuctionStatus enum: ACTIVE(1), FINISHED(2), CANCELLED(3), PENDING(4)
+INSERT INTO auction_status (status) VALUES
+  ('Active'),
+  ('Finished'),
+  ('Cancelled'),
+  ('Pending');
+
 -- Auction type
 CREATE TABLE auction_type (
   id    SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   type  VARCHAR(50) NOT NULL
 );
 
+-- IDs must match AuctionType enum: PRICE_UP(1), DUTCH_AUCTION(2), BLIND(3)
+INSERT INTO auction_type (type) VALUES
+  ('Price Up'),
+  ('Dutch Auction'),
+  ('Blind');
+
 -- Item status
 CREATE TABLE item_status (
   id              SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   item_condition  VARCHAR(50) NOT NULL
 );
+
+-- IDs must match ItemCondition enum: BRAND_NEW(1), SLIGHTLY_USED(2), USED(3), DAMAGED(4)
+INSERT INTO item_status (item_condition) VALUES
+  ('Brand New'),
+  ('Slightly Used'),
+  ('Used'),
+  ('Damaged');
 
 -- Tags
 CREATE TABLE tags (

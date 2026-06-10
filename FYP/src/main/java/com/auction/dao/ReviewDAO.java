@@ -36,6 +36,8 @@ public class ReviewDAO {
         NOT_AUCTION_OWNER,
         /** The auction has no winner yet (winner_id is NULL). */
         NO_WINNER,
+        /** The winning buyer has not yet rated the seller for this auction. */
+        BUYER_NOT_RATED_YET,
         /** A rating from this seller for this auction already exists. */
         ALREADY_RATED
     }
@@ -50,11 +52,15 @@ public class ReviewDAO {
      * @param sellerId  seller submitting the rating (read from session, never from request)
      * @param score     star score; must be 1–5 (validated by servlet before this call)
      */
-    public SellerRatingResult insertSellerRating(long auctionId, int sellerId, int score) {
+    public SellerRatingResult insertSellerRating(long auctionId, int sellerId, int score, String comment) {
         Connection conn = null;
         try {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
+
+            // Promote a time-expired auction to FINISHED (+ resolve winner) so the
+            // status/winner checks below see consistent state. No-op if already final.
+            com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
             String selectSql =
                     "SELECT a.status_id, a.seller_id, d.winner_id "
@@ -93,6 +99,23 @@ public class ReviewDAO {
                 return SellerRatingResult.NO_WINNER;
             }
 
+            // Ordering gate: the seller may rate the buyer only after the winning
+            // buyer has already rated the seller for this auction.
+            String buyerRatedSql =
+                    "SELECT 1 FROM user_reviews "
+                    + "WHERE reviewer_user_id = ? AND reviewee_user_id = ? AND auction_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(buyerRatedSql)) {
+                ps.setInt(1, winnerId);
+                ps.setInt(2, sellerId);
+                ps.setLong(3, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return SellerRatingResult.BUYER_NOT_RATED_YET;
+                    }
+                }
+            }
+
             // Friendly duplicate check before hitting the UNIQUE constraint
             String existsSql =
                     "SELECT 1 FROM user_reviews "
@@ -111,13 +134,18 @@ public class ReviewDAO {
             // buyerId resolved from winner_id — never from the request (IDOR prevention)
             String insertSql =
                     "INSERT INTO user_reviews "
-                    + "(reviewer_user_id, reviewee_user_id, auction_id, rating) "
-                    + "VALUES (?, ?, ?, ?)";
+                    + "(reviewer_user_id, reviewee_user_id, auction_id, rating, comment) "
+                    + "VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                 ps.setInt(1, sellerId);
                 ps.setInt(2, winnerId);
                 ps.setLong(3, auctionId);
                 ps.setInt(4, score);
+                if (comment != null && !comment.isBlank()) {
+                    ps.setString(5, comment);
+                } else {
+                    ps.setNull(5, java.sql.Types.VARCHAR);
+                }
                 ps.executeUpdate();
             }
 
