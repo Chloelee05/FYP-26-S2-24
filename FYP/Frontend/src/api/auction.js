@@ -12,6 +12,9 @@ export const searchAuctions = (params) => api.get('/search', { params });
 export const getCategories   = ()       => api.get('/categories');
 export const getTags         = ()       => api.get('/auction/tags');
 
+// Personalised recommendations (collaborative filtering; trending fallback)
+export const getRecommendations = (limit = 8) => api.get('/recommendations', { params: { limit } });
+
 // Auction detail
 export const getAuctionDetail = (id) => api.get(`/auction/${id}`);
 export const getAuctionBids   = (id, params) => api.get(`/auction/${id}/bids`, { params });
@@ -20,6 +23,10 @@ export const getAuctionQuestions = (id) => api.get(`/auction/${id}/questions`);
 // Bidding
 export const placeBid = (auctionId, bidAmount) =>
   api.post('/bid', form({ auctionId, bidAmount }), F);
+
+// Dutch auction: accept the current descending clock price (server computes the amount)
+export const acceptDutchPrice = (auctionId) =>
+  api.post('/bid', form({ auctionId }), F);
 
 export const setAutoBid = (auctionId, maxAmount, note) =>
   api.post('/auto-bid', form({ auctionId, action: 'SET', maxAmount, note }), F);

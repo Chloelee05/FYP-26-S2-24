@@ -72,6 +72,7 @@ public class QuestionApiServlet extends ApiBase {
         String sanitized = SecurityUtil.sanitize(text.trim());
         QuestionResult result = questionDAO.insertReply(questionId, sellerId, sanitized);
         if (result == QuestionResult.SUCCESS) {
+            com.auction.notification.NotificationService.notifyQuestionAnsweredByQuestionId(questionId);
             okMsg(resp, "Reply posted.");
         } else {
             error(resp, 400, toMessage(result));

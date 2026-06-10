@@ -6,6 +6,8 @@ import com.auction.dao.QuestionDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionQuestion;
+import com.auction.model.AuctionType;
+import com.auction.util.DutchClock;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -13,9 +15,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -81,11 +85,11 @@ public class AuctionApiServlet extends ApiBase {
         } else if ("questions".equals(sub)) {
             handleQuestions(resp, auctionId);
         } else {
-            handleDetail(resp, auctionId);
+            handleDetail(req, resp, auctionId);
         }
     }
 
-    private void handleDetail(HttpServletResponse resp, long auctionId) throws IOException {
+    private void handleDetail(HttpServletRequest req, HttpServletResponse resp, long auctionId) throws IOException {
         AuctionDetail detail = bidDAO.findByIdForDisplay(auctionId);
         if (detail == null) {
             error(resp, 404, "Auction not found.");
@@ -102,29 +106,98 @@ public class AuctionApiServlet extends ApiBase {
             }
         } catch (Exception ignored) { }
 
+        AuctionType type;
+        try { type = AuctionType.getAuctionType(detail.getAuctionTypeId()); }
+        catch (IllegalArgumentException e) { type = AuctionType.PRICE_UP; }
+
+        boolean open = detail.isOpen();
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id",             detail.getAuctionId());
         body.put("title",          detail.getTitle());
         body.put("description",    detail.getDescription());
         body.put("category",       detail.getCategory());
         body.put("condition",      detail.getCondition());
+        body.put("quantity",       detail.getQuantity());
         body.put("startingPrice",  detail.getStartingPrice());
-        body.put("currentBid",     detail.getCurrentBid());
-        body.put("numBids",        detail.getBidCount());
         body.put("reservePrice",   detail.getMaxPrice());
         body.put("endTime",        detail.getEndDate() != null ? detail.getEndDate().toString() : null);
+        body.put("startTime",      detail.getDateCreated() != null ? detail.getDateCreated().toString() : null);
         body.put("sellerId",       detail.getSellerId());
         body.put("seller",         detail.getSellerUsername());
         body.put("images",         detail.getImageUrls());
-        body.put("open",           detail.isOpen());
+        body.put("open",           open);
         body.put("tags",           tags);
+        body.put("auctionType",    type.getId());
+        body.put("auctionTypeName", auctionTypeName(type));
+
+        switch (type) {
+            case DUTCH_AUCTION:
+                body.put("dutchFloorPrice", detail.getDutchFloorPrice());
+                if (open) {
+                    BigDecimal clock = DutchClock.currentPrice(
+                            detail.getStartingPrice(), detail.getDutchFloorPrice(),
+                            detail.getDateCreated(), detail.getEndDate(), Instant.now());
+                    body.put("currentBid", clock);
+                    body.put("numBids", 0);
+                } else {
+                    body.put("currentBid", detail.getCurrentBid());
+                    body.put("numBids", detail.getBidCount());
+                }
+                break;
+            case BLIND:
+                // Sealed while open: hide the amount, expose only the sealed-bid count.
+                body.put("currentBid", open ? null : detail.getCurrentBid());
+                body.put("numBids", detail.getBidCount());
+                body.put("sealed", open);
+                break;
+            case PRICE_UP:
+            default:
+                body.put("currentBid", detail.getCurrentBid());
+                body.put("numBids", detail.getBidCount());
+                break;
+        }
+
+        // Seller-private cost price: visible only to the auction owner.
+        Integer viewerId = sessionUserId(req);
+        boolean isOwner = viewerId != null && viewerId == detail.getSellerId();
+        body.put("isOwner", isOwner);
+        if (isOwner) {
+            body.put("costPrice", detail.getCostPrice());
+        }
+
         ok(resp, body);
+    }
+
+    private String auctionTypeName(AuctionType type) {
+        switch (type) {
+            case DUTCH_AUCTION: return "Dutch (Descending)";
+            case BLIND:         return "Blind (Sealed Bid)";
+            case PRICE_UP:
+            default:            return "Standard (Ascending)";
+        }
     }
 
     private void handleBidHistory(HttpServletRequest req, HttpServletResponse resp, long auctionId)
             throws IOException {
         int page = parseInt(param(req, "page"), 1);
         int size = Math.min(parseInt(param(req, "size"), 10), 50);
+
+        // Blind auctions hide all bids until the auction closes.
+        AuctionDetail detail = bidDAO.findByIdForDisplay(auctionId);
+        boolean blindStillOpen = detail != null
+                && detail.getAuctionTypeId() == AuctionType.BLIND.getId()
+                && detail.isOpen();
+        if (blindStillOpen) {
+            Map<String, Object> sealed = new LinkedHashMap<>();
+            sealed.put("bids", Collections.emptyList());
+            sealed.put("total", detail.getBidCount());
+            sealed.put("page", 1);
+            sealed.put("totalPages", 0);
+            sealed.put("sealed", true);
+            ok(resp, sealed);
+            return;
+        }
 
         List<AuctionBidHistoryEntry> bids  = bidDAO.getBidHistory(auctionId, page, size);
         int total = bidDAO.countBidHistory(auctionId);
