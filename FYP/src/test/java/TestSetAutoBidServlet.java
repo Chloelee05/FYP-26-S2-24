@@ -83,14 +83,14 @@ public class TestSetAutoBidServlet {
 
     private AuctionDetail openAuction(long auctionId, int sellerId, BigDecimal currentBid) {
         return new AuctionDetail(auctionId, "Test Auction", "desc", "Electronics",
-                new BigDecimal("10.00"), currentBid, 0, null,
+                "Brand New", new BigDecimal("10.00"), currentBid, 0, null,
                 Instant.now().plusSeconds(3600), sellerId, "seller1",
                 Collections.emptyList(), true);
     }
 
     private AuctionDetail closedAuction(long auctionId) {
         return new AuctionDetail(auctionId, "Old Auction", "desc", "Other",
-                new BigDecimal("10.00"), new BigDecimal("50.00"), 3, null,
+                "Used", new BigDecimal("10.00"), new BigDecimal("50.00"), 3, null,
                 Instant.now().minusSeconds(60), 99, "seller2",
                 Collections.emptyList(), false);
     }

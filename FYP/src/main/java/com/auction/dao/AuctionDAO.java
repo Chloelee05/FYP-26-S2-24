@@ -182,7 +182,7 @@ public class AuctionDAO {
     private long insertAuction(Connection conn, Auction auction) throws Exception {
         String sql = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) VALUES(?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
-            stmt.setInt(1, auction.getStart_date().isAfter(Instant.now()) ? AuctionStatus.PENDING.getId() : AuctionStatus.ACTIVE.getId());
+            stmt.setInt(1, AuctionStatus.ACTIVE.getId());
             stmt.setInt(2, auction.getSeller_id());
             stmt.setTimestamp(3, Timestamp.from(auction.getStart_date()));
             stmt.setTimestamp(4, Timestamp.from(auction.getEnd_date()));
@@ -198,18 +198,19 @@ public class AuctionDAO {
 
     private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
         String sql = "INSERT INTO auction_details "
-                   + "(id, title, description, item_condition_id, starting_price, max_price) "
-                   + "VALUES(?, ?, ?, ?, ?, ?)";
+                   + "(id, title, description, category, item_condition_id, starting_price, max_price) "
+                   + "VALUES(?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, auctionId);
             stmt.setString(2, auction.getAuction_name());
             stmt.setString(3, auction.getAuction_details());
-            stmt.setInt(4, auction.getItemCondition().getId());
-            stmt.setBigDecimal(5, BigDecimal.valueOf(auction.getStarting_price()));
+            stmt.setString(4, auction.getCategory() != null ? auction.getCategory() : "");
+            stmt.setInt(5, auction.getItemCondition().getId());
+            stmt.setBigDecimal(6, BigDecimal.valueOf(auction.getStarting_price()));
             if (auction.getMaxPrice() != null) {
-                stmt.setBigDecimal(6, auction.getMaxPrice());
+                stmt.setBigDecimal(7, auction.getMaxPrice());
             } else {
-                stmt.setNull(6, java.sql.Types.NUMERIC);
+                stmt.setNull(7, java.sql.Types.NUMERIC);
             }
             int rowsAffected = stmt.executeUpdate();
             if (rowsAffected == 0) throw new Exception("Failed at auction_details");
@@ -281,7 +282,7 @@ public class AuctionDAO {
 
     public List<TopStatistics> getTopAuctionCreator() throws Exception
     {
-        String sqlString = "SELECT u.id, u.username, COUNT(a.auction_id) AS total_auctions" +
+        String sqlString = "SELECT u.id, u.username, COUNT(a.auction_id) AS total_auctions " +
                 "FROM auction a " +
                 "JOIN users u ON a.seller_id = u.id " +
                 "GROUP BY u.id, u.username " +

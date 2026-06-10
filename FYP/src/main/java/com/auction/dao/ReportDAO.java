@@ -154,15 +154,99 @@ public class ReportDAO {
             while(rs.next())
             {
                 AccountReport accountReport = new AccountReport();
+                accountReport.setId(rs.getLong("id"));
                 accountReport.setReporter_id(rs.getLong("reporter_id"));
                 accountReport.setTarget_id(rs.getLong("target_id"));
                 accountReport.setReason(rs.getString("reason"));
                 accountReport.setComment(rs.getString("comment"));
-                accountReport.setCreated_at(rs.getTimestamp("created_at").toInstant());
+                Timestamp ts = rs.getTimestamp("created_at");
+                accountReport.setCreated_at(ts != null ? ts.toInstant() : Instant.now());
+                accountReport.setResolved(rs.getBoolean("resolved"));
                 result.add(accountReport);
             }
         }
         return result;
+    }
+
+    /**
+     * Returns all reports for the admin moderation view, combining account-level
+     * reports ({@code account_reports}, raised against a user) and listing reports
+     * ({@code seller_reports}, raised against an auction's seller). Each row carries a
+     * {@code type} discriminator ("account" or "listing") so the admin UI can act on
+     * the correct table. Newest first.
+     */
+    public List<java.util.Map<String, Object>> getAllReportsUnified() throws Exception {
+        List<java.util.Map<String, Object>> result = new ArrayList<>();
+
+        // Account reports (user-vs-user)
+        String accountSql = "SELECT id, reporter_id, target_id, reason, comment, created_at, resolved "
+                + "FROM account_reports";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(accountSql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("id", rs.getLong("id"));
+                m.put("type", "account");
+                m.put("reporter_id", rs.getLong("reporter_id"));
+                m.put("target_id", rs.getLong("target_id"));
+                m.put("reason", rs.getString("reason"));
+                m.put("comment", rs.getString("comment"));
+                Timestamp ts = rs.getTimestamp("created_at");
+                m.put("created_at", ts != null ? ts.toInstant().toString() : null);
+                m.put("resolved", rs.getBoolean("resolved"));
+                result.add(m);
+            }
+        }
+
+        // Listing reports (buyer-vs-seller's auction). Wrapped defensively so the
+        // admin view still loads if the seller_reports migration has not been applied.
+        String listingSql = "SELECT sr.id, sr.reporter_user_id, sr.reported_user_id, sr.auction_id, "
+                + "sr.description, sr.created_at, sr.resolved, ad.title "
+                + "FROM seller_reports sr "
+                + "LEFT JOIN auction_details ad ON ad.id = sr.auction_id";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(listingSql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                String title = rs.getString("title");
+                java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("id", rs.getLong("id"));
+                m.put("type", "listing");
+                m.put("reporter_id", rs.getLong("reporter_user_id"));
+                m.put("target_id", rs.getLong("reported_user_id"));
+                m.put("reason", "Listing report" + (title != null ? ": " + title : ""));
+                m.put("comment", rs.getString("description"));
+                Timestamp ts = rs.getTimestamp("created_at");
+                m.put("created_at", ts != null ? ts.toInstant().toString() : null);
+                m.put("resolved", rs.getBoolean("resolved"));
+                result.add(m);
+            }
+        } catch (SQLException ignored) {
+            // seller_reports table missing — account reports already loaded above.
+        }
+
+        // Newest first across both sources (nulls last).
+        result.sort((a, b) -> {
+            String ca = (String) a.get("created_at");
+            String cb = (String) b.get("created_at");
+            if (ca == null && cb == null) return 0;
+            if (ca == null) return 1;
+            if (cb == null) return -1;
+            return cb.compareTo(ca);
+        });
+        return result;
+    }
+
+    /** Updates the {@code resolved} flag on a listing report ({@code seller_reports}). */
+    public boolean setSellerReportStatus(Long id, boolean resolved) throws Exception {
+        String sqlString = "UPDATE seller_reports SET resolved = ? WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(sqlString)) {
+            stmt.setBoolean(1, resolved);
+            stmt.setLong(2, id);
+            return stmt.executeUpdate() > 0;
+        }
     }
 
     public boolean setReportStatus(Long id, String status) throws Exception{

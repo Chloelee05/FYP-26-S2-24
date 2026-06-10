@@ -288,6 +288,18 @@ public class UserDAO {
         }
     }
 
+    public boolean updateProfileImageUrl(int userId, String profileImageUrl) {
+        try (Connection conn = DBUtil.connectDB()) {
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE users SET profile_image_url = ? WHERE id = ?");
+            ps.setString(1, profileImageUrl);
+            ps.setInt(2, userId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static final ZoneId ADMIN_ZONE = ZoneId.systemDefault();
 
     public List<AdminUserSummary> listUsersForAdminTable() {

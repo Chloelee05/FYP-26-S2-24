@@ -4,6 +4,7 @@ import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionStatus;
 import com.auction.model.Bid;
+import com.auction.model.ItemCondition;
 import com.auction.util.DBUtil;
 import com.auction.util.SecurityUtil;
 
@@ -222,7 +223,7 @@ public class BidDAO {
         String sql =
                 "SELECT a.auction_id, a.status_id, a.date_end, a.moderation_state, a.seller_id, "
                 + "u.username AS seller_username, "
-                + "d.title, d.description, d.category, d.starting_price, d.max_price, "
+                + "d.title, d.description, d.category, d.item_condition_id, d.starting_price, d.max_price, "
                 + "COALESCE(MAX(b.bid_amount), d.starting_price) AS current_bid, "
                 + "COUNT(b.bid_id)::int AS bid_count "
                 + "FROM auction a "
@@ -232,7 +233,7 @@ public class BidDAO {
                 + "WHERE a.auction_id = ? "
                 + "GROUP BY a.auction_id, a.status_id, a.date_end, a.moderation_state, "
                 + "         a.seller_id, u.username, d.title, d.description, d.category, "
-                + "         d.starting_price, d.max_price";
+                + "         d.item_condition_id, d.starting_price, d.max_price";
 
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -254,11 +255,20 @@ public class BidDAO {
 
                 List<String> images = fetchImages(conn, auctionId);
 
+                int conditionId = rs.getInt("item_condition_id");
+                String conditionName;
+                try {
+                    conditionName = ItemCondition.getItemCondition(conditionId).getDisplayName();
+                } catch (IllegalArgumentException e) {
+                    conditionName = "";
+                }
+
                 return new AuctionDetail(
                         rs.getLong("auction_id"),
                         rs.getString("title"),
                         rs.getString("description"),
                         rs.getString("category"),
+                        conditionName,
                         startingPrice,
                         currentBid,
                         rs.getInt("bid_count"),

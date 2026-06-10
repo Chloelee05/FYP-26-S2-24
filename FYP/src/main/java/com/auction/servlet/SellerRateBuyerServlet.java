@@ -96,7 +96,7 @@ public class SellerRateBuyerServlet extends HttpServlet {
 
         SellerRatingResult result;
         try {
-            result = reviewDAO.insertSellerRating(auctionId, sellerId, score);
+            result = reviewDAO.insertSellerRating(auctionId, sellerId, score, null);
         } catch (RuntimeException e) {
             LOGGER.severe(String.format("insertSellerRating error [auctionId=%d, sellerId=%d]: %s",
                     auctionId, sellerId, e.getMessage()));

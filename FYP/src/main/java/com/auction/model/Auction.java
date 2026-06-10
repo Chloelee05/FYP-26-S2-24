@@ -17,6 +17,7 @@ public class Auction implements  Serializable{
     private AuctionType auctionType;
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
+    private String category;
 
     public Auction(){
     }
@@ -124,4 +125,7 @@ public class Auction implements  Serializable{
     {
         auctionTagsList = newList;
     }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
 }

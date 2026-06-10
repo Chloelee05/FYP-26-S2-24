@@ -75,7 +75,7 @@ public class SellerAuctionDAO {
     public AuctionEditData getAuctionForEdit(long auctionId, int sellerId) throws Exception {
         String sql =
             "SELECT a.auction_id, a.seller_id, a.status_id, "
-          + "       d.title, d.description, d.max_price, "
+          + "       d.title, d.description, d.category, d.item_condition_id, d.max_price, "
           + "       a.date_created AS start_date, a.date_end "
           + "FROM auction a "
           + "JOIN auction_details d ON d.id = a.auction_id "
@@ -95,6 +95,8 @@ public class SellerAuctionDAO {
                         rs.getInt("status_id"),
                         rs.getString("title"),
                         rs.getString("description"),
+                        rs.getString("category"),
+                        rs.getInt("item_condition_id"),
                         rs.getBigDecimal("max_price"),
                         rs.getTimestamp("start_date").toInstant(),
                         rs.getTimestamp("date_end").toInstant(),
@@ -125,23 +127,34 @@ public class SellerAuctionDAO {
      */
     public void editAuction(long auctionId, int sellerId,
                             String title, String description,
+                            String category, Integer itemConditionId,
+                            Instant newEndDate,
                             List<Long> deleteImageIds,
                             List<String> newImageFilenames) throws Exception {
         try (Connection conn = DBUtil.connectDB()) {
             conn.setAutoCommit(false);
             try {
-                // Re-verify ownership and editable state inside the transaction
                 if (!isEditableBy(conn, auctionId, sellerId)) {
                     throw new IllegalStateException("Auction is not editable");
                 }
-                // Re-verify zero bids inside the transaction (TOCTOU guard)
-                if (countBidsConn(conn, auctionId) > 0) {
-                    throw new IllegalStateException("Bids already placed; auction cannot be edited");
+
+                // End date can always be updated (no bids restriction)
+                if (newEndDate != null) {
+                    String sql = "UPDATE auction SET date_end = ? WHERE auction_id = ?";
+                    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                        ps.setTimestamp(1, Timestamp.from(newEndDate));
+                        ps.setLong(2, auctionId);
+                        ps.executeUpdate();
+                    }
                 }
 
-                updateDetails(conn, auctionId, title, description);
-                deleteImages(conn, auctionId, deleteImageIds);
-                insertNewImages(conn, auctionId, newImageFilenames);
+                // Title, description, category, condition, images require zero bids
+                if (countBidsConn(conn, auctionId) == 0) {
+                    updateDetails(conn, auctionId, title, description, category, itemConditionId);
+                    deleteImages(conn, auctionId, deleteImageIds);
+                    insertNewImages(conn, auctionId, newImageFilenames);
+                }
+
                 conn.commit();
             } catch (Exception e) {
                 conn.rollback();
@@ -165,7 +178,9 @@ public class SellerAuctionDAO {
             "SELECT a.auction_id, d.title, d.starting_price, d.max_price, "
           + "COALESCE(MAX(b.bid_amount), 0) AS current_bid, "
           + "COUNT(b.bid_id) AS bid_count, "
-          + "a.date_created AS start_date, a.date_end, s.status AS status_name "
+          + "a.date_created AS start_date, a.date_end, "
+          + "CASE WHEN s.status = 'Active' AND a.date_end <= CURRENT_TIMESTAMP "
+          + "     THEN 'Finished' ELSE s.status END AS status_name "
           + "FROM auction a "
           + "JOIN auction_details d ON d.id = a.auction_id "
           + "JOIN auction_status  s ON s.id = a.status_id "
@@ -217,6 +232,27 @@ public class SellerAuctionDAO {
         }
     }
 
+    // ------------------------------------------------------------------ relist
+
+    /**
+     * Relists a CANCELLED or FINISHED auction owned by {@code sellerId} by resetting it
+     * to PENDING status and clearing the cancel reason.
+     * Returns true if a row was updated.
+     */
+    public boolean relistAuction(long auctionId, int sellerId) throws Exception {
+        String sql = "UPDATE auction SET status_id = ?, cancel_reason = NULL "
+                   + "WHERE auction_id = ? AND seller_id = ? AND status_id IN (?, ?)";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, AuctionStatus.PENDING.getId());
+            ps.setLong(2, auctionId);
+            ps.setInt(3, sellerId);
+            ps.setInt(4, AuctionStatus.CANCELLED.getId());
+            ps.setInt(5, AuctionStatus.FINISHED.getId());
+            return ps.executeUpdate() > 0;
+        }
+    }
+
     // ------------------------------------------------------------------ private helpers
 
     private boolean isEditableBy(Connection conn, long auctionId, int sellerId) throws Exception {
@@ -243,12 +279,16 @@ public class SellerAuctionDAO {
     }
 
     private void updateDetails(Connection conn, long auctionId,
-                               String title, String description) throws Exception {
-        String sql = "UPDATE auction_details SET title = ?, description = ? WHERE id = ?";
+                               String title, String description,
+                               String category, Integer itemConditionId) throws Exception {
+        String sql = "UPDATE auction_details SET title = ?, description = ?, category = ?, item_condition_id = ? WHERE id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, title);
             ps.setString(2, description);
-            ps.setLong(3, auctionId);
+            ps.setString(3, category != null ? category : "");
+            if (itemConditionId != null) ps.setInt(4, itemConditionId);
+            else ps.setNull(4, java.sql.Types.INTEGER);
+            ps.setLong(5, auctionId);
             if (ps.executeUpdate() == 0) throw new Exception("auction_details row not found");
         }
     }
@@ -336,13 +376,16 @@ public class SellerAuctionDAO {
         public final int statusId;
         public final String title;
         public final String description;
+        public final String category;
+        public final int itemConditionId;
         public final BigDecimal maxPrice;   // null when no cap
         public final Instant startDate;
         public final Instant endDate;
         public final List<ImageEntry> images;
 
         public AuctionEditData(long auctionId, long sellerId, int statusId,
-                               String title, String description, BigDecimal maxPrice,
+                               String title, String description, String category,
+                               int itemConditionId, BigDecimal maxPrice,
                                Instant startDate, Instant endDate,
                                List<ImageEntry> images) {
             this.auctionId = auctionId;
@@ -350,6 +393,8 @@ public class SellerAuctionDAO {
             this.statusId = statusId;
             this.title = title;
             this.description = description;
+            this.category = category;
+            this.itemConditionId = itemConditionId;
             this.maxPrice = maxPrice;
             this.startDate = startDate;
             this.endDate = endDate;
