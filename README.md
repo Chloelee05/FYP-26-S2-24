@@ -6,8 +6,8 @@ Course final-year project: a **Jakarta Servlet / JSP** web application for aucti
 
 | Layer | Choice |
 |--------|--------|
-| Language | Java 11 |
-| Web | Jakarta Servlet API, JSP, JSTL (Bootstrap 5 in views) |
+|Backend| Java 11 servlets/DAO, packaged as a WAR, run on Tomcat 10 via the Cargo Maven plugin. JSON API under `/api/*`|
+|Frontend| React 19 + Vite (single-page app) styled with Tailwind CSS|
 | Build | Maven (`packaging: war`) |
 | Database | PostgreSQL (schema in `FYP/src/main/resources/auction_db.sql`) |
 | Pooling | HikariCP |
@@ -19,6 +19,8 @@ Application sources live under **`FYP/`** (artifact `online-auction`, final WAR 
 - JDK 11+
 - Maven 3.9+
 - PostgreSQL with a database matching JDBC settings in `com.auction.util.DBUtil` (default in code: `jdbc:postgresql://localhost:5432/auction_db`, user `postgres` — adjust for your environment)
+- Node.js 18+ Runs the React frontend (Vite)
+- npm  9+  
 
 ## Database setup
 
@@ -39,7 +41,18 @@ Run a subset of tests, for example:
 ```bash
 mvn test -Dtest=TestLoginServlet,TestChangePasswordServlet
 ```
-
+## Run Backend and Frontend
+Terminal-1:
+```bash 
+cd FYP
+mvn package -DskipTests cargo:run
+```
+Terminal-2:
+```bash
+cd FYP/Frontend
+npm install      # first time only
+npm run dev
+```
 ## Run locally
 
 Deploy the generated `FYP/target/online-auction.war` to a Jakarta EE–compatible servlet container (e.g. Apache Tomcat 10+ for Jakarta Servlet 6).  
