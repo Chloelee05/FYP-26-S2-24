@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
-import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion } from '../api/auction';
+import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
+import AuctionSellerCard from '../components/AuctionSellerCard';
 import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
 import { useAuth } from '../context/AuthContext';
@@ -26,9 +27,15 @@ export default function AuctionDetail() {
   const [showReport, setShowReport] = useState(false);
   const [watched, setWatched] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [sellerProfile, setSellerProfile] = useState(null);
 
   useEffect(() => {
-    getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
+    getAuctionDetail(id).then(r => {
+      setAuction(r.data);
+      if (r.data?.sellerId) {
+        getSellerProfile(r.data.sellerId).then(sp => setSellerProfile(sp.data)).catch(() => {});
+      }
+    }).catch(() => {});
     getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     getAuctionQuestions(id).then(r => setQuestions(r.data ?? [])).catch(() => {});
   }, [id]);
@@ -166,11 +173,14 @@ export default function AuctionDetail() {
     }
   };
 
-  const handleDeclareWinner = async () => {
+  const handleDeclareWinner = async (early = false) => {
     setError(''); setMessage('');
+    if (early && !window.confirm('End this auction now and declare the current highest bidder as winner?')) return;
     try {
-      await declareWinner(id);
-      setMessage('Winner declared. An order was created and the buyer was notified.');
+      await declareWinner(id, early);
+      setMessage(early
+        ? 'Winner declared early. An order was created and the buyer was notified.'
+        : 'Winner declared. An order was created and the buyer was notified.');
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
     } catch (err) {
       setError(apiError(err, 'Could not declare a winner.'));
@@ -247,7 +257,9 @@ export default function AuctionDetail() {
               <h1 className="text-2xl font-bold text-gray-900">{auction.title}</h1>
               <div className="flex items-center gap-2 text-sm text-gray-500 mt-1 flex-wrap">
                 <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{auction.category}</span>
-                <span>Seller: {auction.seller}</span>
+                <Link to={`/seller/${auction.sellerId}`} className="text-blue-500 hover:underline">
+                  Seller: {auction.seller}
+                </Link>
                 <span>Condition: {auction.condition}</span>
                 {auction.quantity > 1 && <span>Qty: {auction.quantity}</span>}
                 {auction.costPrice != null && (
@@ -307,6 +319,8 @@ export default function AuctionDetail() {
               ))}
             </div>
           )}
+
+          <AuctionSellerCard seller={sellerProfile} />
 
           {/* Description */}
           <div className="card p-5 mb-4">
@@ -438,6 +452,21 @@ export default function AuctionDetail() {
             )}
           </div>
 
+          {auction.isOwner && auction.open && (auction.numBids ?? 0) > 0 && (
+            <div className="card p-5 text-sm border border-amber-200 bg-amber-50">
+              <p className="font-medium text-amber-800 mb-2">Seller: early close</p>
+              {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+              {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+              <button
+                onClick={() => handleDeclareWinner(true)}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-2.5 rounded-lg transition-colors"
+              >
+                Declare Winner Early
+              </button>
+              <p className="text-xs text-amber-700 mt-2">Ends the auction now and sells to the current highest bidder.</p>
+            </div>
+          )}
+
           {!auction.open ? (
             <div className="card p-5 text-center text-sm text-gray-500">
               <p className="mb-3">This auction has ended.</p>
@@ -446,7 +475,7 @@ export default function AuctionDetail() {
                   {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
                   {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
                   <button
-                    onClick={handleDeclareWinner}
+                    onClick={() => handleDeclareWinner(false)}
                     className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-2.5 rounded-lg transition-colors"
                   >
                     Declare Winner &amp; Create Order

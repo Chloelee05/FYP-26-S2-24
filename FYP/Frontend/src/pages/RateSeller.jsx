@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
-import { getAuctionDetail, rateSeller, getSellerProfile } from '../api/auction';
+import { getAuctionDetail, rateSeller, getSellerProfile, checkSellerRated } from '../api/auction';
 import StarRating from '../components/StarRating';
 
 function StarDisplay({ value, size = 18 }) {
@@ -27,6 +27,7 @@ export default function RateSeller() {
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [alreadyRated, setAlreadyRated] = useState(false);
   const [error, setError]     = useState('');
 
   useEffect(() => {
@@ -36,6 +37,9 @@ export default function RateSeller() {
         return getSellerProfile(r.data.sellerId);
       })
       .then(r => setSeller(r.data))
+      .catch(() => {});
+    checkSellerRated(auctionId)
+      .then(r => { if (r.data?.rated) setAlreadyRated(true); })
       .catch(() => {});
   }, [auctionId]);
 
@@ -66,6 +70,19 @@ export default function RateSeller() {
   const avgRating   = seller?.avgRating   ?? 0;
   const totalReviews = seller?.totalReviews ?? seller?.reviewCount ?? 0;
   const reviews     = seller?.reviews     ?? [];
+
+  if (alreadyRated && !submitted) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+        <p className="text-5xl mb-4">✓</p>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">You already rated this seller</h2>
+        <p className="text-gray-500 text-sm mb-6">Each buyer can submit one review per completed order.</p>
+        <Link to="/profile" className="bg-blue-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-600 inline-block">
+          Back to Orders
+        </Link>
+      </div>
+    );
+  }
 
   if (submitted) {
     return (

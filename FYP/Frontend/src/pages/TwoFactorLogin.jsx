@@ -17,6 +17,7 @@ export default function TwoFactorLogin() {
     setError(''); setLoading(true);
     try {
       const res = await verifyLogin(code);
+      if (res.data?.token) sessionStorage.setItem('authToken', res.data.token);
       setUser(res.data);
       const { role } = res.data;
       if (role === 'ADMIN') navigate('/admin');

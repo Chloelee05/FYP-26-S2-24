@@ -78,6 +78,7 @@ public class TwoFactorApiServlet extends ApiBase {
         session.setAttribute("maskedUsername",   SecurityUtil.maskUsername(user.getUsername()));
 
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token",           session.getToken());
         body.put("id",               user.getId());
         body.put("username",         user.getUsername());
         body.put("email",            user.getEmail());

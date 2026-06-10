@@ -179,8 +179,12 @@ public class ReportDAO {
         List<java.util.Map<String, Object>> result = new ArrayList<>();
 
         // Account reports (user-vs-user)
-        String accountSql = "SELECT id, reporter_id, target_id, reason, comment, created_at, resolved "
-                + "FROM account_reports";
+        String accountSql = "SELECT ar.id, ar.reporter_id, ar.target_id, ar.reason, ar.comment, "
+                + "ar.created_at, ar.resolved, ar.admin_reply, "
+                + "ru.username AS reporter_name, tu.username AS target_name "
+                + "FROM account_reports ar "
+                + "JOIN users ru ON ru.id = ar.reporter_id "
+                + "JOIN users tu ON tu.id = ar.target_id";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement stmt = conn.prepareStatement(accountSql);
              ResultSet rs = stmt.executeQuery()) {
@@ -195,6 +199,9 @@ public class ReportDAO {
                 Timestamp ts = rs.getTimestamp("created_at");
                 m.put("created_at", ts != null ? ts.toInstant().toString() : null);
                 m.put("resolved", rs.getBoolean("resolved"));
+                m.put("admin_reply", rs.getString("admin_reply"));
+                m.put("reporter_name", rs.getString("reporter_name"));
+                m.put("target_name", rs.getString("target_name"));
                 result.add(m);
             }
         }
@@ -202,9 +209,12 @@ public class ReportDAO {
         // Listing reports (buyer-vs-seller's auction). Wrapped defensively so the
         // admin view still loads if the seller_reports migration has not been applied.
         String listingSql = "SELECT sr.id, sr.reporter_user_id, sr.reported_user_id, sr.auction_id, "
-                + "sr.description, sr.created_at, sr.resolved, ad.title "
+                + "sr.description, sr.created_at, sr.resolved, sr.admin_reply, ad.title, "
+                + "ru.username AS reporter_name, tu.username AS target_name "
                 + "FROM seller_reports sr "
-                + "LEFT JOIN auction_details ad ON ad.id = sr.auction_id";
+                + "LEFT JOIN auction_details ad ON ad.id = sr.auction_id "
+                + "JOIN users ru ON ru.id = sr.reporter_user_id "
+                + "JOIN users tu ON tu.id = sr.reported_user_id";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement stmt = conn.prepareStatement(listingSql);
              ResultSet rs = stmt.executeQuery()) {
@@ -220,6 +230,10 @@ public class ReportDAO {
                 Timestamp ts = rs.getTimestamp("created_at");
                 m.put("created_at", ts != null ? ts.toInstant().toString() : null);
                 m.put("resolved", rs.getBoolean("resolved"));
+                m.put("admin_reply", rs.getString("admin_reply"));
+                m.put("reporter_name", rs.getString("reporter_name"));
+                m.put("target_name", rs.getString("target_name"));
+                m.put("auction_id", rs.getLong("auction_id"));
                 result.add(m);
             }
         } catch (SQLException ignored) {
@@ -244,6 +258,27 @@ public class ReportDAO {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement stmt = conn.prepareStatement(sqlString)) {
             stmt.setBoolean(1, resolved);
+            stmt.setLong(2, id);
+            return stmt.executeUpdate() > 0;
+        }
+    }
+
+    public boolean replyToReport(long id, String type, String replyText) throws Exception {
+        if ("listing".equalsIgnoreCase(type)) {
+            return updateAdminReply("seller_reports", id, replyText);
+        }
+        if (updateAdminReply("account_reports", id, replyText)) {
+            return true;
+        }
+        // Unknown/missing type — try listing table as fallback
+        return updateAdminReply("seller_reports", id, replyText);
+    }
+
+    private boolean updateAdminReply(String table, long id, String replyText) throws Exception {
+        String sql = "UPDATE " + table + " SET admin_reply = ? WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, replyText);
             stmt.setLong(2, id);
             return stmt.executeUpdate() > 0;
         }
