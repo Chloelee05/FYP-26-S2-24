@@ -153,7 +153,8 @@ public class SupportChatDAO {
 
     public List<Map<String, Object>> listMessages(long threadId) throws Exception {
         String sql =
-            "SELECT m.id, m.thread_id, m.sender_id, m.body, m.created_at, u.username, r.role AS sender_role "
+            "SELECT m.id, m.thread_id, m.sender_id, m.body, m.attachment_url, m.created_at, "
+          + "  u.username, r.role AS sender_role "
           + "FROM support_messages m "
           + "JOIN users u ON u.id = m.sender_id "
           + "JOIN roles r ON r.id = u.role_id "

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { getSupportThreads, getSupportMessages, sendSupportMessage, closeSupportThread } from '../../api/support';
+import { apiErrorMessage } from '../../utils/apiError';
 import ChatMessage from '../../components/ChatMessage';
 import SupportChatInput from '../../components/SupportChatInput';
 
@@ -17,7 +18,7 @@ export default function AdminChat() {
       const r = await getSupportThreads();
       setThreads(r.data ?? []);
     } catch (err) {
-      if (err.response?.status === 401) setMsg('Session expired. Please sign in again.');
+      setMsg(apiErrorMessage(err, 'Could not load threads.'));
     }
   }, []);
 
@@ -25,7 +26,9 @@ export default function AdminChat() {
 
   useEffect(() => {
     if (!selectedId) return;
-    const load = () => getSupportMessages(selectedId).then(r => setMessages(r.data ?? [])).catch(() => {});
+    const load = () => getSupportMessages(selectedId)
+      .then(r => setMessages(r.data ?? []))
+      .catch(err => setMsg(apiErrorMessage(err, 'Could not load messages.')));
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -44,7 +47,7 @@ export default function AdminChat() {
       loadThreads();
       setMsg('');
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Could not send message.');
+      setMsg(apiErrorMessage(err, 'Could not send message.'));
     }
   };
 

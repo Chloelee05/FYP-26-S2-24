@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage,
 } from '../api/support';
+import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from './ChatMessage';
 import SupportChatInput from './SupportChatInput';
 
@@ -22,14 +23,27 @@ export default function SupportChatWidget() {
 
   const visible = user && user.role !== 'ADMIN';
 
+  const loadMessages = useCallback(async (threadId) => {
+    if (!threadId) return;
+    try {
+      const r = await getSupportMessages(threadId);
+      setMessages(r.data ?? []);
+    } catch (err) {
+      setStatus(apiErrorMessage(err, 'Could not load messages.'));
+    }
+  }, []);
+
   const loadThreads = useCallback(async () => {
     try {
       const r = await getSupportThreads();
       const list = r.data ?? [];
       setThreads(list);
-      setSelectedId(prev => prev ?? (list[0]?.id ?? null));
-    } catch {
-      // Soft-fail: keep the widget usable; never force a global logout here.
+      setSelectedId(prev => {
+        const id = prev ?? list[0]?.id;
+        return id != null ? Number(id) : null;
+      });
+    } catch (err) {
+      setStatus(apiErrorMessage(err, 'Could not load support threads.'));
     }
   }, []);
 
@@ -43,13 +57,10 @@ export default function SupportChatWidget() {
 
   useEffect(() => {
     if (!visible || !open || !selectedId) return;
-    const load = () => getSupportMessages(selectedId)
-      .then(r => setMessages(r.data ?? []))
-      .catch(() => {});
-    load();
-    const t = setInterval(load, 5000);
+    loadMessages(selectedId);
+    const t = setInterval(() => loadMessages(selectedId), 5000);
     return () => clearInterval(t);
-  }, [visible, open, selectedId]);
+  }, [visible, open, selectedId, loadMessages]);
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,7 +68,7 @@ export default function SupportChatWidget() {
 
   if (!visible) return null;
 
-  const selected = threads.find(t => t.id === selectedId);
+  const selected = threads.find(t => Number(t.id) === Number(selectedId));
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -65,14 +76,16 @@ export default function SupportChatWidget() {
     setStatus('');
     try {
       const r = await createSupportThread(newSubject, newBody.trim());
+      const threadId = Number(r.data.threadId);
       setNewSubject('');
       setNewBody('');
       setMode('chat');
-      setSelectedId(r.data.threadId);
+      setSelectedId(threadId);
       await loadThreads();
+      await loadMessages(threadId);
       setStatus('Message sent. An admin will reply soon.');
     } catch (err) {
-      setStatus(err.response?.data?.error || 'Could not send message. Please try again.');
+      setStatus(apiErrorMessage(err, 'Could not send message.'));
     }
   };
 
@@ -81,10 +94,9 @@ export default function SupportChatWidget() {
     setStatus('');
     try {
       await sendSupportMessage(selectedId, body, attachmentUrl);
-      const r = await getSupportMessages(selectedId);
-      setMessages(r.data ?? []);
+      await loadMessages(selectedId);
     } catch (err) {
-      setStatus(err.response?.data?.error || 'Could not send message. Please try again.');
+      setStatus(apiErrorMessage(err, 'Could not send message.'));
     }
   };
 
@@ -120,9 +132,9 @@ export default function SupportChatWidget() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setSelectedId(t.id)}
+                  onClick={() => { setSelectedId(Number(t.id)); setStatus(''); }}
                   className={`shrink-0 px-3 py-1 rounded-full text-xs ${
-                    selectedId === t.id ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
+                    Number(selectedId) === Number(t.id) ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
                   }`}
                 >
                   {t.subject?.slice(0, 20) || `Thread #${t.id}`}
@@ -175,7 +187,7 @@ export default function SupportChatWidget() {
           ) : (
             <>
               <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-[#e8ecf1]">
-                {messages.length === 0 && (
+                {messages.length === 0 && !status && (
                   <p className="text-sm text-gray-400 text-center py-8">No messages yet.</p>
                 )}
                 {messages.map(m => (

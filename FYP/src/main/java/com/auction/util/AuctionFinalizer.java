@@ -1,5 +1,6 @@
 package com.auction.util;
 
+import com.auction.dao.OrderDAO;
 import com.auction.model.AuctionStatus;
 
 import java.math.BigDecimal;
@@ -76,6 +77,7 @@ public final class AuctionFinalizer {
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            new OrderDAO().ensureOrderForAuction(conn, auctionId);
         }
     }
 }
