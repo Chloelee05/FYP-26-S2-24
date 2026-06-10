@@ -8,6 +8,7 @@ import com.auction.util.InputValidator;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
 import com.auction.util.OtpStore;
+import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
 import com.auction.util.SecurityUtil;
 import com.auction.util.TokenStore;
@@ -203,6 +204,7 @@ public class AuthApiServlet extends ApiBase {
         }
 
         okMsg(resp, "Account created. An administrator will review and approve it before you can sign in.");
+        NotificationService.notifyAdminsPendingRegistration(username);
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminListings from './pages/admin/AdminListings';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
+import AdminDatabase from './pages/admin/AdminDatabase';
 import AdminCategories from './pages/admin/AdminCategories';
 import AdminReports from './pages/admin/AdminReports';
 import AdminOrders from './pages/admin/AdminOrders';
@@ -72,6 +73,7 @@ function App() {
             <Route path="users" element={<AdminUsers />} />
             <Route path="listings" element={<AdminListings />} />
             <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="database" element={<AdminDatabase />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="reports" element={<AdminReports />} />
             <Route path="orders" element={<AdminOrders />} />
