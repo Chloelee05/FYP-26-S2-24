@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import SupportChatWidget from './components/SupportChatWidget';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import Home from './pages/Home';
@@ -21,6 +22,7 @@ import RateSeller from './pages/RateSeller';
 import Watchlist from './pages/Watchlist';
 import SellerProfilePublic from './pages/SellerProfilePublic';
 import AccountSettings from './pages/AccountSettings';
+import Messages from './pages/Messages';
 
 import SellerDashboard from './pages/seller/SellerDashboard';
 import CreateAuction from './pages/seller/CreateAuction';
@@ -33,6 +35,9 @@ import AdminListings from './pages/admin/AdminListings';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminCategories from './pages/admin/AdminCategories';
 import AdminReports from './pages/admin/AdminReports';
+import AdminOrders from './pages/admin/AdminOrders';
+import AdminChat from './pages/admin/AdminChat';
+import SupportChat from './pages/SupportChat';
 
 function MainLayout({ children }) {
   return (
@@ -40,6 +45,7 @@ function MainLayout({ children }) {
       <Navbar />
       <main className="flex-1">{children}</main>
       <Footer />
+      <SupportChatWidget />
     </div>
   );
 }
@@ -68,6 +74,8 @@ function App() {
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="reports" element={<AdminReports />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="chat" element={<AdminChat />} />
           </Route>
 
           {/* All other pages with Navbar + Footer */}
@@ -84,6 +92,8 @@ function App() {
           <Route path="/bidding-history" element={<MainLayout><ProtectedRoute><BiddingHistory /></ProtectedRoute></MainLayout>} />
           <Route path="/rate-seller/:auctionId" element={<MainLayout><ProtectedRoute><RateSeller /></ProtectedRoute></MainLayout>} />
           <Route path="/watchlist" element={<MainLayout><ProtectedRoute><Watchlist /></ProtectedRoute></MainLayout>} />
+          <Route path="/support" element={<MainLayout><ProtectedRoute><SupportChat /></ProtectedRoute></MainLayout>} />
+          <Route path="/messages" element={<MainLayout><ProtectedRoute><Messages /></ProtectedRoute></MainLayout>} />
 
           <Route path="/seller/dashboard" element={<MainLayout><ProtectedRoute roles={['SELLER']}><SellerDashboard /></ProtectedRoute></MainLayout>} />
           <Route path="/seller/create" element={<MainLayout><ProtectedRoute roles={['SELLER']}><CreateAuction /></ProtectedRoute></MainLayout>} />

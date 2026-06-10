@@ -94,6 +94,7 @@ public class SellerApiServlet extends ApiBase {
             case "relist":     handleRelist(req, resp);     break;
             case "rate-buyer": handleRateBuyer(req, resp);  break;
             case "analytics":  handleAnalyticsEmail(req, resp); break;
+            case "reduce-quantity": handleReduceQuantity(req, resp); break;
             default: error(resp, 404, "Not found."); break;
         }
     }
@@ -162,6 +163,7 @@ public class SellerApiServlet extends ApiBase {
         body.put("memberSince",     profile.getMemberSince() != null ? profile.getMemberSince().toString() : null);
         body.put("profileImageUrl", profile.getProfileImageUrl());
         body.put("activeListings",  profile.getActiveListingCount());
+        body.put("completedSales",  profileDAO.countCompletedTransactions(sellerId));
         body.put("avgRating",       rating.getAverage());
         body.put("reviewCount",     rating.getCount());
         body.put("totalReviews",    totalReviews);
@@ -418,6 +420,46 @@ public class SellerApiServlet extends ApiBase {
         }
     }
 
+    // ── POST: remove one unit from a multi-quantity listing ──────────────────
+
+    private void handleReduceQuantity(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        AuthSession session = authSession(req);
+        if (!isSeller(session)) { forbidden(resp); return; }
+        int sellerId = ((Number) session.getAttribute("userId")).intValue();
+
+        String auctionIdStr = param(req, "auctionId");
+        if (auctionIdStr == null) { badRequest(resp, "auctionId is required."); return; }
+        long auctionId;
+        try { auctionId = Long.parseLong(auctionIdStr); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
+
+        try {
+            SellerAuctionDAO.ReduceQtyResult result = auctionDAO.reduceQuantity(auctionId, sellerId);
+            switch (result) {
+                case SUCCESS:
+                    okMsg(resp, "One unit removed from this listing.");
+                    break;
+                case NOT_FOUND:
+                    error(resp, 404, "Auction not found.");
+                    break;
+                case NOT_OWNER:
+                    forbidden(resp);
+                    break;
+                case LAST_UNIT:
+                    error(resp, 400, "Only one unit remains. Cancel the auction to remove it entirely.");
+                    break;
+                case NOT_ACTIVE:
+                    error(resp, 400, "Only active auctions can have units removed.");
+                    break;
+                default:
+                    serverError(resp, "Could not update quantity.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not update quantity.");
+        }
+    }
+
     // ── POST: relist auction ─────────────────────────────────────────────────
 
     private void handleRelist(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -544,8 +586,8 @@ public class SellerApiServlet extends ApiBase {
                 case AUCTION_NOT_FINISHED: error(resp, 400, "Auction is not finished yet."); break;
                 case NOT_AUCTION_OWNER:    forbidden(resp); break;
                 case NO_WINNER:            error(resp, 400, "This auction has no winner to rate."); break;
-                case BUYER_NOT_RATED_YET:  error(resp, 400, "You can rate the buyer only after they have rated you for this auction."); break;
                 case ALREADY_RATED:        error(resp, 400, "You have already rated the buyer for this auction."); break;
+                case ORDER_NOT_COMPLETED:  error(resp, 400, "You can rate the buyer after the order is marked complete."); break;
                 default:                   serverError(resp, "Could not submit rating."); break;
             }
         } catch (Exception e) {

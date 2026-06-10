@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
@@ -8,8 +9,11 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const justRegistered = searchParams.get('registered') === '1';
   const [form, setForm] = useState({ email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const blockPasswordClipboard = (e) => e.preventDefault();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -61,14 +65,28 @@ export default function Login() {
             required
             className="input-field"
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-            required
-            className="input-field"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              value={form.password}
+              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              onCopy={blockPasswordClipboard}
+              onCut={blockPasswordClipboard}
+              onPaste={blockPasswordClipboard}
+              autoComplete="current-password"
+              required
+              className="input-field pr-11"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           <button
             type="submit"
             disabled={loading}

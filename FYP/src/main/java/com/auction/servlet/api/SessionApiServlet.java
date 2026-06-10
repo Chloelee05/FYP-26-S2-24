@@ -36,7 +36,9 @@ public class SessionApiServlet extends ApiBase {
             return;
         }
 
+        AuthSession s = authSession(req);
         Map<String, Object> body = new LinkedHashMap<>();
+        if (s != null) body.put("token", s.getToken());
         body.put("id",       user.getId());
         body.put("username", user.getUsername());
         body.put("email",    user.getEmail());

@@ -32,7 +32,9 @@ public class RatingDAO {
         /** The rater is not the winning buyer of this auction. */
         NOT_WINNER,
         /** A rating from this buyer for this auction already exists. */
-        ALREADY_RATED
+        ALREADY_RATED,
+        /** The order for this auction is not yet marked complete. */
+        ORDER_NOT_COMPLETED
     }
 
     // -------------------------------------------------------------------------
@@ -93,6 +95,11 @@ public class RatingDAO {
                 return RatingResult.NOT_WINNER;
             }
 
+            if (!isOrderCompleted(conn, auctionId)) {
+                conn.rollback();
+                return RatingResult.ORDER_NOT_COMPLETED;
+            }
+
             // Friendly duplicate check before hitting the UNIQUE constraint
             String existsSql =
                     "SELECT 1 FROM user_reviews "
@@ -140,6 +147,14 @@ public class RatingDAO {
                     conn.close();
                 } catch (SQLException ignored) { }
             }
+        }
+    }
+
+    private static boolean isOrderCompleted(Connection conn, long auctionId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM orders WHERE auction_id = ? AND status = 'COMPLETED'")) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
         }
     }
 

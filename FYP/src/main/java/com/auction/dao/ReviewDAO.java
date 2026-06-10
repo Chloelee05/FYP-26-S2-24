@@ -36,10 +36,10 @@ public class ReviewDAO {
         NOT_AUCTION_OWNER,
         /** The auction has no winner yet (winner_id is NULL). */
         NO_WINNER,
-        /** The winning buyer has not yet rated the seller for this auction. */
-        BUYER_NOT_RATED_YET,
         /** A rating from this seller for this auction already exists. */
-        ALREADY_RATED
+        ALREADY_RATED,
+        /** The order for this auction is not yet marked complete. */
+        ORDER_NOT_COMPLETED
     }
 
     /**
@@ -99,21 +99,9 @@ public class ReviewDAO {
                 return SellerRatingResult.NO_WINNER;
             }
 
-            // Ordering gate: the seller may rate the buyer only after the winning
-            // buyer has already rated the seller for this auction.
-            String buyerRatedSql =
-                    "SELECT 1 FROM user_reviews "
-                    + "WHERE reviewer_user_id = ? AND reviewee_user_id = ? AND auction_id = ?";
-            try (PreparedStatement ps = conn.prepareStatement(buyerRatedSql)) {
-                ps.setInt(1, winnerId);
-                ps.setInt(2, sellerId);
-                ps.setLong(3, auctionId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        conn.rollback();
-                        return SellerRatingResult.BUYER_NOT_RATED_YET;
-                    }
-                }
+            if (!isOrderCompleted(conn, auctionId)) {
+                conn.rollback();
+                return SellerRatingResult.ORDER_NOT_COMPLETED;
             }
 
             // Friendly duplicate check before hitting the UNIQUE constraint
@@ -164,6 +152,14 @@ public class ReviewDAO {
                     conn.close();
                 } catch (SQLException ignored) { }
             }
+        }
+    }
+
+    private static boolean isOrderCompleted(Connection conn, long auctionId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM orders WHERE auction_id = ? AND status = 'COMPLETED'")) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
         }
     }
 

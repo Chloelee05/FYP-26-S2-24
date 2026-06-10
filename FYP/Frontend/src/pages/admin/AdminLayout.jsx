@@ -1,13 +1,15 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle } from 'lucide-react';
 
 const NAV = [
   { to: '/admin', icon: LayoutDashboard, label: 'Overview', end: true },
   { to: '/admin/users', icon: Users, label: 'User Moderation' },
   { to: '/admin/listings', icon: List, label: 'Listing Moderation' },
+  { to: '/admin/orders', icon: ShoppingBag, label: 'Orders' },
   { to: '/admin/analytics', icon: BarChart2, label: 'Analytics' },
   { to: '/admin/categories', icon: Tag, label: 'Categories' },
   { to: '/admin/reports', icon: AlertCircle, label: 'User Reports' },
+  { to: '/admin/chat', icon: MessageCircle, label: 'Support Chat' },
 ];
 
 export default function AdminLayout() {

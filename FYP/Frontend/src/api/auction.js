@@ -52,6 +52,9 @@ export const askQuestion = (auctionId, text) =>
 export const rateSeller = (auctionId, score, comment) =>
   api.post('/rate', form({ auctionId, score, comment }), F);
 
+export const checkSellerRated = (auctionId) =>
+  api.get('/rate/check', { params: { auctionId } });
+
 export const reportListing = (auctionId, description) =>
   api.post('/report', form({ auctionId, description }), F);
 

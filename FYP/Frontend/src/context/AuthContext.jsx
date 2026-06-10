@@ -9,8 +9,14 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     getSession()
-      .then(res => setUser(res.data))
-      .catch(() => setUser(null))
+      .then(res => {
+        if (res.data?.token) sessionStorage.setItem('authToken', res.data.token);
+        setUser(res.data);
+      })
+      .catch(() => {
+        sessionStorage.removeItem('authToken');
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
