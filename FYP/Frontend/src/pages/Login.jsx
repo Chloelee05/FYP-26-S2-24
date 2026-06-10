@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const justRegistered = searchParams.get('registered') === '1';
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,6 +43,12 @@ export default function Login() {
             Create Account
           </Link>
         </p>
+
+        {justRegistered && (
+          <div className="bg-green-50 text-green-700 text-sm px-4 py-2 rounded-lg mb-4">
+            Account created successfully. Please sign in.
+          </div>
+        )}
 
         {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
 

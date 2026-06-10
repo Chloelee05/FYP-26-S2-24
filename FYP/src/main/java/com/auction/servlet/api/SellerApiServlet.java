@@ -27,6 +27,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * GET  /api/seller/{id}           — public seller profile (no auth required)
@@ -38,6 +40,8 @@ import java.util.stream.Collectors;
  */
 @WebServlet("/api/seller/*")
 public class SellerApiServlet extends ApiBase {
+
+    private static final Logger LOG = Logger.getLogger(SellerApiServlet.class.getName());
 
     private final SellerProfileDAO profileDAO  = new SellerProfileDAO();
     private final SellerAuctionDAO auctionDAO  = new SellerAuctionDAO();
@@ -277,7 +281,8 @@ public class SellerApiServlet extends ApiBase {
             body.put("message", "Auction created successfully.");
             ok(resp, body);
         } catch (Exception e) {
-            serverError(resp, "Could not create auction.");
+            LOG.log(Level.SEVERE, "Create auction failed for seller " + sellerId, e);
+            serverError(resp, "Could not create auction. Check server logs or run DB migrations.");
         }
     }
 

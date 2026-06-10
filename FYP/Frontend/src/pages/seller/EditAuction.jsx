@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getAuctionForEdit, editAuction } from '../../api/seller';
 import { getCategories } from '../../api/auction';
+import { normalizeCategories } from '../../utils/helpers';
 import ImageUploader from '../../components/ImageUploader';
 
 const CONDITIONS = [
@@ -25,6 +26,7 @@ export default function EditAuction() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
+  const [categoryError, setCategoryError] = useState('');
   const [bidCount, setBidCount] = useState(0);
   const [form, setForm] = useState({
     title: '', description: '', category: '', itemCondition: '1', endDate: '',
@@ -37,7 +39,13 @@ export default function EditAuction() {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
-    getCategories().then(r => setCategories(r.data)).catch(() => {});
+    getCategories()
+      .then(r => {
+        const list = normalizeCategories(r.data);
+        setCategories(list);
+        setCategoryError(list.length === 0 ? 'No categories available.' : '');
+      })
+      .catch(() => setCategoryError('Could not load categories.'));
     getAuctionForEdit(id)
       .then(r => {
         const d = r.data;
@@ -122,8 +130,9 @@ export default function EditAuction() {
                 className={`w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${hasBids ? 'bg-gray-100 cursor-not-allowed' : ''}`}
               >
                 <option value="">-- Select a category --</option>
-                {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                {categories.map(c => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)}
               </select>
+              {categoryError && <p className="text-xs text-amber-600 mt-1">{categoryError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>

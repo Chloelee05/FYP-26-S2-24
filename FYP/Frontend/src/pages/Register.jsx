@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ShoppingCart, DollarSign } from 'lucide-react';
 import { register } from '../api/auth';
+import PasswordField from '../components/PasswordField';
+import SuccessModal from '../components/SuccessModal';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -9,6 +11,7 @@ export default function Register() {
   const [form, setForm] = useState({ username: '', email: '', password: '', confirmPassword: '', termsAccept: false });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,16 +20,34 @@ export default function Register() {
     setError(''); setLoading(true);
     try {
       await register({ ...form, role, termsAccept: 'on' });
-      navigate('/login?registered=1');
+      setShowSuccess(true);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Registration failed. Please try again.');
+      if (!err.response) {
+        setError('Cannot reach the server. Start Tomcat (port 8080) and run this page via npm run dev (port 3000).');
+        return;
+      }
+      const data = err.response?.data;
+      const msg = (typeof data === 'object' && data)
+        ? (data.error || data.message)
+        : null;
+      setError(msg || `Registration failed (HTTP ${err.response.status}). Please try again.`);
     } finally {
       setLoading(false);
     }
   };
 
+  const roleLabel = role === 'BUYER' ? 'Buyer' : 'Seller';
+
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4 py-8">
+      {showSuccess && (
+        <SuccessModal
+          title="Account created successfully!"
+          message={`Your ${roleLabel} account has been created. You can now sign in with your email and password.`}
+          buttonLabel="Go to Sign In"
+          onClose={() => navigate('/login?registered=1')}
+        />
+      )}
       <div className="bg-white rounded-3xl shadow-sm p-8 w-full max-w-md">
         <p className="text-right text-sm text-gray-500 mb-2">
           Already have an account?{' '}
@@ -79,24 +100,22 @@ export default function Register() {
             required
             className="input-field"
           />
-          <input
-            type="password"
+          <PasswordField
             placeholder="Password"
             value={form.password}
             onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
             required
-            className="input-field"
+            autoComplete="new-password"
           />
           <p className="text-xs text-gray-500 -mt-1">
             8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&* etc.)
           </p>
-          <input
-            type="password"
+          <PasswordField
             placeholder="Confirm Password"
             value={form.confirmPassword}
             onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
             required
-            className="input-field"
+            autoComplete="new-password"
           />
           <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
             <input

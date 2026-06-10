@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS auction_images;
 DROP TABLE IF EXISTS auction_details;
 DROP TABLE IF EXISTS bids;
 DROP TABLE IF EXISTS auction;
+DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS auction_status;
 DROP TABLE IF EXISTS auction_type;
 DROP TABLE IF EXISTS tags;
@@ -113,6 +114,28 @@ CREATE TABLE tags (
   tag_name  VARCHAR(255) NOT NULL
 );
 
+-- Admin-managed categories (SCRUM-23)
+CREATE TABLE categories (
+  id            SERIAL        PRIMARY KEY,
+  name          VARCHAR(100)  NOT NULL,
+  description   TEXT,
+  display_order INT           NOT NULL DEFAULT 0,
+  slug          VARCHAR(120)  NOT NULL,
+  is_deleted    BOOLEAN       NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT categories_name_unique UNIQUE (name),
+  CONSTRAINT categories_slug_unique UNIQUE (slug)
+);
+
+INSERT INTO categories (name, slug, display_order) VALUES
+  ('Electronics',    'electronics',    10),
+  ('Fashion',        'fashion',        20),
+  ('Home & Garden',  'home-garden',    30),
+  ('Sports',         'sports',         40),
+  ('Collectibles',   'collectibles',   50),
+  ('Art',            'art',            60),
+  ('Other',          'other',          99);
+
 -- Auction
 CREATE TABLE auction (
   auction_id    BIGINT    GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -123,6 +146,7 @@ CREATE TABLE auction (
   auction_type  SMALLINT  NOT NULL,
   report_count       INTEGER     NOT NULL DEFAULT 0, -- should be separate
   moderation_state   VARCHAR(20) NOT NULL DEFAULT 'active',
+  cancel_reason      TEXT        DEFAULT NULL,
   CONSTRAINT auction_status_foreign FOREIGN KEY (status_id)    REFERENCES auction_status (id),
   CONSTRAINT auction_type_foreign   FOREIGN KEY (auction_type) REFERENCES auction_type   (id),
   CONSTRAINT seller_id_foreign      FOREIGN KEY (seller_id)    REFERENCES users           (id),
@@ -131,13 +155,15 @@ CREATE TABLE auction (
 
 -- Auction details
 CREATE TABLE auction_details (
-  id                BIGINT       PRIMARY KEY,
-  title             VARCHAR(255) NOT NULL,
-  description       TEXT         NOT NULL,
-  category          VARCHAR(100) NOT NULL DEFAULT 'Other', -- ???
-  item_condition_id SMALLINT     NOT NULL,
-  winning_bid       INTEGER      DEFAULT NULL,
-  winner_id         INTEGER      DEFAULT NULL,
+  id                BIGINT         PRIMARY KEY,
+  title             VARCHAR(255)   NOT NULL,
+  description       TEXT           NOT NULL,
+  category          VARCHAR(100)   NOT NULL DEFAULT 'Other',
+  item_condition_id SMALLINT       NOT NULL,
+  starting_price    NUMERIC(10,2)  NOT NULL DEFAULT 0 CHECK (starting_price >= 0),
+  max_price         NUMERIC(10,2)  DEFAULT NULL CHECK (max_price IS NULL OR max_price > 0),
+  winning_bid       INTEGER        DEFAULT NULL,
+  winner_id         INTEGER        DEFAULT NULL,
   CONSTRAINT auction_id_details FOREIGN KEY (id) REFERENCES auction (auction_id),
   CONSTRAINT item_condition FOREIGN KEY (item_condition_id) REFERENCES item_status(id)
 );

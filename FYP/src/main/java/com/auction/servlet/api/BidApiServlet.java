@@ -48,7 +48,14 @@ public class BidApiServlet extends ApiBase {
             badRequest(resp, "bidAmount must be a valid number."); return;
         }
 
-        BidResult result = bidDAO.placeBid(auctionId, buyerId, bidAmount);
+        BidResult result;
+        try {
+            result = bidDAO.placeBid(auctionId, buyerId, bidAmount);
+        } catch (RuntimeException e) {
+            getServletContext().log("placeBid error [auctionId=" + auctionId + ", buyerId=" + buyerId + "]", e);
+            serverError(resp, "Could not place bid. Check server logs or run DB migrations.");
+            return;
+        }
 
         if (result == BidResult.SUCCESS) {
             okMsg(resp, "Bid of $" + bidAmount.toPlainString() + " placed successfully!");
