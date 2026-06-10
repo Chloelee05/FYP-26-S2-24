@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createAuction } from '../../api/seller';
 import { getCategories, getTags } from '../../api/auction';
+import { normalizeCategories } from '../../utils/helpers';
 import ImageUploader from '../../components/ImageUploader';
 
 // Maps UI condition labels to backend ItemCondition IDs (BRAND_NEW=1, SLIGHTLY_USED=2, USED=3, DAMAGED=4)
@@ -18,6 +19,7 @@ const toIso = (datetimeLocal) =>
 export default function CreateAuction() {
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
+  const [categoryError, setCategoryError] = useState('');
   const [availableTags, setAvailableTags] = useState([]); // [{id, name}]
   const [selectedTags, setSelectedTags] = useState([]);   // array of tag ids (numbers)
   const [form, setForm] = useState({
@@ -29,7 +31,13 @@ export default function CreateAuction() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getCategories().then(r => setCategories(r.data)).catch(() => {});
+    getCategories()
+      .then(r => {
+        const list = normalizeCategories(r.data);
+        setCategories(list);
+        setCategoryError(list.length === 0 ? 'No categories available. Ask an admin to add categories.' : '');
+      })
+      .catch(() => setCategoryError('Could not load categories. Check that Tomcat and PostgreSQL are running.'));
     getTags().then(r => {
       // backend returns a Map<Long,String> serialised as {id: name, ...}
       const raw = r.data ?? {};
@@ -63,7 +71,11 @@ export default function CreateAuction() {
       });
       navigate('/seller/dashboard');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to create auction.');
+      const data = err.response?.data;
+      const msg = (typeof data === 'object' && data)
+        ? (data.error || data.message)
+        : null;
+      setError(msg || `Failed to create auction (HTTP ${err.response?.status ?? 'network'}).`);
     } finally {
       setLoading(false);
     }
@@ -95,10 +107,13 @@ export default function CreateAuction() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
             <select value={form.category} onChange={e => update('category', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              required
+              disabled={categories.length === 0}
+              className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50">
               <option value="">-- Select a category --</option>
-              {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              {categories.map(c => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)}
             </select>
+            {categoryError && <p className="text-xs text-amber-600 mt-1">{categoryError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

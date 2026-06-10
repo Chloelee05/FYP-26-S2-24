@@ -80,17 +80,29 @@
                 </div>
                 <div class="mb-3">
                     <label class="visually-hidden" for="password">Password</label>
-                    <input class="form-control auth-input-pill" type="password" id="password" name="password"
-                           placeholder="Password" autocomplete="new-password" aria-required="true">
+                    <div class="auth-password-wrap">
+                        <input class="form-control auth-input-pill auth-password-input" type="password" id="password" name="password"
+                               placeholder="Password" autocomplete="new-password" aria-required="true">
+                        <button type="button" class="auth-password-toggle" data-toggle-for="password"
+                                aria-label="Show password" aria-pressed="false">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
                     <div class="form-text small">8–128 characters; uppercase, lowercase, number, and special character.</div>
                     <div class="invalid-feedback small" data-feedback="password"></div>
                 </div>
                 <div class="mb-3">
                     <label class="visually-hidden" for="confirmPassword">Confirm Password</label>
-                    <input class="form-control auth-input-pill" type="password" id="confirmPassword"
-                           name="confirmPassword"
-                           placeholder="Confirm Password" autocomplete="new-password" aria-required="true"
-                           value="<c:out value='${confirmPassword}'/>">
+                    <div class="auth-password-wrap">
+                        <input class="form-control auth-input-pill auth-password-input" type="password" id="confirmPassword"
+                               name="confirmPassword"
+                               placeholder="Confirm Password" autocomplete="new-password" aria-required="true"
+                               value="<c:out value='${confirmPassword}'/>">
+                        <button type="button" class="auth-password-toggle" data-toggle-for="confirmPassword"
+                                aria-label="Show password" aria-pressed="false">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
                     <div class="invalid-feedback small" data-feedback="confirmPassword"></div>
                 </div>
 

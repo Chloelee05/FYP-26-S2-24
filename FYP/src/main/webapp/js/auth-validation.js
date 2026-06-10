@@ -192,10 +192,30 @@
     });
   }
 
+  function wirePasswordToggles(root) {
+    var scope = root || document;
+    scope.querySelectorAll('.auth-password-toggle[data-toggle-for]').forEach(function (btn) {
+      var input = scope.getElementById(btn.getAttribute('data-toggle-for'));
+      if (!input) return;
+      btn.addEventListener('click', function () {
+        var show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+        btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        var icon = btn.querySelector('i');
+        if (icon) {
+          icon.classList.toggle('bi-eye', !show);
+          icon.classList.toggle('bi-eye-slash', show);
+        }
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     wireLogin(document.getElementById('loginForm'));
     wireRegister(document.getElementById('registerForm'));
     wireForgot(document.getElementById('forgotPasswordForm'));
     wireReset(document.getElementById('resetPasswordForm'));
+    wirePasswordToggles(document);
   });
 })();
