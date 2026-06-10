@@ -57,6 +57,31 @@ body.auth-page {
   box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.15);
 }
 
+.auth-password-wrap {
+  position: relative;
+}
+
+.auth-password-input {
+  padding-right: 3rem;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.auth-password-toggle:hover,
+.auth-password-toggle:focus {
+  color: #4b5563;
+}
+
 .btn-auth-primary {
   border-radius: 999px;
   padding: 0.7rem 1.25rem;

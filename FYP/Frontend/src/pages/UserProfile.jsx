@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Phone, MapPin, Edit3 } from 'lucide-react';
 import { getProfile, getTransactionHistory, getMyReviews } from '../api/user';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getRoleDisplay } from '../utils/helpers';
 import StarRating from '../components/StarRating';
 
 // Backend fields:
@@ -26,6 +26,8 @@ export default function UserProfile() {
   if (!profile) {
     return <div className="max-w-5xl mx-auto px-4 py-16 text-center text-gray-400">Loading profile…</div>;
   }
+
+  const roleDisplay = getRoleDisplay(profile.role);
 
   const rating = profile.rating ?? {};
   const avgRating = rating.average ?? 0;
@@ -58,6 +60,9 @@ export default function UserProfile() {
               {profile.username?.[0] ?? 'U'}
             </div>
             <h2 className="font-bold text-lg text-gray-900">{profile.username}</h2>
+            <span className={`inline-block mt-1 mb-2 px-2.5 py-0.5 rounded-full text-xs font-semibold ${roleDisplay.className}`}>
+              {roleDisplay.label}
+            </span>
             <p className="text-sm text-gray-400 mb-4">
               Member since {profile.memberSince ? new Date(profile.memberSince).toLocaleDateString('en-SG', { month: 'long', year: 'numeric' }) : '—'}
             </p>
