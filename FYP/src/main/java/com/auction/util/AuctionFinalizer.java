@@ -2,6 +2,7 @@ package com.auction.util;
 
 import com.auction.dao.OrderDAO;
 import com.auction.model.AuctionStatus;
+import com.auction.notification.NotificationService;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -13,46 +14,49 @@ import java.time.Instant;
 
 /**
  * Lazily finalizes an auction whose end date has passed.
- *
- * <p>The application has no background scheduler, so an auction can sit at
- * {@code status_id = ACTIVE} with {@code winner_id = NULL} long after its
- * {@code date_end}. That breaks anything that requires a FINISHED auction with a
- * winner — most visibly the rating flows. This helper, called inside an existing
- * transaction, promotes such an auction to {@code FINISHED} and records the winner
- * (highest bid) so the rest of the logic can proceed against consistent state.</p>
  */
 public final class AuctionFinalizer {
 
     private AuctionFinalizer() { }
 
+    public static final class FinalizeResult {
+        public final boolean finalized;
+        public final int winnerId;
+
+        private FinalizeResult(boolean finalized, int winnerId) {
+            this.finalized = finalized;
+            this.winnerId = winnerId;
+        }
+
+        static FinalizeResult none() { return new FinalizeResult(false, -1); }
+        static FinalizeResult ok(int winnerId) { return new FinalizeResult(true, winnerId); }
+    }
+
     /**
      * If {@code auctionId} is ACTIVE and its end date has passed, set it to FINISHED
      * and populate {@code winner_id} / {@code winning_bid} from the highest bid.
-     * No-op for auctions that are not active, have not ended, or do not exist.
-     * Runs on the supplied connection so it participates in the caller's transaction.
      */
-    public static void finalizeIfEnded(Connection conn, long auctionId) throws SQLException {
+    public static FinalizeResult finalizeIfEnded(Connection conn, long auctionId) throws SQLException {
         int statusId;
         Timestamp dateEnd;
-        String selectSql = "SELECT status_id, date_end FROM auction WHERE auction_id = ? FOR UPDATE";
-        try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT status_id, date_end FROM auction WHERE auction_id = ? FOR UPDATE")) {
             ps.setLong(1, auctionId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return;
+                if (!rs.next()) return FinalizeResult.none();
                 statusId = rs.getInt("status_id");
                 dateEnd  = rs.getTimestamp("date_end");
             }
         }
 
-        if (statusId != AuctionStatus.ACTIVE.getId()) return;
-        if (dateEnd == null || dateEnd.toInstant().isAfter(Instant.now())) return;
+        if (statusId != AuctionStatus.ACTIVE.getId()) return FinalizeResult.none();
+        if (dateEnd == null || dateEnd.toInstant().isAfter(Instant.now())) return FinalizeResult.none();
 
-        // Highest bid wins; earliest bid breaks ties.
         Integer winnerId = null;
         BigDecimal winningBid = null;
-        String bidSql = "SELECT user_id, bid_amount FROM bids WHERE auction_id = ? "
-                + "ORDER BY bid_amount DESC, bid_time ASC LIMIT 1";
-        try (PreparedStatement ps = conn.prepareStatement(bidSql)) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT user_id, bid_amount FROM bids WHERE auction_id = ? "
+              + "ORDER BY bid_amount DESC, bid_time ASC LIMIT 1")) {
             ps.setLong(1, auctionId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -78,6 +82,20 @@ public final class AuctionFinalizer {
                 ps.executeUpdate();
             }
             new OrderDAO().ensureOrderForAuction(conn, auctionId);
+            return FinalizeResult.ok(winnerId);
+        }
+        return FinalizeResult.ok(-1);
+    }
+
+    /** Standalone finalize + notify (used when viewing an ended auction). */
+    public static void finalizeIfExpiredAndNotify(long auctionId) {
+        try {
+            FinalizeResult r = DBUtil.runInTransaction(conn -> finalizeIfEnded(conn, auctionId));
+            if (r.finalized && r.winnerId > 0) {
+                NotificationService.notifyAuctionWonIfAbsent(auctionId, r.winnerId);
+            }
+        } catch (Exception ignored) {
+            // best-effort
         }
     }
 }

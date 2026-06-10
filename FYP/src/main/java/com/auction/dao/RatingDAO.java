@@ -60,7 +60,8 @@ public class RatingDAO {
 
             // Promote a time-expired auction to FINISHED (+ resolve winner) so the
             // winner/status checks below see consistent state. No-op if already final.
-            com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
+            com.auction.util.AuctionFinalizer.FinalizeResult finalizeResult =
+                    com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
             String selectSql =
                     "SELECT a.status_id, a.seller_id, d.winner_id "
@@ -133,6 +134,9 @@ public class RatingDAO {
             }
 
             conn.commit();
+            if (finalizeResult.finalized && finalizeResult.winnerId > 0) {
+                com.auction.notification.NotificationService.notifyAuctionWonIfAbsent(auctionId, finalizeResult.winnerId);
+            }
             return RatingResult.SUCCESS;
 
         } catch (Exception e) {

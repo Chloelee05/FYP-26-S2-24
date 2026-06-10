@@ -31,3 +31,5 @@ export const sendSupportMessage = (threadId, body, attachmentUrl) =>
   api.post(`/support/threads/${threadId}/messages`, form({ body, attachmentUrl }).toString(), formHeaders());
 export const closeSupportThread = (threadId) =>
   api.post(`/support/threads/${threadId}/close`, form({}).toString(), formHeaders());
+export const markSupportThreadRead = (threadId) =>
+  api.post(`/support/threads/${threadId}/read`, form({}).toString(), formHeaders());

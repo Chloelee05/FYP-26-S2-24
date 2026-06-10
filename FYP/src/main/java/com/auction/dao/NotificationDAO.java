@@ -32,6 +32,19 @@ public class NotificationDAO {
         return -1;
     }
 
+    public boolean exists(int userId, String type, String link) {
+        String sql = "SELECT 1 FROM notifications WHERE user_id = ? AND type = ? AND link = ? LIMIT 1";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setString(2, type);
+            ps.setString(3, link);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public List<Notification> listForUser(int userId, int limit) {
         String sql = "SELECT id, type, message, link, is_read, created_at "
                 + "FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?";

@@ -2,7 +2,10 @@ package com.auction.servlet.api;
 
 import com.auction.dao.ReportDAO;
 import com.auction.dao.ReportDAO.ReportResult;
+import com.auction.dao.UserDAO;
+import com.auction.model.User;
 import com.auction.model.AccountReport;
+import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.annotation.WebServlet;
@@ -20,6 +23,7 @@ import java.time.Instant;
 public class ReportApiServlet extends ApiBase {
 
     private final ReportDAO reportDAO = new ReportDAO();
+    private final UserDAO userDAO = new UserDAO();
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -51,6 +55,7 @@ public class ReportApiServlet extends ApiBase {
 
         ReportResult result = reportDAO.insertReport(auctionId, reporterId, description);
         if (result == ReportResult.SUCCESS) {
+            NotificationService.notifyAdminsListingReport(auctionId);
             okMsg(resp, "Report submitted. Our team will review it shortly.");
         } else {
             error(resp, 400, toMessage(result));
@@ -81,6 +86,9 @@ public class ReportApiServlet extends ApiBase {
                     (long) reporterId, reportedId, reason, null, Instant.now());
             boolean ok = reportDAO.reportUser(report);
             if (ok) {
+                User reporter = userDAO.getUserById(reporterId);
+                NotificationService.notifyAdminsAccountReport(
+                        reporter != null ? reporter.getUsername() : null, reason);
                 okMsg(resp, "User report submitted. Our team will review it shortly.");
             } else {
                 serverError(resp, "Could not submit report. Please try again.");
