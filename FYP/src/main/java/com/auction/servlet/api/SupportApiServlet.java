@@ -1,6 +1,9 @@
 package com.auction.servlet.api;
 
 import com.auction.dao.SupportChatDAO;
+import com.auction.dao.UserDAO;
+import com.auction.model.User;
+import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.annotation.WebServlet;
@@ -29,6 +32,7 @@ import java.util.UUID;
  * GET  /api/support/threads/{id}/messages
  * POST /api/support/threads/{id}/messages (body, attachmentUrl?)
  * POST /api/support/threads/{id}/close
+ * POST /api/support/threads/{id}/read
  */
 @WebServlet("/api/support/*")
 public class SupportApiServlet extends ApiBase {
@@ -40,6 +44,7 @@ public class SupportApiServlet extends ApiBase {
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024L;
 
     private final SupportChatDAO chatDAO = new SupportChatDAO();
+    private final UserDAO userDAO = new UserDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -66,8 +71,24 @@ public class SupportApiServlet extends ApiBase {
             handleSendMessage(req, resp);
         } else if (parts.length >= 3 && "threads".equals(parts[0]) && "close".equals(parts[2])) {
             handleCloseThread(req, resp);
+        } else if (parts.length >= 3 && "threads".equals(parts[0]) && "read".equals(parts[2])) {
+            handleMarkRead(req, resp);
         } else {
             error(resp, 404, "Not found.");
+        }
+    }
+
+    private void handleMarkRead(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        long threadId = parseId(idStr(req), resp);
+        if (threadId < 0) return;
+        if (!canAccessThread(req, threadId, resp)) return;
+        AuthSession session = authSession(req);
+        int userId = ((Number) session.getAttribute("userId")).intValue();
+        try {
+            chatDAO.markThreadRead(threadId, userId);
+            okMsg(resp, "Marked as read.");
+        } catch (Exception e) {
+            serverError(resp, "Could not update read status.");
         }
     }
 
@@ -105,7 +126,7 @@ public class SupportApiServlet extends ApiBase {
         boolean admin = isAdmin(session);
         try {
             List<Map<String, Object>> threads = admin
-                    ? chatDAO.listThreadsForAdmin()
+                    ? chatDAO.listThreadsForAdmin(userId)
                     : chatDAO.listThreadsForUser(userId);
             ok(resp, threads);
         } catch (Exception e) {
@@ -127,6 +148,11 @@ public class SupportApiServlet extends ApiBase {
             long threadId = chatDAO.createThread(userId, subject);
             if (threadId < 0) { serverError(resp, "Could not create thread."); return; }
             chatDAO.addMessage(threadId, userId, body, attachmentUrl);
+            User user = userDAO.getUserById(userId);
+            String preview = (body != null && !body.isBlank()) ? body
+                    : (attachmentUrl != null && !attachmentUrl.isBlank() ? "[Image attached]" : "New message");
+            NotificationService.notifyAdminsSupportMessage(threadId,
+                    user != null ? user.getUsername() : null, preview);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("threadId", threadId);
             out.put("message", "Support thread created.");
@@ -165,6 +191,13 @@ public class SupportApiServlet extends ApiBase {
             }
             long msgId = chatDAO.addMessage(threadId, userId, body, attachmentUrl);
             if (msgId < 0) { serverError(resp, "Could not send message."); return; }
+            if (!isAdmin(session)) {
+                User user = userDAO.getUserById(userId);
+                String preview = (body != null && !body.isBlank()) ? body
+                        : (attachmentUrl != null && !attachmentUrl.isBlank() ? "[Image attached]" : "New message");
+                NotificationService.notifyAdminsSupportMessage(threadId,
+                        user != null ? user.getUsername() : null, preview);
+            }
             okMsg(resp, "Message sent.");
         } catch (Exception e) {
             serverError(resp, "Could not send message.");

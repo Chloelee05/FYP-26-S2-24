@@ -90,6 +90,7 @@ public class AuctionApiServlet extends ApiBase {
     }
 
     private void handleDetail(HttpServletRequest req, HttpServletResponse resp, long auctionId) throws IOException {
+        com.auction.util.AuctionFinalizer.finalizeIfExpiredAndNotify(auctionId);
         AuctionDetail detail = bidDAO.findByIdForDisplay(auctionId);
         if (detail == null) {
             error(resp, 404, "Auction not found.");

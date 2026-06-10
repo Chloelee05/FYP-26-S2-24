@@ -15,6 +15,15 @@ import java.util.Map;
 /** Admin–user support chat threads and messages. */
 public class SupportChatDAO {
 
+    private static final String THREAD_SELECT =
+            "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, "
+          + "  (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS message_count, "
+          + "  (SELECT MAX(m.created_at) FROM support_messages m WHERE m.thread_id = t.id) AS last_message_at, "
+          + "  (SELECT m.body FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_body, "
+          + "  (SELECT m.attachment_url FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_attachment_url, "
+          + "  (SELECT m.sender_id FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id, "
+          + "  (SELECT tr.last_read_at FROM support_thread_reads tr WHERE tr.thread_id = t.id AND tr.user_id = ?) AS last_read_at ";
+
     public long createThread(int userId, String subject) throws Exception {
         String sql = "INSERT INTO support_threads (user_id, subject) VALUES (?, ?) RETURNING id";
         try (Connection conn = DBUtil.connectDB();
@@ -29,42 +38,53 @@ public class SupportChatDAO {
     }
 
     public List<Map<String, Object>> listThreadsForUser(int userId) throws Exception {
-        String sql =
-            "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, "
-          + "  (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS message_count "
-          + "FROM support_threads t WHERE t.user_id = ? ORDER BY t.updated_at DESC";
-        return queryThreads(sql, userId);
+        String sql = THREAD_SELECT
+                + "FROM support_threads t WHERE t.user_id = ? "
+                + "ORDER BY COALESCE("
+                + "  (SELECT MAX(m.created_at) FROM support_messages m WHERE m.thread_id = t.id), "
+                + "  t.updated_at) DESC";
+        return queryThreadsForViewer(sql, userId, userId);
     }
 
-    public List<Map<String, Object>> listThreadsForAdmin() throws Exception {
+    public List<Map<String, Object>> listThreadsForAdmin(int adminUserId) throws Exception {
         String sql =
             "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, "
           + "  u.username, "
-          + "  (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS message_count "
+          + "  (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS message_count, "
+          + "  (SELECT MAX(m.created_at) FROM support_messages m WHERE m.thread_id = t.id) AS last_message_at, "
+          + "  (SELECT m.body FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_body, "
+          + "  (SELECT m.attachment_url FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_attachment_url, "
+          + "  (SELECT m.sender_id FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id, "
+          + "  (SELECT tr.last_read_at FROM support_thread_reads tr WHERE tr.thread_id = t.id AND tr.user_id = ?) AS last_read_at "
           + "FROM support_threads t JOIN users u ON u.id = t.user_id "
-          + "ORDER BY t.updated_at DESC";
-        List<Map<String, Object>> out = new ArrayList<>();
-        try (Connection conn = DBUtil.connectDB();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) out.add(mapThread(rs, true));
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> queryThreads(String sql, int userId) throws Exception {
+          + "ORDER BY COALESCE("
+          + "  (SELECT MAX(m.created_at) FROM support_messages m WHERE m.thread_id = t.id), "
+          + "  t.updated_at) DESC";
         List<Map<String, Object>> out = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, userId);
+            ps.setInt(1, adminUserId);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) out.add(mapThread(rs, false));
+                while (rs.next()) out.add(mapThread(rs, true, adminUserId));
             }
         }
         return out;
     }
 
-    private static Map<String, Object> mapThread(ResultSet rs, boolean withUsername) throws Exception {
+    private List<Map<String, Object>> queryThreadsForViewer(String sql, int viewerUserId, int filterUserId) throws Exception {
+        List<Map<String, Object>> out = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, viewerUserId);
+            ps.setInt(2, filterUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(mapThread(rs, false, viewerUserId));
+            }
+        }
+        return out;
+    }
+
+    private static Map<String, Object> mapThread(ResultSet rs, boolean withUsername, int viewerUserId) throws Exception {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", rs.getLong("id"));
         m.put("userId", rs.getLong("user_id"));
@@ -73,8 +93,29 @@ public class SupportChatDAO {
         m.put("createdAt", instant(rs.getTimestamp("created_at")));
         m.put("updatedAt", instant(rs.getTimestamp("updated_at")));
         m.put("messageCount", rs.getInt("message_count"));
+        m.put("lastMessageAt", instant(rs.getTimestamp("last_message_at")));
+        m.put("lastBody", rs.getString("last_body"));
+        m.put("lastAttachmentUrl", rs.getString("last_attachment_url"));
         if (withUsername) m.put("username", rs.getString("username"));
+        long lastSender = rs.getLong("last_sender_id");
+        if (rs.wasNull()) lastSender = -1;
+        Timestamp lastMsgTs = rs.getTimestamp("last_message_at");
+        Timestamp lastReadTs = rs.getTimestamp("last_read_at");
+        boolean unread = lastSender > 0 && lastSender != viewerUserId && lastMsgTs != null
+                && (lastReadTs == null || lastMsgTs.after(lastReadTs));
+        m.put("unread", unread);
         return m;
+    }
+
+    public void markThreadRead(long threadId, int userId) throws Exception {
+        String sql = "INSERT INTO support_thread_reads (thread_id, user_id, last_read_at) VALUES (?, ?, CURRENT_TIMESTAMP) "
+                + "ON CONFLICT (thread_id, user_id) DO UPDATE SET last_read_at = CURRENT_TIMESTAMP";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, threadId);
+            ps.setInt(2, userId);
+            ps.executeUpdate();
+        }
     }
 
     public Map<String, Object> getThread(long threadId) throws Exception {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
-  getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage,
+  getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage, markSupportThreadRead,
 } from '../api/support';
 import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from './ChatMessage';
@@ -57,6 +57,7 @@ export default function SupportChatWidget() {
 
   useEffect(() => {
     if (!visible || !open || !selectedId) return;
+    markSupportThreadRead(selectedId).catch(() => {});
     loadMessages(selectedId);
     const t = setInterval(() => loadMessages(selectedId), 5000);
     return () => clearInterval(t);
@@ -68,6 +69,7 @@ export default function SupportChatWidget() {
 
   if (!visible) return null;
 
+  const unreadCount = threads.filter(t => t.unread).length;
   const selected = threads.find(t => Number(t.id) === Number(selectedId));
 
   const handleCreate = async (e) => {
@@ -106,11 +108,16 @@ export default function SupportChatWidget() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors relative"
           title="Contact Admin"
         >
           <MessageCircle size={20} />
           <span className="text-sm font-medium hidden sm:inline">Contact Admin</span>
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </button>
       )}
 
@@ -132,10 +139,15 @@ export default function SupportChatWidget() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => { setSelectedId(Number(t.id)); setStatus(''); }}
+                  onClick={() => {
+                    setSelectedId(Number(t.id));
+                    setStatus('');
+                    setThreads(prev => prev.map(x => Number(x.id) === Number(t.id) ? { ...x, unread: false } : x));
+                    markSupportThreadRead(t.id).catch(() => {});
+                  }}
                   className={`shrink-0 px-3 py-1 rounded-full text-xs ${
                     Number(selectedId) === Number(t.id) ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                  }`}
+                  } ${t.unread ? 'font-bold ring-2 ring-blue-300' : ''}`}
                 >
                   {t.subject?.slice(0, 20) || `Thread #${t.id}`}
                 </button>

@@ -63,6 +63,15 @@ public final class NotificationService {
         });
     }
 
+    /** Same as {@link #notifyAuctionWon} but skips if the buyer already has a WON notification for this auction. */
+    public static void notifyAuctionWonIfAbsent(long auctionId, int winnerId) {
+        safe(() -> {
+            String link = "/auction/" + auctionId;
+            if (notificationDAO.exists(winnerId, "WON", link)) return;
+            notifyAuctionWon(auctionId, winnerId);
+        });
+    }
+
     /** Notifies the asking buyer that a seller answered their question. */
     public static void notifyQuestionAnswered(int askerUserId, long auctionId) {
         safe(() -> {
@@ -181,6 +190,61 @@ public final class NotificationService {
                     "New message",
                     who + " sent you a message about \"" + title + "\" on AuctionHub.");
         });
+    }
+
+    /** Notifies all admins that a new account is awaiting approval. */
+    public static void notifyAdminsPendingRegistration(String username) {
+        safe(() -> {
+            String who = (username == null || username.isBlank()) ? "A user" : username;
+            notifyAllAdmins("ADMIN_PENDING_USER",
+                    "New registration pending approval: " + who,
+                    "/admin/users");
+        });
+    }
+
+    /** Notifies all admins that a user sent a support message. */
+    public static void notifyAdminsSupportMessage(long threadId, String username, String bodyPreview) {
+        safe(() -> {
+            String who = (username == null || username.isBlank()) ? "User" : username;
+            String preview = previewText(bodyPreview, 100);
+            notifyAllAdmins("ADMIN_SUPPORT",
+                    who + ": " + preview,
+                    "/admin/chat?thread=" + threadId);
+        });
+    }
+
+    /** Notifies all admins of a new account report. */
+    public static void notifyAdminsAccountReport(String reporterName, String reason) {
+        safe(() -> notifyAllAdmins("ADMIN_ACCOUNT_REPORT",
+                "Account report from " + safeName(reporterName) + ": " + previewText(reason, 80),
+                "/admin/reports"));
+    }
+
+    /** Notifies all admins of a new listing report. */
+    public static void notifyAdminsListingReport(long auctionId) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            notifyAllAdmins("ADMIN_LISTING_REPORT",
+                    "New listing report: \"" + title + "\"",
+                    "/admin/reports");
+        });
+    }
+
+    private static void notifyAllAdmins(String type, String message, String link) {
+        for (int adminId : userDAO.listAdminUserIds()) {
+            notificationDAO.create(adminId, type, message, link);
+        }
+    }
+
+    private static String previewText(String text, int maxLen) {
+        if (text == null) return "";
+        String s = text.trim().replaceAll("\\s+", " ");
+        if (s.isEmpty()) return "(no text)";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen - 1) + "…";
+    }
+
+    private static String safeName(String name) {
+        return (name == null || name.isBlank()) ? "Someone" : name.trim();
     }
 
     // ── Core create (in-app + optional email) ───────────────────────────────────

@@ -58,4 +58,7 @@
 \echo '== order messages (buyer <-> seller) + refund decisions =='
 \ir migration_order_messages.sql
 
+\echo '== support chat read receipts =='
+\ir migration_support_reads.sql
+
 \echo 'All migrations applied.'
