@@ -20,6 +20,18 @@ public final class OtpMailer {
     }
 
     public static void sendPasswordResetCode(String toEmail, String otp) throws MessagingException {
+        send(toEmail, MailConfig.mailSubject(),
+                "Your AuctionHub password reset code is: " + otp + "\n\n"
+                        + "This code expires in 5 minutes. If you did not request a reset, you can ignore this email.");
+    }
+
+    public static void sendTwoFactorCode(String toEmail, String otp) throws MessagingException {
+        send(toEmail, "AuctionHub login verification code",
+                "Your AuctionHub login verification code is: " + otp + "\n\n"
+                        + "This code expires in 5 minutes. If you did not attempt to log in, please secure your account.");
+    }
+
+    private static void send(String toEmail, String subject, String body) throws MessagingException {
         Properties props = new Properties();
         String host = MailConfig.smtpHost();
         int port = MailConfig.smtpPort();
@@ -51,11 +63,8 @@ public final class OtpMailer {
         MimeMessage msg = new MimeMessage(session);
         msg.setFrom(new InternetAddress(MailConfig.mailFrom()));
         msg.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail, false));
-        msg.setSubject(MailConfig.mailSubject(), "UTF-8");
-        msg.setText(
-                "Your AuctionHub password reset code is: " + otp + "\n\n"
-                        + "This code expires in 5 minutes. If you did not request a reset, you can ignore this email.",
-                "UTF-8");
+        msg.setSubject(subject, "UTF-8");
+        msg.setText(body, "UTF-8");
 
         Transport.send(msg);
     }

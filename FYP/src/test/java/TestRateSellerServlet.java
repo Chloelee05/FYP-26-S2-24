@@ -187,12 +187,12 @@ public class TestRateSellerServlet {
             stubBuyerSession(99);
             when(req.getParameter("auctionId")).thenReturn("7");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertRating(7L, 99, 4)).thenReturn(RatingResult.SUCCESS);
+            when(mockDAO.insertRating(7L, 99, 4, null)).thenReturn(RatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertRating(7L, 99, 4);
-            verify(mockDAO, never()).insertRating(eq(7L), eq(1), anyInt());
+            verify(mockDAO).insertRating(7L, 99, 4, null);
+            verify(mockDAO, never()).insertRating(eq(7L), eq(1), anyInt(), any());
         }
     }
 
@@ -210,7 +210,7 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertRating(10L, 5, 4)).thenReturn(RatingResult.ALREADY_RATED);
+            when(mockDAO.insertRating(10L, 5, 4, null)).thenReturn(RatingResult.ALREADY_RATED);
 
             servlet.doPost(req, resp);
 
@@ -224,7 +224,7 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("3");
-            when(mockDAO.insertRating(10L, 5, 3)).thenReturn(RatingResult.AUCTION_NOT_FINISHED);
+            when(mockDAO.insertRating(10L, 5, 3, null)).thenReturn(RatingResult.AUCTION_NOT_FINISHED);
 
             servlet.doPost(req, resp);
 
@@ -243,7 +243,7 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("5");
-            when(mockDAO.insertRating(10L, 5, 5)).thenReturn(RatingResult.NOT_WINNER);
+            when(mockDAO.insertRating(10L, 5, 5, null)).thenReturn(RatingResult.NOT_WINNER);
 
             servlet.doPost(req, resp);
 
@@ -261,7 +261,7 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("9999");
             when(req.getParameter("score")).thenReturn("3");
-            when(mockDAO.insertRating(9999L, 5, 3)).thenReturn(RatingResult.AUCTION_NOT_FOUND);
+            when(mockDAO.insertRating(9999L, 5, 3, null)).thenReturn(RatingResult.AUCTION_NOT_FOUND);
 
             servlet.doPost(req, resp);
 
@@ -275,11 +275,11 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("5");
-            when(mockDAO.insertRating(10L, 5, 5)).thenReturn(RatingResult.SUCCESS);
+            when(mockDAO.insertRating(10L, 5, 5, null)).thenReturn(RatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertRating(10L, 5, 5);
+            verify(mockDAO).insertRating(10L, 5, 5, null);
             verify(session).setAttribute(eq("ratingFlash"), anyString());
             verify(resp).sendRedirect("/app/auction/10");
         }
@@ -290,11 +290,11 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("1");
-            when(mockDAO.insertRating(10L, 5, 1)).thenReturn(RatingResult.SUCCESS);
+            when(mockDAO.insertRating(10L, 5, 1, null)).thenReturn(RatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertRating(10L, 5, 1);
+            verify(mockDAO).insertRating(10L, 5, 1, null);
         }
 
         @Test
@@ -303,11 +303,11 @@ public class TestRateSellerServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("5");
-            when(mockDAO.insertRating(10L, 5, 5)).thenReturn(RatingResult.SUCCESS);
+            when(mockDAO.insertRating(10L, 5, 5, null)).thenReturn(RatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertRating(10L, 5, 5);
+            verify(mockDAO).insertRating(10L, 5, 5, null);
         }
     }
 

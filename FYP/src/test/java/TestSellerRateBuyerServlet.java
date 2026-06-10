@@ -203,12 +203,12 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(99);
             when(req.getParameter("auctionId")).thenReturn("7");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertSellerRating(7L, 99, 4)).thenReturn(SellerRatingResult.SUCCESS);
+            when(mockDAO.insertSellerRating(7L, 99, 4, null)).thenReturn(SellerRatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertSellerRating(7L, 99, 4);
-            verify(mockDAO, never()).insertSellerRating(eq(7L), eq(1), anyInt());
+            verify(mockDAO).insertSellerRating(7L, 99, 4, null);
+            verify(mockDAO, never()).insertSellerRating(eq(7L), eq(1), anyInt(), any());
         }
     }
 
@@ -226,7 +226,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertSellerRating(10L, 5, 4))
+            when(mockDAO.insertSellerRating(10L, 5, 4, null))
                     .thenReturn(SellerRatingResult.NOT_AUCTION_OWNER);
 
             servlet.doPost(req, resp);
@@ -242,7 +242,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("3");
-            when(mockDAO.insertSellerRating(10L, 5, 3)).thenReturn(SellerRatingResult.NO_WINNER);
+            when(mockDAO.insertSellerRating(10L, 5, 3, null)).thenReturn(SellerRatingResult.NO_WINNER);
 
             servlet.doPost(req, resp);
 
@@ -261,7 +261,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertSellerRating(10L, 5, 4)).thenReturn(SellerRatingResult.ALREADY_RATED);
+            when(mockDAO.insertSellerRating(10L, 5, 4, null)).thenReturn(SellerRatingResult.ALREADY_RATED);
 
             servlet.doPost(req, resp);
 
@@ -275,7 +275,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("3");
-            when(mockDAO.insertSellerRating(10L, 5, 3))
+            when(mockDAO.insertSellerRating(10L, 5, 3, null))
                     .thenReturn(SellerRatingResult.AUCTION_NOT_FINISHED);
 
             servlet.doPost(req, resp);
@@ -295,7 +295,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("9999");
             when(req.getParameter("score")).thenReturn("3");
-            when(mockDAO.insertSellerRating(9999L, 5, 3))
+            when(mockDAO.insertSellerRating(9999L, 5, 3, null))
                     .thenReturn(SellerRatingResult.AUCTION_NOT_FOUND);
 
             servlet.doPost(req, resp);
@@ -310,11 +310,11 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("5");
-            when(mockDAO.insertSellerRating(10L, 5, 5)).thenReturn(SellerRatingResult.SUCCESS);
+            when(mockDAO.insertSellerRating(10L, 5, 5, null)).thenReturn(SellerRatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertSellerRating(10L, 5, 5);
+            verify(mockDAO).insertSellerRating(10L, 5, 5, null);
             verify(session).setAttribute(eq("buyerRatingFlash"), anyString());
             verify(resp).sendRedirect("/app/auction/10");
         }
@@ -325,11 +325,11 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("1");
-            when(mockDAO.insertSellerRating(10L, 5, 1)).thenReturn(SellerRatingResult.SUCCESS);
+            when(mockDAO.insertSellerRating(10L, 5, 1, null)).thenReturn(SellerRatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertSellerRating(10L, 5, 1);
+            verify(mockDAO).insertSellerRating(10L, 5, 1, null);
         }
 
         @Test
@@ -338,11 +338,11 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("5");
-            when(mockDAO.insertSellerRating(10L, 5, 5)).thenReturn(SellerRatingResult.SUCCESS);
+            when(mockDAO.insertSellerRating(10L, 5, 5, null)).thenReturn(SellerRatingResult.SUCCESS);
 
             servlet.doPost(req, resp);
 
-            verify(mockDAO).insertSellerRating(10L, 5, 5);
+            verify(mockDAO).insertSellerRating(10L, 5, 5, null);
         }
 
         @Test
@@ -351,7 +351,7 @@ public class TestSellerRateBuyerServlet {
             stubSellerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("score")).thenReturn("4");
-            when(mockDAO.insertSellerRating(10L, 5, 4))
+            when(mockDAO.insertSellerRating(10L, 5, 4, null))
                     .thenThrow(new RuntimeException("DB down"));
 
             servlet.doPost(req, resp);

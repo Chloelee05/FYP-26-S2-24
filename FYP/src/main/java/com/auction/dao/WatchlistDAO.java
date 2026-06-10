@@ -7,7 +7,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -150,11 +151,15 @@ public class WatchlistDAO {
      */
     public List<WatchlistRow> listByUser(int userId) {
         String sql =
-                "SELECT a.auction_id, ad.title, a.status_id, w.added_at "
+                "SELECT a.auction_id, ad.title, a.status_id, w.added_at, a.date_end, "
+                + "COALESCE(MAX(b.bid_amount), ad.starting_price) AS current_bid, "
+                + "COUNT(b.bid_id) AS bid_count "
                 + "FROM watchlist w "
                 + "JOIN auction a ON a.auction_id = w.auction_id "
                 + "JOIN auction_details ad ON ad.id = a.auction_id "
+                + "LEFT JOIN bids b ON b.auction_id = a.auction_id "
                 + "WHERE w.user_id = ? "
+                + "GROUP BY a.auction_id, ad.title, a.status_id, w.added_at, a.date_end, ad.starting_price "
                 + "ORDER BY w.added_at DESC";
         List<WatchlistRow> rows = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
@@ -162,11 +167,20 @@ public class WatchlistDAO {
             ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    Timestamp ts = rs.getTimestamp("date_end");
+                    Instant endDate = ts != null ? ts.toInstant() : null;
+                    // added_at is TIMESTAMPTZ — read as Timestamp then convert, since the
+                    // PG driver cannot map TIMESTAMPTZ directly to LocalDateTime.
+                    Timestamp addedTs = rs.getTimestamp("added_at");
+                    Instant addedAt = addedTs != null ? addedTs.toInstant() : null;
                     rows.add(new WatchlistRow(
                             rs.getLong("auction_id"),
                             rs.getString("title"),
                             rs.getInt("status_id"),
-                            rs.getObject("added_at", LocalDateTime.class)));
+                            addedAt,
+                            rs.getBigDecimal("current_bid"),
+                            endDate,
+                            rs.getInt("bid_count")));
                 }
             }
         } catch (Exception e) {

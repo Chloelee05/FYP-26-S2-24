@@ -160,7 +160,9 @@ public class SearchDAO {
                 "FROM auction a "
                 + "JOIN auction_details d ON d.id = a.auction_id "
                 + "JOIN users u ON u.id = a.seller_id "
+                + "JOIN auction_status s ON s.id = a.status_id "
                 + "WHERE a.moderation_state = 'active' "
+                + "  AND s.status = 'Active' "
                 + "  AND a.date_end > CURRENT_TIMESTAMP "
                 + "  AND (d.title ILIKE ? OR d.description ILIKE ?) ");
         params.add(pattern);

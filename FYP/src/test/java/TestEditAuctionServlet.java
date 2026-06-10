@@ -64,7 +64,7 @@ public class TestEditAuctionServlet {
     private AuctionEditData makeEditData(int statusId, long sellerId) {
         return new AuctionEditData(
                 10L, sellerId, statusId,
-                "Old Title", "Old Description", null,
+                "Old Title", "Old Description", "", 1, null,
                 Instant.now(), Instant.now().plusSeconds(3600),
                 Collections.emptyList());
     }
@@ -259,7 +259,7 @@ public class TestEditAuctionServlet {
             when(req.getParameterValues("delete_image_ids")).thenReturn(null);
             when(req.getParts()).thenReturn(Collections.emptyList());
             doThrow(new IllegalStateException("Bids already placed; auction cannot be edited"))
-                    .when(mockDao).editAuction(anyLong(), anyInt(), anyString(), anyString(), any(), any());
+                    .when(mockDao).editAuction(anyLong(), anyInt(), anyString(), anyString(), any(), any(), any(), any(), any());
 
             servlet.doPost(req, resp);
 
@@ -282,7 +282,7 @@ public class TestEditAuctionServlet {
             servlet.doPost(req, resp);
 
             // editAuction must receive sellerId = 55 (from session), not any other value
-            verify(mockDao).editAuction(eq(10L), eq(55), anyString(), anyString(), any(), any());
+            verify(mockDao).editAuction(eq(10L), eq(55), anyString(), anyString(), any(), any(), any(), any(), any());
         }
 
         @Test

@@ -150,7 +150,7 @@ public class EditAuctionServlet extends HttpServlet {
 
         try {
             // editAuction re-checks ownership, status, and bid count inside a transaction
-            dao.editAuction(auctionId, sellerId, title, description, deleteImageIds, newFilenames);
+            dao.editAuction(auctionId, sellerId, title, description, null, null, null, deleteImageIds, newFilenames);
             resp.sendRedirect(req.getContextPath() + "/auction?id=" + auctionId);
         } catch (IllegalStateException e) {
             cleanupFiles(newFilenames);

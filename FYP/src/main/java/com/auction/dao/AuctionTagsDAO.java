@@ -26,6 +26,24 @@ public class AuctionTagsDAO {
         }
     }
 
+    public List<Map.Entry<Long, String>> getTagsForAuction(long auctionId) throws Exception {
+        try (Connection conn = DBUtil.connectDB()) {
+            List<Map.Entry<Long, String>> result = new ArrayList<>();
+            String sql = "SELECT t.id, t.tag_name FROM tags t "
+                    + "JOIN auction_tag_info ati ON ati.tag_id = t.id "
+                    + "WHERE ati.auction_id = ? ORDER BY t.tag_name";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.add(new AbstractMap.SimpleEntry<>(rs.getLong("id"), rs.getString("tag_name")));
+                    }
+                }
+            }
+            return result;
+        }
+    }
+
     public List<Long> findAuctionByTag(List<Long> tags) throws Exception
     {
         if (tags == null || tags.isEmpty())
