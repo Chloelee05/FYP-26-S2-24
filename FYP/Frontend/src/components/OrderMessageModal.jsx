@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { X, User, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getOrderMessages, sendOrderMessage } from '../api/messages';
+import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from './ChatMessage';
 
 /**
@@ -23,8 +24,8 @@ export default function OrderMessageModal({ order, onClose }) {
   const load = useCallback(() => {
     if (!order) return;
     getOrderMessages(order.id)
-      .then(r => setMessages(r.data ?? []))
-      .catch(() => {});
+      .then(r => { setMessages(r.data ?? []); setError(''); })
+      .catch(err => setError(apiErrorMessage(err, 'Could not load messages.')));
   }, [order]);
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function OrderMessageModal({ order, onClose }) {
       setBody('');
       load();
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not send message.');
+      setError(apiErrorMessage(err, 'Could not send message.'));
     } finally {
       setSending(false);
     }
