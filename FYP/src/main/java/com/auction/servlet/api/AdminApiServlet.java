@@ -1,15 +1,21 @@
 package com.auction.servlet.api;
 
+import com.auction.dao.AdminReportDAO;
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.CategoryDAO;
 import com.auction.dao.OrderDAO;
 import com.auction.dao.ReportDAO;
+import com.auction.dao.SellerAnalyticsDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
 import com.auction.model.User;
+import com.auction.model.admin.AdminUserSummary;
 import com.auction.model.admin.DashboardMetrics;
+import com.auction.util.DatabaseBackupUtil;
 import com.auction.util.InputValidator;
+import com.auction.util.MailConfig;
+import com.auction.util.OtpMailer;
 import com.auction.util.RelativeTime;
 import com.auction.util.AuthSession;
 import com.auction.util.SecurityUtil;
@@ -35,6 +41,11 @@ import java.util.Map;
  * GET  /api/admin/categories
  * POST /api/admin/categories      (action: CREATE|EDIT|DELETE|RESTORE)
  * GET  /api/admin/analytics
+ * GET  /api/admin/analytics/report?type=user-activity|revenue|moderation
+ * GET  /api/admin/database/status
+ * GET  /api/admin/database/backup
+ * POST /api/admin/database/restore
+ * POST /api/admin/sellers/analytics-email
  * All require ADMIN role.
  */
 @WebServlet("/api/admin/*")
@@ -45,10 +56,25 @@ public class AdminApiServlet extends ApiBase {
     private final CategoryDAO catDAO     = new CategoryDAO();
     private final ReportDAO   reportDAO  = new ReportDAO();
     private final OrderDAO    orderDAO   = new OrderDAO();
+    private final AdminReportDAO adminReportDAO = new AdminReportDAO();
+    private final SellerAnalyticsDAO sellerAnalyticsDAO = new SellerAnalyticsDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
+        String path = req.getPathInfo();
+        if (path != null && path.startsWith("/analytics/report")) {
+            handleAnalyticsReport(req, resp);
+            return;
+        }
+        if (path != null && path.equals("/database/status")) {
+            handleDatabaseStatus(resp);
+            return;
+        }
+        if (path != null && path.equals("/database/backup")) {
+            handleDatabaseBackup(resp);
+            return;
+        }
         switch (sub(req)) {
             case "dashboard":   handleDashboard(resp);         break;
             case "users":       ok(resp, userDAO.listUsersForAdminTable()); break;
@@ -64,6 +90,15 @@ public class AdminApiServlet extends ApiBase {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
+        String path = req.getPathInfo();
+        if (path != null && path.equals("/database/restore")) {
+            handleDatabaseRestore(req, resp);
+            return;
+        }
+        if (path != null && path.equals("/sellers/analytics-email")) {
+            handleSellerAnalyticsEmail(req, resp);
+            return;
+        }
         switch (sub(req)) {
             case "users":      handleUserAction(req, resp);      break;
             case "listings":   handleListingAction(req, resp);   break;
@@ -158,6 +193,120 @@ public class AdminApiServlet extends ApiBase {
             ok(resp, body);
         } catch (Exception e) {
             serverError(resp, "Could not load analytics.");
+        }
+    }
+
+    private void handleAnalyticsReport(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String type = param(req, "type");
+        if (type == null) type = "user-activity";
+        try {
+            String body;
+            String filename;
+            switch (type.toLowerCase()) {
+                case "revenue":
+                    body = adminReportDAO.generateRevenueReport();
+                    filename = "revenue-report.txt";
+                    break;
+                case "moderation":
+                    body = adminReportDAO.generateModerationReport();
+                    filename = "moderation-report.txt";
+                    break;
+                case "user-activity":
+                default:
+                    body = adminReportDAO.generateUserActivityReport();
+                    filename = "user-activity-report.txt";
+                    break;
+            }
+            resp.setContentType("text/plain;charset=UTF-8");
+            resp.setHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+            resp.setStatus(200);
+            resp.getWriter().write(body);
+        } catch (Exception e) {
+            serverError(resp, "Could not generate report.");
+        }
+    }
+
+    private void handleDatabaseStatus(HttpServletResponse resp) throws IOException {
+        try {
+            ok(resp, DatabaseBackupUtil.status());
+        } catch (Exception e) {
+            serverError(resp, "Could not load database status.");
+        }
+    }
+
+    private void handleDatabaseBackup(HttpServletResponse resp) throws IOException {
+        try {
+            byte[] data = DatabaseBackupUtil.exportSql();
+            resp.setContentType("application/sql;charset=UTF-8");
+            resp.setHeader("Content-Disposition", "attachment; filename=\"auctionhub-backup.sql\"");
+            resp.setStatus(200);
+            resp.getOutputStream().write(data);
+        } catch (Exception e) {
+            serverError(resp, "Could not export backup.");
+        }
+    }
+
+    private void handleDatabaseRestore(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        try {
+            StringBuilder sb = new StringBuilder();
+            try (java.io.BufferedReader reader = req.getReader()) {
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+            }
+            DatabaseBackupUtil.restoreSql(sb.toString());
+            okMsg(resp, "Database restore completed.");
+        } catch (IllegalArgumentException e) {
+            badRequest(resp, e.getMessage());
+        } catch (Exception e) {
+            serverError(resp, "Could not restore backup: " + e.getMessage());
+        }
+    }
+
+    private void handleSellerAnalyticsEmail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String sellerIdStr = param(req, "sellerId");
+        String sendAll = param(req, "all");
+        int sent = 0;
+        int failed = 0;
+        try {
+            if ("true".equalsIgnoreCase(sendAll)) {
+                for (AdminUserSummary u : userDAO.listUsersForAdminTable()) {
+                    if (u.getRole() != Role.SELLER || u.getStatusId() != Status.ACTIVE.getId()) continue;
+                    if (emailSellerAnalytics(u.getId(), u.getUsername(), u.getEmail())) sent++;
+                    else failed++;
+                }
+            } else {
+                if (sellerIdStr == null) { badRequest(resp, "sellerId or all=true is required."); return; }
+                int sellerId = Integer.parseInt(sellerIdStr.trim());
+                User seller = userDAO.getUserById(sellerId);
+                if (seller == null || seller.getRole() != Role.SELLER) {
+                    error(resp, 404, "Seller not found."); return;
+                }
+                if (emailSellerAnalytics(sellerId, seller.getUsername(), seller.getEmail())) {
+                    okMsg(resp, "Analytics report emailed to " + seller.getEmail() + ".");
+                } else {
+                    serverError(resp, "Could not send email.");
+                }
+                return;
+            }
+            okMsg(resp, "Emailed " + sent + " seller(s)." + (failed > 0 ? " Failed: " + failed + "." : ""));
+        } catch (NumberFormatException e) {
+            badRequest(resp, "Invalid seller ID.");
+        } catch (Exception e) {
+            serverError(resp, "Could not send analytics emails.");
+        }
+    }
+
+    private boolean emailSellerAnalytics(int sellerId, String username, String email) {
+        if (email == null || email.isBlank()) return false;
+        try {
+            Map<String, Object> analytics = sellerAnalyticsDAO.generate(sellerId);
+            String body = SellerAnalyticsDAO.toEmailBody(username, analytics);
+            if (MailConfig.isSmtpConfigured()) {
+                OtpMailer.sendNotification(email, "Your AuctionHub seller analytics report", body);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 

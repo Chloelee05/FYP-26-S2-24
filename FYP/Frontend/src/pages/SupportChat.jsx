@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage } from '../api/support';
+import { getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage, markSupportThreadRead } from '../api/support';
 import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from '../components/ChatMessage';
 import SupportChatInput from '../components/SupportChatInput';
@@ -32,6 +32,7 @@ export default function SupportChat() {
     const load = () => getSupportMessages(selectedId)
       .then(r => setMessages(r.data ?? []))
       .catch(err => setMsg(apiErrorMessage(err, 'Could not load messages.')));
+    markSupportThreadRead(selectedId).catch(() => {});
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -125,11 +126,15 @@ export default function SupportChat() {
                 {threads.map(t => (
                   <button
                     key={t.id}
-                    onClick={() => setSelectedId(Number(t.id))}
+                    onClick={() => {
+                      setSelectedId(Number(t.id));
+                      setThreads(prev => prev.map(x => Number(x.id) === Number(t.id) ? { ...x, unread: false } : x));
+                      markSupportThreadRead(t.id).catch(() => {});
+                    }}
                     className={`w-full text-left px-3 py-2 text-sm border-b border-gray-50 hover:bg-gray-50 ${Number(selectedId) === Number(t.id) ? 'bg-blue-50' : ''}`}
                   >
-                    <p className="font-medium truncate">{t.subject}</p>
-                    <p className="text-xs text-gray-400">{t.status}</p>
+                    <p className={`truncate ${t.unread ? 'font-bold text-gray-900' : 'font-medium'}`}>{t.subject}</p>
+                    <p className={`text-xs ${t.unread ? 'font-semibold text-gray-600' : 'text-gray-400'}`}>{t.status}</p>
                   </button>
                 ))}
               </div>

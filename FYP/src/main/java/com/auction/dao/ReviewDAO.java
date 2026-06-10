@@ -60,7 +60,8 @@ public class ReviewDAO {
 
             // Promote a time-expired auction to FINISHED (+ resolve winner) so the
             // status/winner checks below see consistent state. No-op if already final.
-            com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
+            com.auction.util.AuctionFinalizer.FinalizeResult finalizeResult =
+                    com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
             String selectSql =
                     "SELECT a.status_id, a.seller_id, d.winner_id "
@@ -138,6 +139,9 @@ public class ReviewDAO {
             }
 
             conn.commit();
+            if (finalizeResult.finalized && finalizeResult.winnerId > 0) {
+                com.auction.notification.NotificationService.notifyAuctionWonIfAbsent(auctionId, finalizeResult.winnerId);
+            }
             return SellerRatingResult.SUCCESS;
 
         } catch (Exception e) {

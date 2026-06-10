@@ -303,6 +303,22 @@ public class UserDAO {
 
     private static final ZoneId ADMIN_ZONE = ZoneId.systemDefault();
 
+    /** All active admin account ids (for admin-targeted notifications). */
+    public List<Integer> listAdminUserIds() {
+        List<Integer> ids = new ArrayList<>();
+        String sql = "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id "
+                + "JOIN user_status s ON s.id = u.status_id "
+                + "WHERE r.role = 'ADMIN' AND s.status = 'Active'";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) ids.add(rs.getInt("id"));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return ids;
+    }
+
     public List<AdminUserSummary> listUsersForAdminTable() {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created, "

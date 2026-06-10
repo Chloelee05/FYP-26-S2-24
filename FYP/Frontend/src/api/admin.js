@@ -10,6 +10,23 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 // Dashboard & analytics
 export const getAdminDashboard = () => api.get('/admin/dashboard');
 export const getAdminAnalytics = () => api.get('/admin/analytics');
+export const downloadAdminReport = (type) =>
+  api.get(`/admin/analytics/report?type=${type}`, { responseType: 'blob' });
+
+// Database management
+export const getDatabaseStatus = () => api.get('/admin/database/status');
+export const downloadDatabaseBackup = () =>
+  api.get('/admin/database/backup', { responseType: 'blob' });
+export const restoreDatabaseBackup = (sqlText) =>
+  api.post('/admin/database/restore', sqlText, {
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+  });
+
+// Seller analytics email (admin-initiated)
+export const emailSellerAnalytics = (sellerId) =>
+  api.post('/admin/sellers/analytics-email', form({ sellerId }), F);
+export const emailAllSellerAnalytics = () =>
+  api.post('/admin/sellers/analytics-email', form({ all: 'true' }), F);
 
 // Users
 export const getAdminUsers = () => api.get('/admin/users');
