@@ -13,6 +13,9 @@ COMMENT ON DATABASE auction_db
     IS 'FYP';
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS payment_methods;
 DROP TABLE IF EXISTS account_reports;
 DROP TABLE IF EXISTS auction_tag_info;
 DROP TABLE IF EXISTS auction_images;
@@ -46,10 +49,13 @@ CREATE TABLE user_status (
   status  VARCHAR(50) NOT NULL
 );
 
+-- IDs must match Status enum: ACTIVE(1), SUSPENDED(2), DELETED(3), PENDING(4), REJECTED(5)
 INSERT INTO user_status (status) VALUES
   ('Active'),
   ('Suspended'),
-  ('Deleted');
+  ('Deleted'),
+  ('Pending'),
+  ('Rejected');
 
 -- Users
 CREATE TABLE users (
@@ -162,6 +168,9 @@ CREATE TABLE auction_details (
   item_condition_id SMALLINT       NOT NULL,
   starting_price    NUMERIC(10,2)  NOT NULL DEFAULT 0 CHECK (starting_price >= 0),
   max_price         NUMERIC(10,2)  DEFAULT NULL CHECK (max_price IS NULL OR max_price > 0),
+  quantity          INT            NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+  cost_price        NUMERIC(10,2)  DEFAULT NULL CHECK (cost_price IS NULL OR cost_price >= 0),
+  dutch_floor_price NUMERIC(10,2)  DEFAULT NULL CHECK (dutch_floor_price IS NULL OR dutch_floor_price >= 0),
   winning_bid       INTEGER        DEFAULT NULL,
   winner_id         INTEGER        DEFAULT NULL,
   CONSTRAINT auction_id_details FOREIGN KEY (id) REFERENCES auction (auction_id),
@@ -226,3 +235,57 @@ CREATE TABLE account_reports (
     CONSTRAINT user_id_target   FOREIGN KEY (target_id)   REFERENCES users (id),
     CONSTRAINT one_per_reporter_target UNIQUE (reporter_id, target_id)
 );
+
+-- Payment methods (credit cards). Full PAN AES-GCM encrypted; only brand + last4 in clear.
+CREATE TABLE payment_methods (
+  id              BIGSERIAL   PRIMARY KEY,
+  user_id         BIGINT      NOT NULL,
+  card_holder     VARCHAR(255) NOT NULL,
+  card_brand      VARCHAR(20),
+  card_last4      VARCHAR(4)  NOT NULL,
+  exp_month       SMALLINT    NOT NULL CHECK (exp_month BETWEEN 1 AND 12),
+  exp_year        SMALLINT    NOT NULL,
+  card_number_enc TEXT        NOT NULL,
+  is_default      BOOLEAN     NOT NULL DEFAULT FALSE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT payment_methods_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+);
+CREATE INDEX idx_payment_methods_user ON payment_methods (user_id);
+
+-- In-app notifications (bidding results, account approval, Q&A, orders)
+CREATE TABLE notifications (
+  id          BIGSERIAL   PRIMARY KEY,
+  user_id     BIGINT      NOT NULL,
+  type        VARCHAR(40) NOT NULL,
+  message     TEXT        NOT NULL,
+  link        VARCHAR(512),
+  is_read     BOOLEAN     NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT notifications_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+);
+CREATE INDEX idx_notifications_user_unread ON notifications (user_id, is_read);
+
+-- Orders (fund$ vs goods exchange — simulated checkout after a win)
+CREATE TABLE orders (
+  id                BIGSERIAL    PRIMARY KEY,
+  auction_id        BIGINT       NOT NULL,
+  buyer_id          BIGINT       NOT NULL,
+  seller_id         BIGINT       NOT NULL,
+  amount            NUMERIC(10,2) NOT NULL CHECK (amount >= 0),
+  status            VARCHAR(20)  NOT NULL DEFAULT 'PENDING_PAYMENT',
+  payment_method_id BIGINT,
+  created_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  paid_at           TIMESTAMPTZ,
+  completed_at      TIMESTAMPTZ,
+  CONSTRAINT orders_auction_fk FOREIGN KEY (auction_id) REFERENCES auction (auction_id),
+  CONSTRAINT orders_buyer_fk   FOREIGN KEY (buyer_id)   REFERENCES users   (id),
+  CONSTRAINT orders_seller_fk  FOREIGN KEY (seller_id)  REFERENCES users   (id),
+  CONSTRAINT orders_pm_fk      FOREIGN KEY (payment_method_id) REFERENCES payment_methods (id),
+  CONSTRAINT orders_auction_unique UNIQUE (auction_id),
+  CONSTRAINT orders_status_check CHECK (status IN ('PENDING_PAYMENT','PAID','COMPLETED','CANCELLED'))
+);
+CREATE INDEX idx_orders_buyer  ON orders (buyer_id);
+CREATE INDEX idx_orders_seller ON orders (seller_id);
+
+CREATE INDEX idx_bids_user    ON bids (user_id);
+CREATE INDEX idx_bids_auction ON bids (auction_id);

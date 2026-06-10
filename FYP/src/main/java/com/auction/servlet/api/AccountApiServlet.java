@@ -1,5 +1,6 @@
 package com.auction.servlet.api;
 
+import com.auction.dao.PaymentMethodDAO;
 import com.auction.dao.ProfileActivityDAO;
 import com.auction.dao.ProfileActivityDAO.TxFilter;
 import com.auction.dao.UserDAO;
@@ -27,6 +28,7 @@ public class AccountApiServlet extends ApiBase {
 
     private final UserDAO            userDAO  = new UserDAO();
     private final ProfileActivityDAO actDAO   = new ProfileActivityDAO();
+    private final PaymentMethodDAO   paymentDAO = new PaymentMethodDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -35,10 +37,11 @@ public class AccountApiServlet extends ApiBase {
 
         String sub = sub(req);
         switch (sub) {
-            case "transactions": handleTransactions(req, resp, userId); break;
-            case "rating":       ok(resp, actDAO.getRatingSummary(userId)); break;
-            case "reviews":      ok(resp, actDAO.listReviewsAboutUser(userId)); break;
-            default:             handleProfile(resp, userId); break;
+            case "transactions":    handleTransactions(req, resp, userId); break;
+            case "rating":          ok(resp, actDAO.getRatingSummary(userId)); break;
+            case "reviews":         ok(resp, actDAO.listReviewsAboutUser(userId)); break;
+            case "payment-methods": ok(resp, paymentDAO.listForUser(userId)); break;
+            default:                handleProfile(resp, userId); break;
         }
     }
 
@@ -49,10 +52,66 @@ public class AccountApiServlet extends ApiBase {
 
         String sub = sub(req);
         switch (sub) {
-            case "update": handleUpdate(req, resp, userId); break;
-            case "delete": handleDelete(req, resp, userId); break;
+            case "update":          handleUpdate(req, resp, userId); break;
+            case "delete":          handleDelete(req, resp, userId); break;
+            case "payment-methods": handlePaymentMethodWrite(req, resp, userId); break;
             default: error(resp, 404, "Unknown account endpoint"); break;
         }
+    }
+
+    /** POST /api/account/payment-methods  action=add|delete|default */
+    private void handlePaymentMethodWrite(HttpServletRequest req, HttpServletResponse resp, int userId)
+            throws IOException {
+        String action = param(req, "action");
+        if (action == null) action = "add";
+
+        if ("delete".equalsIgnoreCase(action)) {
+            Long id = parseLong(param(req, "id"));
+            if (id == null) { badRequest(resp, "id is required."); return; }
+            paymentDAO.delete(userId, id);
+            okMsg(resp, "Payment method removed.");
+            return;
+        }
+        if ("default".equalsIgnoreCase(action)) {
+            Long id = parseLong(param(req, "id"));
+            if (id == null) { badRequest(resp, "id is required."); return; }
+            paymentDAO.setDefault(userId, id);
+            okMsg(resp, "Default payment method updated.");
+            return;
+        }
+
+        // add
+        String holder = param(req, "cardHolder");
+        String number = param(req, "cardNumber");
+        String monthS = param(req, "expMonth");
+        String yearS  = param(req, "expYear");
+        boolean makeDefault = "true".equalsIgnoreCase(param(req, "makeDefault"));
+
+        if (holder == null || number == null || monthS == null || yearS == null) {
+            badRequest(resp, "cardHolder, cardNumber, expMonth and expYear are required."); return;
+        }
+        String digits = number.replaceAll("\\D", "");
+        if (digits.length() < 13 || digits.length() > 19) {
+            badRequest(resp, "Enter a valid card number."); return;
+        }
+        int month, year;
+        try { month = Integer.parseInt(monthS); year = Integer.parseInt(yearS); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid expiry."); return; }
+        if (month < 1 || month > 12) { badRequest(resp, "Expiry month must be 1–12."); return; }
+        if (year < 2000) { badRequest(resp, "Invalid expiry year."); return; }
+
+        try {
+            paymentDAO.add(userId, holder.trim(), digits, month, year, makeDefault);
+            okMsg(resp, "Payment method added.");
+        } catch (RuntimeException e) {
+            getServletContext().log("add payment method failed", e);
+            serverError(resp, "Could not save payment method. Run DB migrations and try again.");
+        }
+    }
+
+    private Long parseLong(String s) {
+        if (s == null) return null;
+        try { return Long.parseLong(s); } catch (NumberFormatException e) { return null; }
     }
 
     private void handleProfile(HttpServletResponse resp, int userId) throws IOException {

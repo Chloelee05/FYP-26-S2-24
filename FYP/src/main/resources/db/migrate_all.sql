@@ -40,4 +40,10 @@
 \echo '== search indexes =='
 \ir migration_search_index.sql
 
+\echo '== minimum-requirements (payments, notifications, orders, strategy, approval) =='
+\ir migration_min_requirements.sql
+
+\echo '== demo seed (optional — strategy auctions, pending users, recommendation signals) =='
+\ir demo_seed.sql
+
 \echo 'All migrations applied.'

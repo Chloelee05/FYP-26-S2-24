@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Phone, MapPin, Edit3 } from 'lucide-react';
-import { getProfile, getTransactionHistory, getMyReviews } from '../api/user';
+import { Mail, Phone, MapPin, Edit3, CreditCard, Trash2, Plus, Package } from 'lucide-react';
+import {
+  getProfile, getTransactionHistory, getMyReviews,
+  getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
+} from '../api/user';
+import { getOrders, payOrder, completeOrder } from '../api/orders';
 import { formatCurrency, getRoleDisplay } from '../utils/helpers';
 import StarRating from '../components/StarRating';
 
@@ -14,14 +18,64 @@ export default function UserProfile() {
   const [profile, setProfile] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [cards, setCards] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [tab, setTab] = useState('transactions');
   const [filter, setFilter] = useState('All');
+  const [cardForm, setCardForm] = useState({ cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false });
+  const [cardMsg, setCardMsg] = useState('');
+  const [cardErr, setCardErr] = useState('');
+  const [orderMsg, setOrderMsg] = useState('');
+
+  const loadCards = () => getPaymentMethods().then(r => setCards(r.data ?? [])).catch(() => {});
+  const loadOrders = () => getOrders().then(r => setOrders(r.data ?? [])).catch(() => {});
 
   useEffect(() => {
     getProfile().then(r => setProfile(r.data)).catch(() => {});
     getTransactionHistory().then(r => setTransactions(r.data ?? [])).catch(() => {});
     getMyReviews().then(r => setReviews(r.data ?? [])).catch(() => {});
+    loadCards();
+    loadOrders();
   }, []);
+
+  const handlePayOrder = async (orderId) => {
+    setOrderMsg('');
+    const defaultCard = cards.find(c => c.default) ?? cards[0];
+    try {
+      await payOrder(orderId, defaultCard?.id);
+      setOrderMsg('Payment successful.');
+      loadOrders();
+    } catch (err) {
+      setOrderMsg(err.response?.data?.error || 'Payment failed. Add a payment method first.');
+    }
+  };
+
+  const handleCompleteOrder = async (orderId) => {
+    setOrderMsg('');
+    try { await completeOrder(orderId); loadOrders(); }
+    catch (err) { setOrderMsg(err.response?.data?.error || 'Could not update order.'); }
+  };
+
+  const handleAddCard = async (e) => {
+    e.preventDefault();
+    setCardErr(''); setCardMsg('');
+    try {
+      await addPaymentMethod(cardForm);
+      setCardMsg('Payment method added.');
+      setCardForm({ cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false });
+      loadCards();
+    } catch (err) {
+      setCardErr(err.response?.data?.error || 'Could not add payment method.');
+    }
+  };
+
+  const handleDeleteCard = async (id) => {
+    try { await deletePaymentMethod(id); loadCards(); } catch { /* ignore */ }
+  };
+
+  const handleDefaultCard = async (id) => {
+    try { await setDefaultPaymentMethod(id); loadCards(); } catch { /* ignore */ }
+  };
 
   if (!profile) {
     return <div className="max-w-5xl mx-auto px-4 py-16 text-center text-gray-400">Loading profile…</div>;
@@ -104,13 +158,13 @@ export default function UserProfile() {
         <div className="md:col-span-2">
           <div className="card overflow-hidden">
             <div className="flex border-b border-gray-100">
-              {['transactions', 'reviews'].map(t => (
+              {['transactions', 'orders', 'reviews', 'payment'].map(t => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${tab === t ? 'text-blue-500 border-b-2 border-blue-500 bg-blue-50' : 'text-gray-500 hover:bg-gray-50'}`}
                 >
-                  {t === 'transactions' ? '📋 Transaction History' : '⭐ Reviews'}
+                  {t === 'transactions' ? '📋 Transactions' : t === 'orders' ? '📦 Orders' : t === 'reviews' ? '⭐ Reviews' : '💳 Payment'}
                 </button>
               ))}
             </div>
@@ -175,6 +229,135 @@ export default function UserProfile() {
                   <div className="text-center"><span className="block text-xl font-bold text-green-500">{totalSales}</span><span className="text-xs text-gray-400">Total Sales</span></div>
                   <div className="text-center"><span className="block text-xl font-bold text-purple-500">${totalVolume.toLocaleString()}</span><span className="text-xs text-gray-400">Total Volume</span></div>
                 </div>
+              </div>
+            )}
+
+            {tab === 'orders' && (
+              <div className="p-5">
+                <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
+                  <Package size={16} className="text-gray-400" /> Orders
+                </h3>
+                <p className="text-xs text-gray-400 mb-4">
+                  Won auctions and items you sold. Pay as a buyer; confirm fulfilment as a seller.
+                </p>
+                {orderMsg && <div className="text-sm text-blue-600 mb-3">{orderMsg}</div>}
+                {orders.length === 0 ? (
+                  <div className="text-center text-gray-400 text-sm py-8">No orders yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {orders.map(o => (
+                      <div key={o.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{o.auctionTitle}</p>
+                          <p className="text-xs text-gray-400">
+                            {o.role === 'buyer' ? 'Bought from' : 'Sold to'} {o.counterparty} · {formatCurrency(o.amount)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            o.status === 'COMPLETED' ? 'bg-green-100 text-green-600'
+                            : o.status === 'PAID' ? 'bg-blue-100 text-blue-600'
+                            : 'bg-yellow-100 text-yellow-700'}`}>
+                            {o.status.replace('_', ' ')}
+                          </span>
+                          {o.role === 'buyer' && o.status === 'PENDING_PAYMENT' && (
+                            <button onClick={() => handlePayOrder(o.id)} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg">
+                              Pay now
+                            </button>
+                          )}
+                          {o.role === 'seller' && o.status === 'PAID' && (
+                            <button onClick={() => handleCompleteOrder(o.id)} className="text-xs bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg">
+                              Mark complete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'payment' && (
+              <div className="p-5">
+                <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
+                  <CreditCard size={16} className="text-gray-400" /> Payment Methods
+                </h3>
+                <p className="text-xs text-gray-400 mb-4">
+                  Card numbers are encrypted (AES-GCM) before storage. We never store your CVV.
+                </p>
+
+                <div className="space-y-2 mb-6">
+                  {cards.length === 0 ? (
+                    <div className="text-center text-gray-400 text-sm py-6">No saved cards.</div>
+                  ) : cards.map(c => (
+                    <div key={c.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <CreditCard size={20} className="text-gray-400" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">
+                            {c.cardBrand} •••• {c.last4}
+                            {c.default && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Default</span>}
+                          </p>
+                          <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {!c.default && (
+                          <button onClick={() => handleDefaultCard(c.id)} className="text-xs text-blue-500 hover:underline">
+                            Set default
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteCard(c.id)} className="text-gray-400 hover:text-red-500">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form onSubmit={handleAddCard} className="border-t border-gray-100 pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-1"><Plus size={14} /> Add a card</h4>
+                  {cardMsg && <div className="text-green-600 text-xs">{cardMsg}</div>}
+                  {cardErr && <div className="text-red-500 text-xs">{cardErr}</div>}
+                  <input
+                    type="text" required placeholder="Cardholder name"
+                    value={cardForm.cardHolder}
+                    onChange={e => setCardForm(f => ({ ...f, cardHolder: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  <input
+                    type="text" required inputMode="numeric" placeholder="Card number"
+                    value={cardForm.cardNumber}
+                    onChange={e => setCardForm(f => ({ ...f, cardNumber: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  <div className="flex gap-3">
+                    <input
+                      type="number" required min="1" max="12" placeholder="MM"
+                      value={cardForm.expMonth}
+                      onChange={e => setCardForm(f => ({ ...f, expMonth: e.target.value }))}
+                      className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                    <input
+                      type="number" required min="2024" placeholder="YYYY"
+                      value={cardForm.expYear}
+                      onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
+                      className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                    <label className="flex items-center gap-2 text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={cardForm.makeDefault}
+                        onChange={e => setCardForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                      />
+                      Default
+                    </label>
+                  </div>
+                  <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    Add Card
+                  </button>
+                </form>
               </div>
             )}
 

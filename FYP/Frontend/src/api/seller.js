@@ -47,3 +47,7 @@ export const replyToQuestion = (questionId, text) =>
 // Rate the winning buyer of a finished auction
 export const rateBuyer = (auctionId, score, comment) =>
   api.post('/seller/rate-buyer', form({ auctionId, score, comment }), F);
+
+// Seller performance analytics
+export const getSellerAnalytics = () => api.get('/seller/analytics');
+export const emailSellerAnalytics = () => api.post('/seller/analytics', form({}), F);
