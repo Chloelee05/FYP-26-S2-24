@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, User, LogOut, LayoutDashboard, Heart } from 'lucide-react';
+import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -80,6 +80,16 @@ export default function Navbar() {
                   {user.role === 'ADMIN' && (
                     <Link to="/admin" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50" onClick={() => setMenuOpen(false)}>
                       <LayoutDashboard size={14} /> Admin Panel
+                    </Link>
+                  )}
+                  {user.role !== 'ADMIN' && (
+                    <Link to="/messages" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50" onClick={() => setMenuOpen(false)}>
+                      <MessageSquare size={14} /> Messages
+                    </Link>
+                  )}
+                  {user.role !== 'ADMIN' && (
+                    <Link to="/support" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50" onClick={() => setMenuOpen(false)}>
+                      <MessageCircle size={14} /> Contact Admin
                     </Link>
                   )}
                   <hr className="my-1" />

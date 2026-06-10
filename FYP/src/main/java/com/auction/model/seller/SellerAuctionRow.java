@@ -13,10 +13,11 @@ public class SellerAuctionRow {
     private final Instant startDate;
     private final Instant endDate;
     private final String statusName;
+    private final int quantity;
 
     public SellerAuctionRow(long auctionId, String title, BigDecimal startingPrice,
                             BigDecimal maxPrice, BigDecimal currentBid, int bidCount,
-                            Instant startDate, Instant endDate, String statusName) {
+                            Instant startDate, Instant endDate, String statusName, int quantity) {
         this.auctionId = auctionId;
         this.title = title;
         this.startingPrice = startingPrice;
@@ -26,6 +27,7 @@ public class SellerAuctionRow {
         this.startDate = startDate;
         this.endDate = endDate;
         this.statusName = statusName;
+        this.quantity = quantity;
     }
 
     public long getAuctionId()      { return auctionId; }
@@ -37,4 +39,5 @@ public class SellerAuctionRow {
     public Instant getStartDate()    { return startDate; }
     public Instant getEndDate()      { return endDate; }
     public String getStatusName()    { return statusName; }
+    public int getQuantity()         { return quantity; }
 }

@@ -86,7 +86,7 @@ public class TestSellerDashboardServlet {
 
     private SellerAuctionRow dummyRow() {
         return new SellerAuctionRow(1L, "T", BigDecimal.TEN, null,
-                BigDecimal.ZERO, 0, Instant.now(), Instant.now().plusSeconds(3600), "Active");
+                BigDecimal.ZERO, 0, Instant.now(), Instant.now().plusSeconds(3600), "Active", 1);
     }
 
     // ------------------------------------------------------------------ RBAC

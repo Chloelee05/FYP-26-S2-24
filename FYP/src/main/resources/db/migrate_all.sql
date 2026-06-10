@@ -46,4 +46,16 @@
 \echo '== demo seed (optional — strategy auctions, pending users, recommendation signals) =='
 \ir demo_seed.sql
 
+\echo '== admin extras (report replies, support chat) =='
+\ir migration_admin_extras.sql
+
+\echo '== order shipping tracking =='
+\ir migration_orders_shipping.sql
+
+\echo '== order refund requests =='
+\ir migration_orders_refund.sql
+
+\echo '== order messages (buyer <-> seller) + refund decisions =='
+\ir migration_order_messages.sql
+
 \echo 'All migrations applied.'

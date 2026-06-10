@@ -44,6 +44,50 @@ public class SellerAuctionDAO {
         }
     }
 
+    public enum ReduceQtyResult { SUCCESS, NOT_FOUND, NOT_OWNER, LAST_UNIT, NOT_ACTIVE }
+
+    /**
+     * Removes one unit from a multi-quantity listing (decrements {@code quantity}).
+     * When quantity is already 1 the seller must cancel the whole auction instead.
+     */
+    public ReduceQtyResult reduceQuantity(long auctionId, int sellerId) throws Exception {
+        Connection conn = null;
+        try {
+            conn = DBUtil.connectDB();
+            conn.setAutoCommit(false);
+
+            int statusId, ownerId, qty;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT a.status_id, a.seller_id, d.quantity "
+                  + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+                  + "WHERE a.auction_id = ? FOR UPDATE")) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return ReduceQtyResult.NOT_FOUND; }
+                    statusId = rs.getInt("status_id");
+                    ownerId = rs.getInt("seller_id");
+                    qty = rs.getInt("quantity");
+                }
+            }
+            if (ownerId != sellerId) { conn.rollback(); return ReduceQtyResult.NOT_OWNER; }
+            if (statusId != AuctionStatus.ACTIVE.getId()) { conn.rollback(); return ReduceQtyResult.NOT_ACTIVE; }
+            if (qty <= 1) { conn.rollback(); return ReduceQtyResult.LAST_UNIT; }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE auction_details SET quantity = quantity - 1 WHERE id = ?")) {
+                ps.setLong(1, auctionId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            return ReduceQtyResult.SUCCESS;
+        } catch (Exception e) {
+            if (conn != null) try { conn.rollback(); } catch (SQLException ignored) { }
+            throw e;
+        } finally {
+            if (conn != null) try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) { }
+        }
+    }
+
     // ------------------------------------------------------------------ bid-cap (SCRUM-33)
 
     /**
@@ -175,7 +219,7 @@ public class SellerAuctionDAO {
     public List<SellerAuctionRow> listSellerAuctions(int sellerId, Integer statusId,
                                                      int page, int pageSize) throws Exception {
         StringBuilder sb = new StringBuilder(
-            "SELECT a.auction_id, d.title, d.starting_price, d.max_price, "
+            "SELECT a.auction_id, d.title, d.starting_price, d.max_price, d.quantity, "
           + "COALESCE(MAX(b.bid_amount), 0) AS current_bid, "
           + "COUNT(b.bid_id) AS bid_count, "
           + "a.date_created AS start_date, a.date_end, "
@@ -187,7 +231,7 @@ public class SellerAuctionDAO {
           + "LEFT JOIN bids       b ON b.auction_id = a.auction_id "
           + "WHERE a.seller_id = ?");
         if (statusId != null) sb.append(" AND a.status_id = ?");
-        sb.append(" GROUP BY a.auction_id, d.title, d.starting_price, d.max_price, a.date_created, a.date_end, s.status"
+        sb.append(" GROUP BY a.auction_id, d.title, d.starting_price, d.max_price, d.quantity, a.date_created, a.date_end, s.status"
                 + " ORDER BY a.date_end DESC"
                 + " LIMIT ? OFFSET ?");
 
@@ -211,7 +255,8 @@ public class SellerAuctionDAO {
                             rs.getInt("bid_count"),
                             rs.getTimestamp("start_date").toInstant(),
                             rs.getTimestamp("date_end").toInstant(),
-                            rs.getString("status_name")));
+                            rs.getString("status_name"),
+                            rs.getInt("quantity")));
                 }
             }
             return rows;

@@ -153,6 +153,21 @@ public class SellerProfileDAO {
         return list;
     }
 
+    /** Completed sales (orders marked COMPLETED). */
+    public int countCompletedTransactions(long sellerId) {
+        String sql = "SELECT COUNT(*)::int FROM orders WHERE seller_id = ? AND status = 'COMPLETED'";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, sellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return 0;
+    }
+
     /** Total review count for pagination (same filter as {@link #getReviews}). */
     public int countReviews(long sellerId) {
         String sql = "SELECT COUNT(*)::int FROM user_reviews WHERE reviewee_user_id = ?";

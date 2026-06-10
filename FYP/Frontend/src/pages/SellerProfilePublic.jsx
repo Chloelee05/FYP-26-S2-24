@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Flag } from 'lucide-react';
-import { getSellerProfile, rateSeller, reportUser } from '../api/auction';
+import { getSellerProfile, reportUser } from '../api/auction';
 import StarRating from '../components/StarRating';
-import AuctionCard from '../components/AuctionCard';
 import { useAuth } from '../context/AuthContext';
 
 // Backend response fields: id, username, email (masked), memberSince, profileImageUrl,
@@ -14,7 +13,6 @@ export default function SellerProfilePublic() {
   const { username: sellerId } = useParams();
   const { user } = useAuth();
   const [seller, setSeller] = useState(null);
-  const [myRating, setMyRating] = useState(0);
   const [reportReason, setReportReason] = useState('');
   const [showReport, setShowReport] = useState(false);
   const [message, setMessage] = useState('');
@@ -22,14 +20,6 @@ export default function SellerProfilePublic() {
   useEffect(() => {
     getSellerProfile(sellerId).then(r => setSeller(r.data)).catch(() => {});
   }, [sellerId]);
-
-  const handleRate = async (stars) => {
-    setMyRating(stars);
-    try {
-      await rateSeller(null, stars);
-      setMessage('Rating submitted!');
-    } catch {}
-  };
 
   const handleReport = async (e) => {
     e.preventDefault();
@@ -57,14 +47,19 @@ export default function SellerProfilePublic() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{seller.username}</h1>
               <p className="text-gray-400 text-sm">
-                Member since {seller.memberSince ? new Date(seller.memberSince).getFullYear() : '—'}
+                Joined {seller.memberSince
+                  ? new Date(seller.memberSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                  : '—'}
               </p>
               <div className="flex items-center gap-2 mt-1">
                 <StarRating value={Math.round(seller.avgRating ?? 0)} />
                 <span className="text-sm font-bold">{(seller.avgRating ?? 0).toFixed(1)}</span>
                 <span className="text-sm text-gray-400">({seller.reviewCount ?? 0} reviews)</span>
               </div>
-              <p className="text-sm text-gray-500 mt-1">{seller.activeListings ?? 0} active listings</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
+                <span>{seller.completedSales ?? 0} completed sales</span>
+                <span>{seller.activeListings ?? 0} active listings</span>
+              </div>
             </div>
           </div>
           <button onClick={() => setShowReport(v => !v)} className="flex items-center gap-1 text-sm text-gray-400 hover:text-red-400">
@@ -86,11 +81,10 @@ export default function SellerProfilePublic() {
         )}
         {message && <div className="mt-3 text-green-600 text-sm">{message}</div>}
 
-        {user && user.role !== 'SELLER' && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-sm text-gray-600 mb-2">Rate this seller:</p>
-            <StarRating value={myRating} onChange={handleRate} size={28} />
-          </div>
+        {user?.role === 'BUYER' && (
+          <p className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
+            Rate this seller from your <Link to="/profile" className="text-blue-500 hover:underline">Orders</Link> tab after a completed purchase.
+          </p>
         )}
       </div>
 

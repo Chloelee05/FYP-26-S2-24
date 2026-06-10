@@ -2,6 +2,7 @@ package com.auction.servlet.api;
 
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.CategoryDAO;
+import com.auction.dao.OrderDAO;
 import com.auction.dao.ReportDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
@@ -43,6 +44,7 @@ public class AdminApiServlet extends ApiBase {
     private final AuctionDAO  auctionDAO = new AuctionDAO();
     private final CategoryDAO catDAO     = new CategoryDAO();
     private final ReportDAO   reportDAO  = new ReportDAO();
+    private final OrderDAO    orderDAO   = new OrderDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -54,6 +56,7 @@ public class AdminApiServlet extends ApiBase {
             case "categories":  ok(resp, catDAO.listAll());    break;
             case "analytics":   handleAnalytics(resp);         break;
             case "reports":     handleGetReports(resp);        break;
+            case "orders":      handleGetOrders(resp);         break;
             default: error(resp, 404, "Not found.");            break;
         }
     }
@@ -363,6 +366,14 @@ public class AdminApiServlet extends ApiBase {
         catch (NumberFormatException e) { badRequest(resp, "Invalid report ID."); return; }
 
         try {
+            if ("reply".equalsIgnoreCase(action.trim())) {
+                String reply = param(req, "reply");
+                if (reply == null || reply.isBlank()) { badRequest(resp, "reply is required."); return; }
+                boolean ok = reportDAO.replyToReport(reportId, type, reply.trim());
+                if (ok) okMsg(resp, "Reply saved.");
+                else error(resp, 404, "Report not found.");
+                return;
+            }
             boolean resolved;
             switch (action.trim().toLowerCase()) {
                 case "resolve":  resolved = true;  break;
@@ -376,6 +387,14 @@ public class AdminApiServlet extends ApiBase {
             else error(resp, 404, "Report not found.");
         } catch (Exception e) {
             serverError(resp, "Could not update report.");
+        }
+    }
+
+    private void handleGetOrders(HttpServletResponse resp) throws IOException {
+        try {
+            ok(resp, orderDAO.listAllForAdmin());
+        } catch (Exception e) {
+            serverError(resp, "Could not load orders.");
         }
     }
 

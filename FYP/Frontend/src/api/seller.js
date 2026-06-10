@@ -51,3 +51,6 @@ export const rateBuyer = (auctionId, score, comment) =>
 // Seller performance analytics
 export const getSellerAnalytics = () => api.get('/seller/analytics');
 export const emailSellerAnalytics = () => api.post('/seller/analytics', form({}), F);
+
+export const reduceAuctionQuantity = (auctionId) =>
+  api.post('/seller/reduce-quantity', form({ auctionId }), F);

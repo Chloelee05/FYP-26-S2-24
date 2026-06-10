@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Phone, MapPin, Edit3, CreditCard, Trash2, Plus, Package } from 'lucide-react';
+import { Mail, Phone, MapPin, Edit3, CreditCard, Trash2, Plus, Package, Star, Truck, MessageCircle, RotateCcw } from 'lucide-react';
 import {
   getProfile, getTransactionHistory, getMyReviews,
   getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
 } from '../api/user';
-import { getOrders, payOrder, completeOrder } from '../api/orders';
+import { getOrders, payOrder, completeOrder, advanceOrderShipping, resolveOrderRefund } from '../api/orders';
 import { formatCurrency, getRoleDisplay } from '../utils/helpers';
 import StarRating from '../components/StarRating';
+import OrderTrackingModal from '../components/OrderTrackingModal';
+import RateBuyerModal from '../components/RateBuyerModal';
+import OrderMessageModal from '../components/OrderMessageModal';
+import OrderRefundModal from '../components/OrderRefundModal';
 
 // Backend fields:
 // profile: { id, username, email, role, profileImageUrl, memberSince, phone, address, rating: RatingSummary, transactions: [...] }
@@ -26,6 +30,18 @@ export default function UserProfile() {
   const [cardMsg, setCardMsg] = useState('');
   const [cardErr, setCardErr] = useState('');
   const [orderMsg, setOrderMsg] = useState('');
+  const [trackOrder, setTrackOrder] = useState(null);
+  const [rateOrder, setRateOrder] = useState(null);
+  const [contactOrder, setContactOrder] = useState(null);
+  const [refundOrder, setRefundOrder] = useState(null);
+
+  const shippingActionLabel = (status) => {
+    const s = (status || 'PREPARING').toUpperCase();
+    if (s === 'PREPARING') return 'Mark shipped';
+    if (s === 'SHIPPED') return 'Mark in transit';
+    if (s === 'IN_TRANSIT') return 'Mark delivered';
+    return null;
+  };
 
   const loadCards = () => getPaymentMethods().then(r => setCards(r.data ?? [])).catch(() => {});
   const loadOrders = () => getOrders().then(r => setOrders(r.data ?? [])).catch(() => {});
@@ -50,10 +66,31 @@ export default function UserProfile() {
     }
   };
 
-  const handleCompleteOrder = async (orderId) => {
+  const handleConfirmReceipt = async (orderId) => {
+    if (!window.confirm('Confirm you received the item in good condition? This cannot be undone.')) return;
     setOrderMsg('');
-    try { await completeOrder(orderId); loadOrders(); }
-    catch (err) { setOrderMsg(err.response?.data?.error || 'Could not update order.'); }
+    try {
+      await completeOrder(orderId);
+      setOrderMsg('Receipt confirmed. You can now rate the seller.');
+      loadOrders();
+    } catch (err) { setOrderMsg(err.response?.data?.error || 'Could not confirm receipt.'); }
+  };
+
+  const handleAdvanceShipping = async (orderId) => {
+    setOrderMsg('');
+    try { await advanceOrderShipping(orderId); loadOrders(); }
+    catch (err) { setOrderMsg(err.response?.data?.error || 'Could not update shipping.'); }
+  };
+
+  const handleResolveRefund = async (orderId, approve) => {
+    const verb = approve ? 'approve' : 'decline';
+    if (!window.confirm(`Are you sure you want to ${verb} this refund request?`)) return;
+    setOrderMsg('');
+    try {
+      await resolveOrderRefund(orderId, approve);
+      setOrderMsg(approve ? 'Refund approved and order cancelled.' : 'Refund request declined.');
+      loadOrders();
+    } catch (err) { setOrderMsg(err.response?.data?.error || 'Could not update the refund request.'); }
   };
 
   const handleAddCard = async (e) => {
@@ -234,11 +271,32 @@ export default function UserProfile() {
 
             {tab === 'orders' && (
               <div className="p-5">
+                {trackOrder && <OrderTrackingModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
+                {rateOrder && (
+                  <RateBuyerModal
+                    order={rateOrder}
+                    onClose={() => setRateOrder(null)}
+                    onRated={() => { setOrderMsg('Rating submitted.'); loadOrders(); }}
+                  />
+                )}
+                {contactOrder && (
+                  <OrderMessageModal
+                    order={contactOrder}
+                    onClose={() => setContactOrder(null)}
+                  />
+                )}
+                {refundOrder && (
+                  <OrderRefundModal
+                    order={refundOrder}
+                    onClose={() => setRefundOrder(null)}
+                    onSubmitted={() => { setOrderMsg('Refund request submitted.'); loadOrders(); }}
+                  />
+                )}
                 <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
                   <Package size={16} className="text-gray-400" /> Orders
                 </h3>
                 <p className="text-xs text-gray-400 mb-4">
-                  Won auctions and items you sold. Pay as a buyer; confirm fulfilment as a seller.
+                  Pay as buyer · sellers ship · you confirm receipt · rate after complete · message the other party or request a refund (the seller decides) if needed.
                 </p>
                 {orderMsg && <div className="text-sm text-blue-600 mb-3">{orderMsg}</div>}
                 {orders.length === 0 ? (
@@ -246,29 +304,123 @@ export default function UserProfile() {
                 ) : (
                   <div className="space-y-2">
                     {orders.map(o => (
-                      <div key={o.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{o.auctionTitle}</p>
-                          <p className="text-xs text-gray-400">
-                            {o.role === 'buyer' ? 'Bought from' : 'Sold to'} {o.counterparty} · {formatCurrency(o.amount)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      <div key={o.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{o.auctionTitle}</p>
+                            <p className="text-xs text-gray-400">
+                              {o.role === 'buyer' ? 'Bought from' : 'Sold to'} {o.counterparty} · {formatCurrency(o.amount)}
+                            </p>
+                            {o.shippingStatus && o.status === 'PAID' && (
+                              <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
+                                <Truck size={12} /> {o.shippingStatus.replace('_', ' ').toLowerCase()}
+                              </p>
+                            )}
+                            {o.refundStatus === 'REQUESTED' && (
+                              <p className="text-xs text-orange-500 mt-0.5 flex items-center gap-1">
+                                <RotateCcw size={12} />
+                                {o.role === 'seller' ? 'Refund requested by buyer' : 'Refund requested — awaiting seller'}
+                              </p>
+                            )}
+                            {o.refundStatus === 'REQUESTED' && o.role === 'seller' && o.refundReason && (
+                              <p className="text-xs text-gray-500 mt-0.5 italic">“{o.refundReason}”</p>
+                            )}
+                            {o.refundStatus === 'APPROVED' && (
+                              <p className="text-xs text-green-600 mt-0.5 flex items-center gap-1">
+                                <RotateCcw size={12} /> Refund approved · order cancelled
+                              </p>
+                            )}
+                            {o.refundStatus === 'REJECTED' && (
+                              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                <RotateCcw size={12} /> Refund declined by seller
+                              </p>
+                            )}
+                            {o.role === 'seller' && o.status === 'PAID' && (o.shippingStatus || '').toUpperCase() === 'DELIVERED' && (
+                              <p className="text-xs text-amber-600 mt-0.5">Waiting for buyer to confirm receipt</p>
+                            )}
+                          </div>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
                             o.status === 'COMPLETED' ? 'bg-green-100 text-green-600'
                             : o.status === 'PAID' ? 'bg-blue-100 text-blue-600'
+                            : o.status === 'CANCELLED' ? 'bg-red-100 text-red-600'
                             : 'bg-yellow-100 text-yellow-700'}`}>
                             {o.status.replace('_', ' ')}
                           </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {o.role === 'buyer' && o.status !== 'PENDING_PAYMENT' && (
+                            <button
+                              onClick={() => setTrackOrder(o)}
+                              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                            >
+                              Track order
+                            </button>
+                          )}
                           {o.role === 'buyer' && o.status === 'PENDING_PAYMENT' && (
                             <button onClick={() => handlePayOrder(o.id)} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg">
                               Pay now
                             </button>
                           )}
-                          {o.role === 'seller' && o.status === 'PAID' && (
-                            <button onClick={() => handleCompleteOrder(o.id)} className="text-xs bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg">
-                              Mark complete
+                          {o.role === 'seller' && o.status === 'PAID' && shippingActionLabel(o.shippingStatus) && (
+                            <button onClick={() => handleAdvanceShipping(o.id)} className="text-xs bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg">
+                              {shippingActionLabel(o.shippingStatus)}
                             </button>
+                          )}
+                          {o.role === 'buyer' && o.status === 'PAID' && (o.shippingStatus || '').toUpperCase() === 'DELIVERED' && o.refundStatus !== 'REQUESTED' && o.refundStatus !== 'APPROVED' && (
+                            <button onClick={() => handleConfirmReceipt(o.id)} className="text-xs bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg">
+                              Confirm receipt
+                            </button>
+                          )}
+                          {o.status !== 'PENDING_PAYMENT' && o.status !== 'CANCELLED' && (
+                            <button
+                              onClick={() => setContactOrder(o)}
+                              className="text-xs flex items-center gap-1 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                            >
+                              <MessageCircle size={12} /> {o.role === 'buyer' ? 'Contact seller' : 'Message buyer'}
+                            </button>
+                          )}
+                          {o.role === 'buyer' && o.status === 'PAID' && !o.refundStatus && (
+                            <button
+                              onClick={() => setRefundOrder(o)}
+                              className="text-xs flex items-center gap-1 border border-orange-200 text-orange-600 px-3 py-1.5 rounded-lg hover:bg-orange-50"
+                            >
+                              <RotateCcw size={12} /> Request refund
+                            </button>
+                          )}
+                          {o.role === 'seller' && o.refundStatus === 'REQUESTED' && (
+                            <>
+                              <button
+                                onClick={() => handleResolveRefund(o.id, true)}
+                                className="text-xs flex items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg"
+                              >
+                                Approve refund
+                              </button>
+                              <button
+                                onClick={() => handleResolveRefund(o.id, false)}
+                                className="text-xs flex items-center gap-1 border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50"
+                              >
+                                Decline refund
+                              </button>
+                            </>
+                          )}
+                          {o.status === 'COMPLETED' && !o.hasRated && o.role === 'buyer' && (
+                            <Link
+                              to={`/rate-seller/${o.auctionId}`}
+                              className="text-xs flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded-lg"
+                            >
+                              <Star size={12} /> Rate seller
+                            </Link>
+                          )}
+                          {o.status === 'COMPLETED' && !o.hasRated && o.role === 'seller' && (
+                            <button
+                              onClick={() => setRateOrder(o)}
+                              className="text-xs flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded-lg"
+                            >
+                              <Star size={12} /> Rate buyer
+                            </button>
+                          )}
+                          {o.status === 'COMPLETED' && o.hasRated && (
+                            <span className="text-xs text-gray-400 px-2 py-1.5">Rated ✓</span>
                           )}
                         </div>
                       </div>

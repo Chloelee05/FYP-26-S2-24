@@ -39,3 +39,14 @@ export const restoreCategory = (categoryId) =>
 export const getAdminReports  = () => api.get('/admin/reports');
 export const resolveReport    = (reportId, type) => api.post('/admin/reports', form({ reportId, type, action: 'resolve' }), F);
 export const dismissReport    = (reportId, type) => api.post('/admin/reports', form({ reportId, type, action: 'dismiss' }), F);
+export const replyToReport = (reportId, type, reply) => {
+  const p = new URLSearchParams();
+  p.append('reportId', String(reportId));
+  p.append('type', type || 'account');
+  p.append('action', 'reply');
+  p.append('reply', reply);
+  return api.post('/admin/reports', p.toString(), F);
+};
+
+// Orders
+export const getAdminOrders = () => api.get('/admin/orders');
