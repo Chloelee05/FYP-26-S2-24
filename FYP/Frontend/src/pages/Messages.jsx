@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { MessageSquare, Send, Store, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getConversations, getOrderMessages, sendOrderMessage } from '../api/messages';
+import { apiErrorMessage } from '../utils/apiError';
 import ChatMessage from '../components/ChatMessage';
 
 export default function Messages() {
@@ -18,7 +19,7 @@ export default function Messages() {
   const loadConversations = useCallback(() => {
     getConversations()
       .then(r => setConversations(r.data ?? []))
-      .catch(() => {});
+      .catch(err => setError(apiErrorMessage(err, 'Could not load conversations.')));
   }, []);
 
   useEffect(() => {
@@ -36,7 +37,9 @@ export default function Messages() {
 
   useEffect(() => {
     if (!selectedId) return;
-    const load = () => getOrderMessages(selectedId).then(r => setMessages(r.data ?? [])).catch(() => {});
+    const load = () => getOrderMessages(selectedId)
+      .then(r => { setMessages(r.data ?? []); setError(''); })
+      .catch(err => setError(apiErrorMessage(err, 'Could not load messages.')));
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -58,7 +61,7 @@ export default function Messages() {
       setMessages(r.data ?? []);
       loadConversations();
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not send message.');
+      setError(apiErrorMessage(err, 'Could not send message.'));
     }
   };
 
