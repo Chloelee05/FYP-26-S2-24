@@ -181,8 +181,18 @@ public class AuthApiServlet extends ApiBase {
         }
 
         User user = new User(username, email.toLowerCase(), SecurityUtil.hashPassword(password), role);
-        boolean created = userDAO.insertUser(user);
-        if (!created) { serverError(resp, "Registration failed. Please try again."); return; }
+        try {
+            boolean created = userDAO.insertUser(user);
+            if (!created) {
+                serverError(resp, "Registration failed. Please try again.");
+                return;
+            }
+        } catch (RuntimeException e) {
+            LOG.severe("Registration DB error: " + e.getMessage());
+            serverError(resp,
+                    "Could not reach the database. Ensure PostgreSQL is running and DBUtil settings are correct.");
+            return;
+        }
 
         okMsg(resp, "Account created successfully.");
     }

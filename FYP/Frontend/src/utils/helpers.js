@@ -18,3 +18,25 @@ export function timeRemaining(endTime) {
 export function getInitials(name = '') {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
+
+const ROLE_LABELS = {
+  BUYER: { label: 'Buyer', className: 'bg-blue-100 text-blue-600' },
+  SELLER: { label: 'Seller', className: 'bg-purple-100 text-purple-600' },
+  ADMIN: { label: 'Admin', className: 'bg-red-100 text-red-600' },
+};
+
+export function getRoleDisplay(role) {
+  return ROLE_LABELS[role] ?? { label: role || 'User', className: 'bg-gray-100 text-gray-600' };
+}
+
+export function normalizeCategories(data) {
+  return Array.isArray(data) ? data.filter(c => c?.name) : [];
+}
+
+/** Decode HTML entities returned by server-side SecurityUtil.sanitize (e.g. &gt; → >). */
+export function decodeHtmlEntities(text) {
+  if (!text) return '';
+  const el = document.createElement('textarea');
+  el.innerHTML = text;
+  return el.value;
+}
