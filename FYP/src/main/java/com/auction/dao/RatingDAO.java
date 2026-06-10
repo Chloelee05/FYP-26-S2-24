@@ -50,11 +50,15 @@ public class RatingDAO {
      * @param raterId   buyer submitting the rating (read from session, never from request)
      * @param score     star score; must be 1–5 (validated by servlet before this call)
      */
-    public RatingResult insertRating(long auctionId, int raterId, int score) {
+    public RatingResult insertRating(long auctionId, int raterId, int score, String comment) {
         Connection conn = null;
         try {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
+
+            // Promote a time-expired auction to FINISHED (+ resolve winner) so the
+            // winner/status checks below see consistent state. No-op if already final.
+            com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
             String selectSql =
                     "SELECT a.status_id, a.seller_id, d.winner_id "
@@ -106,13 +110,18 @@ public class RatingDAO {
 
             String insertSql =
                     "INSERT INTO user_reviews "
-                    + "(reviewer_user_id, reviewee_user_id, auction_id, rating) "
-                    + "VALUES (?, ?, ?, ?)";
+                    + "(reviewer_user_id, reviewee_user_id, auction_id, rating, comment) "
+                    + "VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                 ps.setInt(1, raterId);
                 ps.setInt(2, sellerId);
                 ps.setLong(3, auctionId);
                 ps.setInt(4, score);
+                if (comment != null && !comment.isBlank()) {
+                    ps.setString(5, comment);
+                } else {
+                    ps.setNull(5, java.sql.Types.VARCHAR);
+                }
                 ps.executeUpdate();
             }
 

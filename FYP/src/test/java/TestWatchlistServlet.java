@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -403,7 +405,7 @@ public class TestWatchlistServlet {
         @Test
         @DisplayName("buyer with items → rows set as request attribute + JSP forwarded")
         void watchlistWithRows() throws Exception {
-            WatchlistRow row = new WatchlistRow(42L, "Vintage Camera", 1, LocalDateTime.now());
+            WatchlistRow row = new WatchlistRow(42L, "Vintage Camera", 1, Instant.now(), BigDecimal.ZERO, Instant.now(), 0);
             stubBuyerSession(5);
             when(mockDAO.listByUser(5)).thenReturn(List.of(row));
             RequestDispatcher rd = mock(RequestDispatcher.class);
