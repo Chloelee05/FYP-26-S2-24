@@ -121,15 +121,65 @@ public final class NotificationService {
         });
     }
 
-    /** Notifies the buyer that the seller marked the order complete/shipped. */
-    public static void notifyOrderCompleted(long auctionId, int buyerId) {
+    /** Notifies the buyer that the package was marked delivered — confirm receipt when ready. */
+    public static void notifyOrderDelivered(long auctionId, int buyerId) {
         safe(() -> {
             String title = auctionTitle(auctionId);
-            create(buyerId, "ORDER_COMPLETED",
-                    "The seller marked \"" + title + "\" as completed. Enjoy your item!",
+            create(buyerId, "ORDER_DELIVERED",
+                    "Your order \"" + title + "\" was marked delivered. Please confirm receipt in Orders.",
                     "/profile",
-                    "Order completed",
-                    "Your order \"" + title + "\" was marked complete on AuctionHub.");
+                    "Package delivered",
+                    "Your order \"" + title + "\" was marked delivered on AuctionHub. Confirm receipt when you receive it.");
+        });
+    }
+
+    /** Notifies the seller that the buyer confirmed receipt. */
+    public static void notifySellerReceiptConfirmed(long auctionId, int sellerId) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            create(sellerId, "ORDER_COMPLETED",
+                    "The buyer confirmed receipt for \"" + title + "\".",
+                    "/profile",
+                    "Buyer confirmed receipt",
+                    "The buyer confirmed receipt for \"" + title + "\" on AuctionHub.");
+        });
+    }
+
+    /** Notifies the seller that the buyer requested a refund. */
+    public static void notifySellerRefundRequested(long auctionId, int sellerId) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            create(sellerId, "REFUND_REQUESTED",
+                    "The buyer requested a refund for \"" + title + "\". Review it in your Orders.",
+                    "/profile",
+                    "Refund requested",
+                    "The buyer requested a refund for \"" + title + "\" on AuctionHub.");
+        });
+    }
+
+    /** Notifies the buyer that the seller approved or declined their refund request. */
+    public static void notifyBuyerRefundResolved(long auctionId, int buyerId, boolean approved) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            String verb = approved ? "approved" : "declined";
+            create(buyerId, approved ? "REFUND_APPROVED" : "REFUND_REJECTED",
+                    "The seller " + verb + " your refund request for \"" + title + "\".",
+                    "/profile",
+                    "Refund " + verb,
+                    "The seller " + verb + " your refund request for \"" + title + "\" on AuctionHub.");
+        });
+    }
+
+    /** Notifies the order counterparty that a new direct message was received. */
+    public static void notifyOrderMessage(long auctionId, int recipientId, String senderName) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            String who = (senderName == null || senderName.isBlank()) ? "Someone" : senderName;
+            create(recipientId, "ORDER_MESSAGE",
+                    who + " sent you a message about \"" + title + "\".",
+                    "/messages",
+                    "New message",
+                    who + " sent you a message about \"" + title + "\" on AuctionHub.");
         });
     }
 

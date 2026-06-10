@@ -8,15 +8,28 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * POST /api/rate  params: auctionId, score (1-5)
- * Buyer-only — must be the winning buyer of a FINISHED auction.
+ * GET  /api/rate/check  params: auctionId — whether the buyer already rated
+ * POST /api/rate        params: auctionId, score (1-5), comment?
  */
-@WebServlet("/api/rate")
+@WebServlet(urlPatterns = {"/api/rate", "/api/rate/*"})
 public class RateApiServlet extends ApiBase {
 
     private final RatingDAO ratingDAO = new RatingDAO();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        String path = req.getPathInfo();
+        if (path != null && (path.equals("/check") || path.endsWith("/check"))) {
+            handleCheck(req, resp);
+        } else {
+            error(resp, 404, "Not found.");
+        }
+    }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -53,12 +66,26 @@ public class RateApiServlet extends ApiBase {
         }
     }
 
+    private void handleCheck(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!isBuyer(authSession(req))) { forbidden(resp); return; }
+        int buyerId = sessionUserId(req);
+        String auctionIdStr = param(req, "auctionId");
+        if (auctionIdStr == null) { badRequest(resp, "auctionId is required."); return; }
+        long auctionId;
+        try { auctionId = Long.parseLong(auctionIdStr); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("rated", ratingDAO.existsByBuyerAndAuction(buyerId, auctionId));
+        ok(resp, body);
+    }
+
     private String toMessage(RatingResult r) {
         switch (r) {
             case AUCTION_NOT_FOUND:     return "Auction not found.";
             case AUCTION_NOT_FINISHED:  return "You can only rate a seller after the auction ends.";
             case NOT_WINNER:            return "Only the winning buyer can rate the seller.";
             case ALREADY_RATED:         return "You have already rated this seller for this auction.";
+            case ORDER_NOT_COMPLETED:   return "You can rate the seller after the order is marked complete.";
             default:                    return "Could not submit rating. Please try again.";
         }
     }

@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { Plus, Edit2, XCircle, RotateCcw, Eye, Star, BarChart3, Mail } from 'lucide-react';
 import {
   getSellerAuctions, cancelAuction, relistAuction, rateBuyer,
-  getSellerAnalytics, emailSellerAnalytics,
+  getSellerAnalytics, emailSellerAnalytics, reduceAuctionQuantity,
 } from '../../api/seller';
+import { getOrders } from '../../api/orders';
 import { formatCurrency } from '../../utils/helpers';
 import CountdownTimer from '../../components/CountdownTimer';
 import StarRating from '../../components/StarRating';
@@ -37,6 +38,16 @@ export default function SellerDashboard() {
       .then(r => setAuctions(r.data.auctions ?? r.data ?? []))
       .catch(() => {});
     getSellerAnalytics().then(r => setAnalytics(r.data)).catch(() => {});
+    getOrders()
+      .then(r => {
+        const rated = new Set(
+          (r.data ?? [])
+            .filter(o => o.role === 'seller' && o.hasRated)
+            .map(o => o.auctionId)
+        );
+        setRatedIds(rated);
+      })
+      .catch(() => {});
   }, []);
 
   const handleEmailAnalytics = async () => {
@@ -65,6 +76,18 @@ export default function SellerDashboard() {
       await cancelAuction(id);
       setAuctions(prev => prev.map(a => a.auctionId === id ? { ...a, statusName: 'CANCELLED' } : a));
     } catch {}
+  };
+
+  const handleRemoveUnit = async (id) => {
+    if (!window.confirm('Remove one unit from this listing?')) return;
+    try {
+      await reduceAuctionQuantity(id);
+      setAuctions(prev => prev.map(a => a.auctionId === id
+        ? { ...a, quantity: Math.max(1, (a.quantity ?? 1) - 1) }
+        : a));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not remove unit.');
+    }
   };
 
   const handleRelist = async (id) => {
@@ -180,14 +203,48 @@ export default function SellerDashboard() {
               </div>
             ))}
           </div>
+          {analytics.periodStats?.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Period breakdown</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {analytics.periodStats.map(p => (
+                  <div key={p.period} className="bg-gray-50 rounded-lg p-2 text-center text-xs">
+                    <p className="font-semibold text-gray-800 capitalize">{p.period}</p>
+                    <p className="text-gray-500">{p.sold} sold · {formatCurrency(p.revenue)}</p>
+                    <p className="text-gray-400">{p.bids} bids</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {analytics.topListings?.length > 0 && (
-            <div>
+            <div className="mb-4">
               <p className="text-xs font-semibold text-gray-500 mb-2">Top listings by bids</p>
               <div className="space-y-1">
                 {analytics.topListings.map((t, i) => (
                   <div key={i} className="flex items-center justify-between text-sm border-b border-gray-50 pb-1">
                     <span className="text-gray-700 truncate">{t.title}</span>
                     <span className="text-gray-400 shrink-0 ml-2">{t.bidCount} bids · {formatCurrency(t.topBid)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {analytics.productRatings?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-2">Product star ratings</p>
+              <div className="space-y-2">
+                {analytics.productRatings.map((pr, i) => (
+                  <div key={i} className="text-sm border-b border-gray-50 pb-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-700 truncate">{pr.title}</span>
+                      <span className="text-gray-500 shrink-0 ml-2">{pr.avgRating}/5 ({pr.reviewCount})</span>
+                    </div>
+                    <div className="flex gap-2 mt-1 text-xs text-gray-400">
+                      {[5, 4, 3, 2, 1].map(star => (
+                        <span key={star}>{star}★ {pr.starPercentages?.[star] ?? 0}%</span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -217,6 +274,7 @@ export default function SellerDashboard() {
               <div className="flex gap-4 mt-1 text-xs text-gray-500">
                 <span>{auction.bidCount} bids</span>
                 <span>{formatCurrency(auction.currentBid ?? auction.startingPrice ?? 0)}</span>
+                {(auction.quantity ?? 1) > 1 && <span>Qty: {auction.quantity}</span>}
               </div>
               {tab === 'ACTIVE' && auction.endDate && (
                 <div className="mt-1"><CountdownTimer endTime={auction.endDate} /></div>
@@ -234,6 +292,11 @@ export default function SellerDashboard() {
                   <Link to={`/seller/auction/${auction.auctionId}/edit`} className="p-2 text-gray-400 hover:text-blue-500 transition-colors" title="Edit">
                     <Edit2 size={16} />
                   </Link>
+                  {(auction.quantity ?? 1) > 1 && (
+                    <button onClick={() => handleRemoveUnit(auction.auctionId)} className="px-2 py-1 text-xs text-orange-500 hover:bg-orange-50 rounded" title="Remove one unit">
+                      −1 unit
+                    </button>
+                  )}
                   <button onClick={() => handleCancel(auction.auctionId)} className="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Cancel">
                     <XCircle size={16} />
                   </button>

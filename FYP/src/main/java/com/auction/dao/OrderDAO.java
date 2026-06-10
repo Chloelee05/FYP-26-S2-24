@@ -22,7 +22,7 @@ import java.util.List;
  */
 public class OrderDAO {
 
-    public enum DeclareStatus { SUCCESS, AUCTION_NOT_FOUND, NOT_SELLER, NOT_ENDED, ALREADY_FINALIZED, NO_BIDS }
+    public enum DeclareStatus { SUCCESS, AUCTION_NOT_FOUND, NOT_SELLER, NOT_ENDED, NOT_ACTIVE, ALREADY_FINALIZED, NO_BIDS }
 
     /** Result of declaring a winner: outcome plus (on success) the new order + winner. */
     public static final class DeclareResult {
@@ -36,11 +36,17 @@ public class OrderDAO {
         static DeclareResult fail(DeclareStatus s) { return new DeclareResult(s, -1, -1, null); }
     }
 
-    /**
-     * Finalises an ended auction owned by {@code sellerId}: records the highest bidder
-     * as winner, marks the auction FINISHED, and creates a PENDING_PAYMENT order.
-     */
+    /** Finalises an ended auction (standard declare after close). */
     public DeclareResult declareWinner(long auctionId, int sellerId) {
+        return declareWinner(auctionId, sellerId, false);
+    }
+
+    /**
+     * Finalises an auction owned by {@code sellerId}: records the highest bidder as winner,
+     * marks the auction FINISHED, and creates a PENDING_PAYMENT order.
+     * When {@code early} is true the seller may close before the scheduled end time.
+     */
+    public DeclareResult declareWinner(long auctionId, int sellerId, boolean early) {
         Connection conn = null;
         try {
             conn = DBUtil.connectDB();
@@ -64,7 +70,10 @@ public class OrderDAO {
             }
 
             if (ownerId != sellerId) { conn.rollback(); return DeclareResult.fail(DeclareStatus.NOT_SELLER); }
-            if (dateEnd == null || Instant.now().isBefore(dateEnd)) {
+            if (statusId != AuctionStatus.ACTIVE.getId()) {
+                conn.rollback(); return DeclareResult.fail(DeclareStatus.NOT_ACTIVE);
+            }
+            if (!early && (dateEnd == null || Instant.now().isBefore(dateEnd))) {
                 conn.rollback(); return DeclareResult.fail(DeclareStatus.NOT_ENDED);
             }
 
@@ -91,9 +100,11 @@ public class OrderDAO {
             }
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE auction SET status_id = ? WHERE auction_id = ?")) {
+                    "UPDATE auction SET status_id = ?, date_end = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE date_end END "
+                  + "WHERE auction_id = ?")) {
                 ps.setInt(1, AuctionStatus.FINISHED.getId());
-                ps.setLong(2, auctionId);
+                ps.setBoolean(2, early);
+                ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
             try (PreparedStatement ps = conn.prepareStatement(
@@ -128,9 +139,14 @@ public class OrderDAO {
         }
     }
 
+    public enum ShippingAdvanceResult { SUCCESS, NOT_FOUND, NOT_SELLER, NOT_PAID, INVALID_TRANSITION, ALREADY_DELIVERED }
+
+    private static final String[] SHIPPING_SEQUENCE = { "PREPARING", "SHIPPED", "IN_TRANSIT", "DELIVERED" };
+
     /** Marks a PENDING_PAYMENT order PAID (simulated payment) for the owning buyer. */
     public boolean pay(long orderId, int buyerId, Long paymentMethodId) {
-        String sql = "UPDATE orders SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, payment_method_id = ? "
+        String sql = "UPDATE orders SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, "
+                + "shipping_status = 'PREPARING', shipping_updated_at = CURRENT_TIMESTAMP, payment_method_id = ? "
                 + "WHERE id = ? AND buyer_id = ? AND status = 'PENDING_PAYMENT'";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -143,15 +159,140 @@ public class OrderDAO {
         }
     }
 
-    /** Marks a PAID order COMPLETED (seller confirms fulfilment). */
-    public boolean complete(long orderId, int sellerId) {
+    /** Advances shipping one step (seller only, PAID orders). */
+    public ShippingAdvanceResult advanceShipping(long orderId, int sellerId) {
+        try (Connection conn = DBUtil.connectDB()) {
+            conn.setAutoCommit(false);
+            String status, shipping;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT status, shipping_status FROM orders WHERE id = ? AND seller_id = ? FOR UPDATE")) {
+                ps.setLong(1, orderId);
+                ps.setInt(2, sellerId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return ShippingAdvanceResult.NOT_FOUND; }
+                    status = rs.getString("status");
+                    shipping = rs.getString("shipping_status");
+                }
+            }
+            if (!"PAID".equals(status)) { conn.rollback(); return ShippingAdvanceResult.NOT_PAID; }
+            String next = nextShipping(shipping);
+            if (next == null) { conn.rollback(); return ShippingAdvanceResult.ALREADY_DELIVERED; }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE orders SET shipping_status = ?, shipping_updated_at = CURRENT_TIMESTAMP WHERE id = ?")) {
+                ps.setString(1, next);
+                ps.setLong(2, orderId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            return ShippingAdvanceResult.SUCCESS;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String nextShipping(String current) {
+        if (current == null || current.isBlank()) return SHIPPING_SEQUENCE[0];
+        for (int i = 0; i < SHIPPING_SEQUENCE.length - 1; i++) {
+            if (SHIPPING_SEQUENCE[i].equalsIgnoreCase(current)) return SHIPPING_SEQUENCE[i + 1];
+        }
+        return null;
+    }
+
+    public static String labelForShipping(String s) {
+        if (s == null) return "Pending";
+        switch (s.toUpperCase()) {
+            case "PREPARING":  return "Seller preparing your order";
+            case "SHIPPED":    return "Package shipped";
+            case "IN_TRANSIT": return "Out for delivery";
+            case "DELIVERED":  return "Delivered";
+            default:           return s;
+        }
+    }
+
+    /** Marks a PAID+DELIVERED order COMPLETED (buyer confirms receipt). Blocked while a refund is pending. */
+    public boolean confirmReceipt(long orderId, int buyerId) {
         String sql = "UPDATE orders SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP "
-                + "WHERE id = ? AND seller_id = ? AND status = 'PAID'";
+                + "WHERE id = ? AND buyer_id = ? AND status = 'PAID' "
+                + "AND UPPER(COALESCE(shipping_status, '')) = 'DELIVERED' "
+                + "AND COALESCE(refund_status, '') IN ('', 'REJECTED')";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, orderId);
-            ps.setInt(2, sellerId);
+            ps.setInt(2, buyerId);
             return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public enum RefundDecision { SUCCESS, NOT_FOUND, NOT_REQUESTED }
+
+    /**
+     * Seller approves or declines a pending refund request.
+     * Approve → order CANCELLED + refund_status APPROVED; Decline → refund_status REJECTED
+     * (order stays PAID so the normal flow can resume).
+     */
+    public RefundDecision resolveRefund(long orderId, int sellerId, boolean approve) {
+        try (Connection conn = DBUtil.connectDB()) {
+            conn.setAutoCommit(false);
+            String refundStatus;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT refund_status FROM orders WHERE id = ? AND seller_id = ? FOR UPDATE")) {
+                ps.setLong(1, orderId);
+                ps.setInt(2, sellerId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return RefundDecision.NOT_FOUND; }
+                    refundStatus = rs.getString("refund_status");
+                }
+            }
+            if (!"REQUESTED".equals(refundStatus)) { conn.rollback(); return RefundDecision.NOT_REQUESTED; }
+
+            String update = approve
+                    ? "UPDATE orders SET refund_status = 'APPROVED', status = 'CANCELLED', refund_resolved_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    : "UPDATE orders SET refund_status = 'REJECTED', refund_resolved_at = CURRENT_TIMESTAMP WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(update)) {
+                ps.setLong(1, orderId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            return RefundDecision.SUCCESS;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public enum RefundResult { SUCCESS, NOT_FOUND, NOT_BUYER, NOT_ELIGIBLE, ALREADY_REQUESTED }
+
+    /** Buyer requests a refund on a paid order that is not yet completed. */
+    public RefundResult requestRefund(long orderId, int buyerId, String reason) {
+        if (reason == null || reason.isBlank()) return RefundResult.NOT_ELIGIBLE;
+        try (Connection conn = DBUtil.connectDB()) {
+            conn.setAutoCommit(false);
+            String status, refundStatus;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT status, refund_status FROM orders WHERE id = ? AND buyer_id = ? FOR UPDATE")) {
+                ps.setLong(1, orderId);
+                ps.setInt(2, buyerId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return RefundResult.NOT_FOUND; }
+                    status = rs.getString("status");
+                    refundStatus = rs.getString("refund_status");
+                }
+            }
+            if (!"PAID".equals(status)) { conn.rollback(); return RefundResult.NOT_ELIGIBLE; }
+            if (refundStatus != null && !refundStatus.isBlank()) {
+                conn.rollback();
+                return RefundResult.ALREADY_REQUESTED;
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE orders SET refund_status = 'REQUESTED', refund_reason = ?, "
+                    + "refund_requested_at = CURRENT_TIMESTAMP WHERE id = ?")) {
+                ps.setString(1, reason.trim());
+                ps.setLong(2, orderId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            return RefundResult.SUCCESS;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -176,7 +317,10 @@ public class OrderDAO {
     public List<Order> listForUser(int userId) {
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
-          + "  o.created_at, o.paid_at, o.completed_at, bu.username AS buyer_name, su.username AS seller_name "
+          + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
+          + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
+          + "  bu.username AS buyer_name, su.username AS seller_name, "
+          + "  EXISTS (SELECT 1 FROM user_reviews ur WHERE ur.auction_id = o.auction_id AND ur.reviewer_user_id = ?) AS has_rated "
           + "FROM orders o "
           + "JOIN auction_details d ON d.id = o.auction_id "
           + "JOIN users bu ON bu.id = o.buyer_id "
@@ -188,31 +332,106 @@ public class OrderDAO {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, userId);
             ps.setInt(2, userId);
+            ps.setInt(3, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     long buyerId = rs.getLong("buyer_id");
                     boolean isBuyer = buyerId == userId;
                     String role = isBuyer ? "buyer" : "seller";
                     String counterparty = isBuyer ? rs.getString("seller_name") : rs.getString("buyer_name");
-                    out.add(new Order(
-                            rs.getLong("id"),
-                            rs.getLong("auction_id"),
-                            rs.getString("title"),
-                            buyerId,
-                            rs.getLong("seller_id"),
-                            rs.getBigDecimal("amount"),
-                            rs.getString("status"),
-                            instant(rs.getTimestamp("created_at")),
-                            instant(rs.getTimestamp("paid_at")),
-                            instant(rs.getTimestamp("completed_at")),
-                            role,
-                            counterparty));
+                    out.add(mapOrderRow(rs, role, counterparty));
                 }
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
         return out;
+    }
+
+    /** All platform orders for the admin console (newest first). */
+    public List<Order> listAllForAdmin() {
+        String sql =
+            "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
+          + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
+          + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
+          + "  bu.username AS buyer_name, su.username AS seller_name, false AS has_rated "
+          + "FROM orders o "
+          + "JOIN auction_details d ON d.id = o.auction_id "
+          + "JOIN users bu ON bu.id = o.buyer_id "
+          + "JOIN users su ON su.id = o.seller_id "
+          + "ORDER BY o.created_at DESC";
+        List<Order> out = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                out.add(mapOrderRow(rs, "admin",
+                        rs.getString("buyer_name") + " → " + rs.getString("seller_name"), false));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return out;
+    }
+
+    public boolean isDelivered(long orderId) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM orders WHERE id = ? AND UPPER(COALESCE(shipping_status, '')) = 'DELIVERED'")) {
+            ps.setLong(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean isOrderCompleted(long auctionId) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM orders WHERE auction_id = ? AND status = 'COMPLETED'")) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public boolean hasUserRatedAuction(long auctionId, int userId) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM user_reviews WHERE auction_id = ? AND reviewer_user_id = ?")) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static Order mapOrderRow(ResultSet rs, String role, String counterparty) throws SQLException {
+        return mapOrderRow(rs, role, counterparty, rs.getBoolean("has_rated"));
+    }
+
+    private static Order mapOrderRow(ResultSet rs, String role, String counterparty, boolean hasRated) throws SQLException {
+        return new Order(
+                rs.getLong("id"),
+                rs.getLong("auction_id"),
+                rs.getString("title"),
+                rs.getLong("buyer_id"),
+                rs.getLong("seller_id"),
+                rs.getBigDecimal("amount"),
+                rs.getString("status"),
+                instant(rs.getTimestamp("created_at")),
+                instant(rs.getTimestamp("paid_at")),
+                instant(rs.getTimestamp("completed_at")),
+                role,
+                counterparty,
+                rs.getString("shipping_status"),
+                instant(rs.getTimestamp("shipping_updated_at")),
+                hasRated,
+                rs.getString("refund_status"),
+                rs.getString("refund_reason"),
+                instant(rs.getTimestamp("refund_requested_at")));
     }
 
     private static Instant instant(Timestamp ts) { return ts != null ? ts.toInstant() : null; }

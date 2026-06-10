@@ -22,10 +22,17 @@ public final class Order {
     private final Instant completedAt;
     private final String role;          // "buyer" or "seller" for the requesting user
     private final String counterparty;  // the other party's username
+    private final String shippingStatus;
+    private final Instant shippingUpdatedAt;
+    private final boolean hasRated;
+    private final String refundStatus;
+    private final String refundReason;
+    private final Instant refundRequestedAt;
 
     public Order(long id, long auctionId, String auctionTitle, long buyerId, long sellerId,
                  BigDecimal amount, String status, Instant createdAt, Instant paidAt, Instant completedAt,
-                 String role, String counterparty) {
+                 String role, String counterparty, String shippingStatus, Instant shippingUpdatedAt,
+                 boolean hasRated, String refundStatus, String refundReason, Instant refundRequestedAt) {
         this.id = id;
         this.auctionId = auctionId;
         this.auctionTitle = auctionTitle;
@@ -38,6 +45,12 @@ public final class Order {
         this.completedAt = completedAt;
         this.role = role;
         this.counterparty = counterparty;
+        this.shippingStatus = shippingStatus;
+        this.shippingUpdatedAt = shippingUpdatedAt;
+        this.hasRated = hasRated;
+        this.refundStatus = refundStatus;
+        this.refundReason = refundReason;
+        this.refundRequestedAt = refundRequestedAt;
     }
 
     public long getId()            { return id; }
@@ -52,4 +65,10 @@ public final class Order {
     public Instant getCompletedAt(){ return completedAt; }
     public String getRole()        { return role; }
     public String getCounterparty(){ return counterparty; }
+    public String getShippingStatus()    { return shippingStatus; }
+    public Instant getShippingUpdatedAt(){ return shippingUpdatedAt; }
+    public boolean isHasRated()           { return hasRated; }
+    public String getRefundStatus()       { return refundStatus; }
+    public String getRefundReason()       { return refundReason; }
+    public Instant getRefundRequestedAt() { return refundRequestedAt; }
 }

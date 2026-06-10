@@ -82,10 +82,83 @@ public class SellerAnalyticsDAO {
             out.put("sellThroughRate", Math.round(sellThrough * 10.0) / 10.0);
             out.put("bidsReceived", bidsReceived);
             out.put("topListings", topListings);
+            out.put("periodStats", loadPeriodStats(conn, sellerId));
+            out.put("productRatings", loadProductRatings(conn, sellerId));
             return out;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private List<Map<String, Object>> loadPeriodStats(Connection conn, int sellerId) throws Exception {
+        String[] labels = { "daily", "weekly", "monthly", "quarterly" };
+        String[] intervals = { "1 day", "7 days", "30 days", "90 days" };
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < labels.length; i++) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("period", labels[i]);
+            row.put("sold", countSince(conn,
+                    "SELECT COUNT(*) FROM orders WHERE seller_id = ? AND created_at >= now() - interval '"
+                  + intervals[i] + "'", sellerId));
+            row.put("revenue", countSince(conn,
+                    "SELECT COALESCE(SUM(amount), 0) FROM orders WHERE seller_id = ? AND created_at >= now() - interval '"
+                  + intervals[i] + "'", sellerId));
+            row.put("bids", countSince(conn,
+                    "SELECT COUNT(*) FROM bids b JOIN auction a ON a.auction_id = b.auction_id "
+                  + "WHERE a.seller_id = ? AND b.bid_time >= now() - interval '"
+                  + intervals[i] + "'", sellerId));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private int countSince(Connection conn, String sql, int sellerId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, sellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    private List<Map<String, Object>> loadProductRatings(Connection conn, int sellerId) throws Exception {
+        String sql =
+            "SELECT d.title, ur.auction_id, COUNT(*) AS review_count, "
+          + "  ROUND(AVG(ur.rating)::numeric, 1) AS avg_rating, "
+          + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 5) / NULLIF(COUNT(*), 0), 1) AS pct5, "
+          + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 4) / NULLIF(COUNT(*), 0), 1) AS pct4, "
+          + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 3) / NULLIF(COUNT(*), 0), 1) AS pct3, "
+          + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 2) / NULLIF(COUNT(*), 0), 1) AS pct2, "
+          + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 1) / NULLIF(COUNT(*), 0), 1) AS pct1 "
+          + "FROM user_reviews ur "
+          + "JOIN auction a ON a.auction_id = ur.auction_id "
+          + "JOIN auction_details d ON d.id = a.auction_id "
+          + "WHERE a.seller_id = ? AND ur.reviewee_user_id = ? "
+          + "GROUP BY d.title, ur.auction_id "
+          + "ORDER BY review_count DESC, avg_rating DESC LIMIT 10";
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, sellerId);
+            ps.setInt(2, sellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("title", rs.getString("title"));
+                    row.put("auctionId", rs.getLong("auction_id"));
+                    row.put("reviewCount", rs.getInt("review_count"));
+                    row.put("avgRating", rs.getDouble("avg_rating"));
+                    Map<String, Object> starPct = new LinkedHashMap<>();
+                    starPct.put("5", rs.getDouble("pct5"));
+                    starPct.put("4", rs.getDouble("pct4"));
+                    starPct.put("3", rs.getDouble("pct3"));
+                    starPct.put("2", rs.getDouble("pct2"));
+                    starPct.put("1", rs.getDouble("pct1"));
+                    row.put("starPercentages", starPct);
+                    rows.add(row);
+                }
+            }
+        }
+        return rows;
     }
 
     /** Renders a plain-text email body from a generated analytics snapshot. */
@@ -109,6 +182,24 @@ public class SellerAnalyticsDAO {
                 sb.append("  - ").append(row.get("title"))
                   .append(" (").append(row.get("bidCount")).append(" bids, top $")
                   .append(row.get("topBid")).append(")\n");
+            }
+        }
+        Object periods = a.get("periodStats");
+        if (periods instanceof List && !((List<?>) periods).isEmpty()) {
+            sb.append("\nPeriod breakdown:\n");
+            for (Map<String, Object> p : (List<Map<String, Object>>) periods) {
+                sb.append("  ").append(p.get("period")).append(": ")
+                  .append(p.get("sold")).append(" sold, $").append(p.get("revenue"))
+                  .append(", ").append(p.get("bids")).append(" bids\n");
+            }
+        }
+        Object ratings = a.get("productRatings");
+        if (ratings instanceof List && !((List<?>) ratings).isEmpty()) {
+            sb.append("\nProduct ratings:\n");
+            for (Map<String, Object> pr : (List<Map<String, Object>>) ratings) {
+                sb.append("  - ").append(pr.get("title"))
+                  .append(" avg ").append(pr.get("avgRating")).append("/5 (")
+                  .append(pr.get("reviewCount")).append(" reviews)\n");
             }
         }
         sb.append("\n— AuctionHub");
