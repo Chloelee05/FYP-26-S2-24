@@ -1,18 +1,30 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuctionCard from '../components/AuctionCard';
-import { searchAuctions, getCategories } from '../api/auction';
+import { searchAuctions, getCategories, getRecommendations } from '../api/auction';
+import { useAuth } from '../context/AuthContext';
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [auctions, setAuctions] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [search, setSearch] = useState('');
+  const [recommended, setRecommended] = useState([]);
+  const [personalised, setPersonalised] = useState(false);
 
   useEffect(() => {
     getCategories().then(r => setCategories(r.data)).catch(() => {});
     searchAuctions({ trending: true }).then(r => setAuctions(r.data.results ?? r.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    getRecommendations(8)
+      .then(r => {
+        setRecommended(r.data.results ?? []);
+        setPersonalised(Boolean(r.data.personalised));
+      })
+      .catch(() => { setRecommended([]); setPersonalised(false); });
+  }, [user]);
 
   return (
     <div className="min-h-screen">
@@ -63,11 +75,28 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Recommendations */}
+        {recommended.length > 0 && (
+          <section className="mb-12">
+            <h2 className="text-xl font-bold text-gray-900 mb-1">
+              {personalised ? 'Recommended for You' : 'Popular Right Now'}
+            </h2>
+            <p className="text-sm text-gray-500 mb-6">
+              {personalised
+                ? 'Based on items you and similar buyers have bid on or watched.'
+                : 'Trending auctions across the marketplace. Sign in for personalised picks.'}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {recommended.map(a => <AuctionCard key={a.auctionId} auction={a} />)}
+            </div>
+          </section>
+        )}
+
         {/* Trending Auctions */}
         <section>
           <h2 className="text-xl font-bold text-gray-900 mb-6">Trending Auction</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {auctions.map(a => <AuctionCard key={a.id} auction={a} />)}
+            {auctions.map(a => <AuctionCard key={a.auctionId ?? a.id} auction={a} />)}
           </div>
         </section>
       </div>

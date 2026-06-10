@@ -198,8 +198,9 @@ public class AuctionDAO {
 
     private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
         String sql = "INSERT INTO auction_details "
-                   + "(id, title, description, category, item_condition_id, starting_price, max_price) "
-                   + "VALUES(?, ?, ?, ?, ?, ?, ?)";
+                   + "(id, title, description, category, item_condition_id, starting_price, max_price, "
+                   + " quantity, cost_price, dutch_floor_price) "
+                   + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, auctionId);
             stmt.setString(2, auction.getAuction_name());
@@ -211,6 +212,17 @@ public class AuctionDAO {
                 stmt.setBigDecimal(7, auction.getMaxPrice());
             } else {
                 stmt.setNull(7, java.sql.Types.NUMERIC);
+            }
+            stmt.setInt(8, Math.max(1, auction.getQuantity()));
+            if (auction.getCostPrice() != null) {
+                stmt.setBigDecimal(9, auction.getCostPrice());
+            } else {
+                stmt.setNull(9, java.sql.Types.NUMERIC);
+            }
+            if (auction.getDutchFloorPrice() != null) {
+                stmt.setBigDecimal(10, auction.getDutchFloorPrice());
+            } else {
+                stmt.setNull(10, java.sql.Types.NUMERIC);
             }
             int rowsAffected = stmt.executeUpdate();
             if (rowsAffected == 0) throw new Exception("Failed at auction_details");

@@ -1,7 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Bell, User, LogOut, LayoutDashboard, Heart } from 'lucide-react';
+import { Search, User, LogOut, LayoutDashboard, Heart } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -49,6 +50,7 @@ export default function Navbar() {
         </form>
 
         <div className="flex items-center gap-2">
+          {user && <NotificationBell />}
           {user ? (
             <div className="relative">
               <button

@@ -3,8 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
-import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, setAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion } from '../api/auction';
+import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion } from '../api/auction';
 import { replyToQuestion } from '../api/seller';
+import { declareWinner } from '../api/orders';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, decodeHtmlEntities } from '../utils/helpers';
 
@@ -24,11 +25,37 @@ export default function AuctionDetail() {
   const [error, setError] = useState('');
   const [showReport, setShowReport] = useState(false);
   const [watched, setWatched] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
     getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     getAuctionQuestions(id).then(r => setQuestions(r.data ?? [])).catch(() => {});
+  }, [id]);
+
+  // Local 1s tick so the Dutch descending clock animates smoothly between SSE frames.
+  useEffect(() => {
+    if (auction?.auctionType !== 2 || !auction?.open) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [auction?.auctionType, auction?.open]);
+
+  // Real-time price sync: other buyers' bids update this screen live over SSE.
+  useEffect(() => {
+    const es = new EventSource(`/api/auction-events/${id}`);
+    es.addEventListener('bid', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setAuction(prev => prev ? {
+          ...prev,
+          currentBid: data.currentBid != null ? data.currentBid : prev.currentBid,
+          numBids: data.numBids != null ? data.numBids : prev.numBids,
+          open: data.open != null ? data.open : prev.open,
+        } : prev);
+        getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
+      } catch { /* ignore malformed frame */ }
+    });
+    return () => es.close();
   }, [id]);
 
   // Reflect whether this auction is already in the buyer's watchlist
@@ -65,7 +92,27 @@ export default function AuctionDetail() {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center text-gray-400">Loading auction…</div>;
   }
 
-  const minBid = (auction.currentBid || 0) + 50;
+  const auctionType = auction.auctionType ?? 1; // 1=ascending, 2=dutch, 3=blind
+  const isDutch = auctionType === 2;
+  const isBlind = auctionType === 3;
+  const isStandard = !isDutch && !isBlind;
+
+  // Dutch descending clock, computed locally so the price animates between SSE frames.
+  const dutchClockPrice = () => {
+    const start = Number(auction.startingPrice ?? 0);
+    const floor = Number(auction.dutchFloorPrice ?? 0);
+    const t0 = auction.startTime ? new Date(auction.startTime).getTime() : null;
+    const t1 = auction.endTime ? new Date(auction.endTime).getTime() : null;
+    if (t0 == null || t1 == null || t1 <= t0) return start;
+    if (now <= t0) return start;
+    if (now >= t1) return floor;
+    const frac = (now - t0) / (t1 - t0);
+    return Math.max(floor, start - (start - floor) * frac);
+  };
+
+  const displayPrice = isDutch && auction.open ? dutchClockPrice() : auction.currentBid;
+  const minBid = (auction.currentBid || auction.startingPrice || 0) + 50;
+  const sealedMinBid = auction.startingPrice || 0;
   const reserveMet = auction.currentBid >= auction.reservePrice;
 
   const apiError = (err, fallback) => {
@@ -102,6 +149,48 @@ export default function AuctionDetail() {
       setMessage('Auto-bid enabled!');
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to enable auto-bid.');
+    }
+  };
+
+  const handleAcceptDutch = async () => {
+    if (!user) { setError('Please log in to accept this price.'); return; }
+    if (user.role !== 'BUYER') { setError('Only buyers can accept a Dutch price.'); return; }
+    setError(''); setMessage('');
+    try {
+      await acceptDutchPrice(id);
+      setMessage('You accepted the current price and won this auction!');
+      getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
+      getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
+    } catch (err) {
+      setError(apiError(err, 'Could not accept the current price.'));
+    }
+  };
+
+  const handleDeclareWinner = async () => {
+    setError(''); setMessage('');
+    try {
+      await declareWinner(id);
+      setMessage('Winner declared. An order was created and the buyer was notified.');
+      getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
+    } catch (err) {
+      setError(apiError(err, 'Could not declare a winner.'));
+    }
+  };
+
+  const handleSealedBid = async () => {
+    if (!user) { setError('Please log in to submit a sealed bid.'); return; }
+    if (user.role !== 'BUYER') { setError('Only buyers can submit a sealed bid.'); return; }
+    const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
+    if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
+    if (amount < sealedMinBid) { setError(`Your sealed bid must be at least ${formatCurrency(sealedMinBid)}.`); return; }
+    setError(''); setMessage('');
+    try {
+      await placeBid(id, amount);
+      setMessage('Your sealed bid was submitted. The winner is revealed when the auction ends.');
+      setBidAmount('');
+      getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
+    } catch (err) {
+      setError(apiError(err, 'Failed to submit sealed bid.'));
     }
   };
 
@@ -160,6 +249,10 @@ export default function AuctionDetail() {
                 <span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{auction.category}</span>
                 <span>Seller: {auction.seller}</span>
                 <span>Condition: {auction.condition}</span>
+                {auction.quantity > 1 && <span>Qty: {auction.quantity}</span>}
+                {auction.costPrice != null && (
+                  <span className="text-gray-400">Your cost: {formatCurrency(auction.costPrice)}</span>
+                )}
               </div>
               {auction.tags?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -301,89 +394,180 @@ export default function AuctionDetail() {
 
         {/* Right: Bidding Panel */}
         <div className="lg:w-80 space-y-4">
-          {/* Current Bid */}
+          {/* Strategy badge */}
+          <div className="card p-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-500">Auction type</span>
+            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+              isDutch ? 'bg-amber-50 text-amber-700 border border-amber-200'
+              : isBlind ? 'bg-purple-50 text-purple-700 border border-purple-200'
+              : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+              {auction.auctionTypeName ?? 'Standard (Ascending)'}
+            </span>
+          </div>
+
+          {/* Current price / status */}
           <div className="card p-5">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-500">Current Bid</span>
-              <span className="text-xs text-gray-400">👤 {auction.numBids} bids</span>
+              <span className="text-sm text-gray-500">
+                {isDutch ? (auction.open ? 'Current Price' : 'Final Price')
+                  : isBlind ? (auction.open ? 'Sealed Bids' : 'Winning Bid')
+                  : 'Current Bid'}
+              </span>
+              {!(isDutch && auction.open) && (
+                <span className="text-xs text-gray-400">👤 {auction.numBids} bids</span>
+              )}
             </div>
-            <div className="text-4xl font-bold text-green-500 mb-2">{formatCurrency(auction.currentBid)}</div>
+            {isBlind && auction.open ? (
+              <div className="text-2xl font-bold text-purple-600 mb-2">🔒 Hidden until close</div>
+            ) : (
+              <div className={`text-4xl font-bold mb-2 ${isDutch && auction.open ? 'text-amber-600' : 'text-green-500'}`}>
+                {formatCurrency(displayPrice)}
+              </div>
+            )}
             <CountdownTimer endTime={auction.endTime} />
-            {!reserveMet && (
+            {isStandard && auction.reservePrice != null && !reserveMet && (
               <div className="flex items-center gap-1 text-orange-500 text-xs mt-2">
                 <AlertCircle size={14} />
                 Reserve not met ({formatCurrency(auction.reservePrice)})
               </div>
             )}
+            {isDutch && auction.open && (
+              <p className="text-xs text-gray-500 mt-2">
+                Price falls toward {formatCurrency(auction.dutchFloorPrice)}. Accept now to win instantly.
+              </p>
+            )}
           </div>
 
-          {/* Place Bid */}
-          <div className="card p-5">
-            <h3 className="font-bold text-gray-900 mb-3">Place Bid</h3>
-            <p className="text-xs text-gray-500 mb-2">Your Bid (Min: {formatCurrency(minBid)})</p>
-            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-2">
-              <span className="px-3 text-gray-400 text-sm">$</span>
-              <input
-                type="number"
-                value={bidAmount}
-                onChange={e => setBidAmount(e.target.value)}
-                placeholder={minBid}
-                className="flex-1 py-2 pr-3 text-sm focus:outline-none"
-              />
+          {!auction.open ? (
+            <div className="card p-5 text-center text-sm text-gray-500">
+              <p className="mb-3">This auction has ended.</p>
+              {auction.isOwner && (
+                <>
+                  {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+                  {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+                  <button
+                    onClick={handleDeclareWinner}
+                    className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-2.5 rounded-lg transition-colors"
+                  >
+                    Declare Winner &amp; Create Order
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">Finalises the sale to the highest bidder.</p>
+                </>
+              )}
             </div>
-            <div className="flex gap-2 mb-3">
-              {[50, 100, 250].map(inc => (
+          ) : isStandard ? (
+            <>
+              {/* Place Bid (ascending) */}
+              <div className="card p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Place Bid</h3>
+                <p className="text-xs text-gray-500 mb-2">Your Bid (Min: {formatCurrency(minBid)})</p>
+                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-2">
+                  <span className="px-3 text-gray-400 text-sm">$</span>
+                  <input
+                    type="number"
+                    value={bidAmount}
+                    onChange={e => setBidAmount(e.target.value)}
+                    placeholder={minBid}
+                    className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-2 mb-3">
+                  {[50, 100, 250].map(inc => (
+                    <button
+                      key={inc}
+                      onClick={() => setBidAmount(String((auction.currentBid || 0) + inc))}
+                      className="border border-gray-200 rounded px-3 py-1 text-xs hover:bg-gray-50 transition-colors"
+                    >
+                      +${inc}
+                    </button>
+                  ))}
+                </div>
+                {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+                {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
                 <button
-                  key={inc}
-                  onClick={() => setBidAmount(String((auction.currentBid || 0) + inc))}
-                  className="border border-gray-200 rounded px-3 py-1 text-xs hover:bg-gray-50 transition-colors"
+                  onClick={handlePlaceBid}
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors"
                 >
-                  +${inc}
+                  Place Bid
                 </button>
-              ))}
-            </div>
-            {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
-            {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
-            <button
-              onClick={handlePlaceBid}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors"
-            >
-              Place Bid
-            </button>
-          </div>
+              </div>
 
-          {/* Auto-Bid */}
-          <div className="card p-5 border-purple-200">
-            <h3 className="font-bold text-gray-900 mb-1">Auto-Bid</h3>
-            <p className="text-xs text-gray-500 mb-3">Set a maximum bid and let the system automatically bid for you</p>
-            <label className="text-xs text-gray-500 block mb-1">Maximum Bid</label>
-            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
-              <span className="px-3 text-gray-400 text-sm">$</span>
-              <input
-                type="number"
-                value={autoBidMax}
-                onChange={e => setAutoBidMax(e.target.value)}
-                placeholder="2500"
-                className="flex-1 py-2 pr-3 text-sm focus:outline-none"
-              />
+              {/* Auto-Bid */}
+              <div className="card p-5 border-purple-200">
+                <h3 className="font-bold text-gray-900 mb-1">Auto-Bid</h3>
+                <p className="text-xs text-gray-500 mb-3">Set a maximum bid and let the system automatically bid for you</p>
+                <label className="text-xs text-gray-500 block mb-1">Maximum Bid</label>
+                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
+                  <span className="px-3 text-gray-400 text-sm">$</span>
+                  <input
+                    type="number"
+                    value={autoBidMax}
+                    onChange={e => setAutoBidMax(e.target.value)}
+                    placeholder="2500"
+                    className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                  />
+                </div>
+                <label className="text-xs text-gray-500 block mb-1">Bid Increment</label>
+                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
+                  <span className="px-3 text-gray-400 text-sm">$</span>
+                  <input
+                    type="number"
+                    value={autoBidIncrement}
+                    onChange={e => setAutoBidIncrement(e.target.value)}
+                    className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                  />
+                </div>
+                <button
+                  onClick={handleAutoBid}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 rounded-lg transition-colors"
+                >
+                  Enable Auto-Bid
+                </button>
+              </div>
+            </>
+          ) : isDutch ? (
+            /* Dutch: accept current clock price */
+            <div className="card p-5">
+              <h3 className="font-bold text-gray-900 mb-2">Buy at Current Price</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                The first buyer to accept wins immediately at the displayed price.
+              </p>
+              {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+              {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+              <button
+                onClick={handleAcceptDutch}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-medium py-3 rounded-lg transition-colors"
+              >
+                Accept {formatCurrency(displayPrice)}
+              </button>
             </div>
-            <label className="text-xs text-gray-500 block mb-1">Bid Increment</label>
-            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
-              <span className="px-3 text-gray-400 text-sm">$</span>
-              <input
-                type="number"
-                value={autoBidIncrement}
-                onChange={e => setAutoBidIncrement(e.target.value)}
-                className="flex-1 py-2 pr-3 text-sm focus:outline-none"
-              />
+          ) : (
+            /* Blind: submit one sealed bid */
+            <div className="card p-5">
+              <h3 className="font-bold text-gray-900 mb-2">Submit Sealed Bid</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                One hidden bid per buyer (Min: {formatCurrency(sealedMinBid)}). Amounts stay secret until close.
+              </p>
+              <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-2">
+                <span className="px-3 text-gray-400 text-sm">$</span>
+                <input
+                  type="number"
+                  value={bidAmount}
+                  onChange={e => setBidAmount(e.target.value)}
+                  placeholder={sealedMinBid}
+                  className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                />
+              </div>
+              {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+              {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+              <button
+                onClick={handleSealedBid}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 rounded-lg transition-colors"
+              >
+                Submit Sealed Bid
+              </button>
             </div>
-            <button
-              onClick={handleAutoBid}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 rounded-lg transition-colors"
-            >
-              Enable Auto-Bid
-            </button>
-          </div>
+          )}
         </div>
       </div>
     </div>

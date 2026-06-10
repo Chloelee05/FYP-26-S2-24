@@ -13,8 +13,10 @@ export const getAdminAnalytics = () => api.get('/admin/analytics');
 
 // Users
 export const getAdminUsers = () => api.get('/admin/users');
-export const banUser   = (userid) => api.post('/admin/users', form({ action: 'suspend', userid }), F);
-export const unbanUser = (userid) => api.post('/admin/users', form({ action: 'unban',   userid }), F);
+export const banUser     = (userid) => api.post('/admin/users', form({ action: 'suspend', userid }), F);
+export const unbanUser   = (userid) => api.post('/admin/users', form({ action: 'unban',   userid }), F);
+export const approveUser = (userid) => api.post('/admin/users', form({ action: 'approve', userid }), F);
+export const rejectUser  = (userid) => api.post('/admin/users', form({ action: 'reject',  userid }), F);
 
 // Listings
 export const getAdminListings  = () => api.get('/admin/listings');
