@@ -31,6 +31,12 @@ export default function Search() {
   }, []);
 
   useEffect(() => {
+    const q = searchParams.get('q') || '';
+    const category = searchParams.get('category') || '';
+    setFilters(f => (f.q === q && f.category === category ? f : { ...f, q, category }));
+  }, [searchParams]);
+
+  useEffect(() => {
     setLoading(true);
     const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
     searchAuctions(params)
