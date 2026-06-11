@@ -1,0 +1,98 @@
+@startuml SCRUM-21 Admin Unban User
+
+title Admin Unban User (SCRUM-21)
+
+actor Admin as A
+participant "Browser\n(users.jsp)" as B
+participant "AdminFilter\n/admin/*" as AF
+participant "AdminManageUserServlet\nPOST /admin/users/action" as S
+participant "UserDAO" as DAO
+database "PostgreSQL\n(users)" as DB
+participant "SecurityUtil\n(sanitize)" as SU
+participant "HttpSession" as SES
+participant "java.util.logging\n(Logger)" as LOG
+
+A -> B : Click "Unban User"\n(statusId == SUSPENDED)
+B -> AF : POST action=ACTIVE, userid=N\n(JSESSIONID)
+
+activate AF
+AF -> SES : getSession(false) / read userId + userRole
+SES --> AF : userId, userRole
+alt not authenticated
+    AF -> B : Redirect /login
+else role != ADMIN
+    AF -> B : 403 Forbidden
+else role == ADMIN
+    AF -> S : chain (admin verified)
+end
+deactivate AF
+
+activate S
+S -> SES : read userId (adminId)
+SES --> S : adminId
+
+note right of S
+  <b>SCRUM-279</b>: targetUserId parsed from
+  userid param via Integer.parseInt —
+  non-numeric input → 400 Bad Request.
+  No raw string echoed to client.
+end note
+
+S -> S : parse Integer.parseInt(userid)
+alt parse fails
+    S -> B : 400 Bad Request
+end
+
+S -> S : self-action guard\n(adminId == targetUserId ?)
+alt self-action
+    S -> SES : setAttribute adminFlashError
+    S -> B : Redirect /admin/users
+end
+
+S -> DAO : getUserById(targetUserId)
+activate DAO
+DAO -> DB : SELECT id, username, role_id, status_id …\nWHERE id = ?
+DB --> DAO : row / null
+DAO --> S : User / null
+deactivate DAO
+
+alt user not found
+    S -> SES : setAttribute adminFlashError "User not found."
+    S -> B : Redirect /admin/users
+else target.role == ADMIN
+    S -> SES : setAttribute adminFlashError "Admin accounts cannot be banned or unbanned here."
+    S -> B : Redirect /admin/users
+else target.statusId != SUSPENDED  #SCRUM-212
+    S -> SES : setAttribute adminFlashError "User account is not currently banned."
+    S -> B : Redirect /admin/users
+end
+
+S -> DAO : updateStatus(targetUserId, Status.ACTIVE.getId())
+activate DAO
+DAO -> DB : UPDATE users\nSET status_id = 1,\nlast_status_changed_at = CURRENT_TIMESTAMP\nWHERE id = ?
+note right of DB
+  Single-row UPDATE is atomic.
+  last_status_changed_at captured for
+  dashboard activity feed.
+end note
+DB --> DAO : 1 row affected
+DAO --> S : true
+deactivate DAO
+
+S -> SU : sanitize(target.getUsername())
+SU --> S : safe username string
+
+S -> LOG : INFO "Admin [id=N] unbanned user\n[id=M, username=<sanitized>]."
+note right of LOG
+  <b>SCRUM-213</b>: Audit trail via
+  java.util.logging. No PII
+  beyond sanitized username logged.
+end note
+
+S -> SES : setAttribute adminFlash\n"Account successfully unbanned."
+S -> B : Redirect /admin/users
+deactivate S
+
+B -> A : User Moderation page\n(green success banner)
+
+@enduml

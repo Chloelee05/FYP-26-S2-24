@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MessageCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -10,6 +11,7 @@ import SupportChatInput from './SupportChatInput';
 
 /** Floating buyer/seller -> admin support chat. Order chat with sellers lives at /messages. */
 export default function SupportChatWidget() {
+  const { pathname } = useLocation();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [threads, setThreads] = useState([]);
@@ -21,7 +23,7 @@ export default function SupportChatWidget() {
   const [status, setStatus] = useState('');
   const bottomRef = useRef(null);
 
-  const visible = user && user.role !== 'ADMIN';
+  const visible = user && user.role !== 'ADMIN' && !pathname.endsWith('/support');
 
   const loadMessages = useCallback(async (threadId) => {
     if (!threadId) return;
@@ -105,20 +107,22 @@ export default function SupportChatWidget() {
   return (
     <>
       {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors relative"
-          title="Contact Admin"
-        >
-          <MessageCircle size={20} />
-          <span className="text-sm font-medium hidden sm:inline">Contact Admin</span>
-          {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
+        <div className="fixed bottom-6 right-6 z-50">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="relative flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
+            title="Contact Admin"
+          >
+            <MessageCircle size={20} />
+            <span className="text-sm font-medium hidden sm:inline">Contact Admin</span>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
       )}
 
       {open && (

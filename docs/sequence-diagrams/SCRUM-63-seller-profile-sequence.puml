@@ -1,0 +1,72 @@
+@startuml SCRUM-63 Seller Profile
+
+title Buyer View Seller Profile (SCRUM-63)\n(public ratings · paginated reviews · active listings)
+
+actor Buyer as B
+participant "Browser\n(seller-profile.jsp)" as UI
+participant "SellerProfileServlet\nGET /seller/{id}" as S
+participant "SellerProfileDAO" as DAO
+database "PostgreSQL\n(users · user_reviews · auction)" as DB
+
+B -> UI : Navigate to /seller/42
+UI -> S : GET /seller/42?page=1&size=10
+
+activate S
+
+note right of S
+  <b>SCRUM-357 – Security:</b>
+  • Public access — no session required
+  • sellerId parsed from pathInfo as long
+     non-numeric → HTTP 400
+  • Only role_id = SELLER + status = Active
+     returned by DAO; buyer/admin → HTTP 404
+  • Email masked via SecurityUtil.maskEmail()
+  • No password, phone_encrypted, address, 2FA loaded
+end note
+
+S -> S : parseSellerId(pathInfo) → 42
+S -> DAO : getPublicProfile(42)
+activate DAO
+DAO -> DB : SELECT u.username, u.email, u.date_created,\n  profile_image_url, active_listings subquery\n  FROM users u WHERE id=? AND role_id=SELLER AND status=Active
+DB --> DAO : seller row (or none)
+DAO --> S : SellerPublicProfile (email pre-masked)
+deactivate DAO
+
+alt not an active seller
+  S -> B : HTTP 404 Seller not found
+else seller found
+  S -> DAO : getAvgRating(42)
+  activate DAO
+  DAO -> DB : SELECT AVG(rating), COUNT(*) FROM user_reviews\n  WHERE reviewee_user_id = ?
+  DB --> DAO : avg + count
+  DAO --> S : AvgRating
+  deactivate DAO
+
+  S -> DAO : getReviews(42, page=1, size=10)
+  activate DAO
+  DAO -> DB : SELECT rating, comment, created_at, masked reviewer,\n  item_title FROM user_reviews …\n  ORDER BY created_at DESC LIMIT 10 OFFSET 0
+  DB --> DAO : review rows
+  DAO --> S : List<ProfileReviewRow>
+  deactivate DAO
+
+  S -> S : set attrs: profile, avgRating, reviewCount,\n  reviews, pagination, reviewsEmpty
+  S -> UI : forward seller-profile.jsp
+  deactivate S
+  UI -> B : Render seller info, ★ rating, active listings,\n  paginated review history with timestamps
+end
+
+== Invalid seller ID ==
+
+B -> S : GET /seller/not-a-number
+S -> S : parseSellerId → NumberFormatException
+S -> B : HTTP 400 Invalid seller ID
+
+== Non-seller user ==
+
+B -> S : GET /seller/99  (user 99 is a Buyer)
+S -> DAO : getPublicProfile(99)
+DAO -> DB : SELECT … WHERE role_id = SELLER → no row
+DAO --> S : null
+S -> B : HTTP 404 (no role information leaked)
+
+@enduml

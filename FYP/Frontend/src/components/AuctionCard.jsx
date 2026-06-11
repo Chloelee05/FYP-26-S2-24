@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Clock } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
+import { publicPath } from '../utils/appBase';
 
 export default function AuctionCard({ auction }) {
   const {
@@ -11,7 +12,7 @@ export default function AuctionCard({ auction }) {
     <div className="card overflow-hidden hover:shadow-md transition-shadow">
       <div className="aspect-square bg-gray-100 overflow-hidden">
         {thumbnailUrl
-          ? <img src={thumbnailUrl} alt={title} className="w-full h-full object-cover" />
+          ? <img src={publicPath(thumbnailUrl)} alt={title} className="w-full h-full object-cover" />
           : <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
         }
       </div>
