@@ -1,0 +1,73 @@
+@startuml SCRUM-60 Search Sort
+
+title Buyer Sort Search Results (SCRUM-60)\n(sortBy whitelist → fixed ORDER BY in DAO)
+
+actor Buyer as U
+participant "Browser\n(search.jsp)" as B
+participant "SearchServlet\nGET /search" as S
+participant "SearchSort\n(enum whitelist)" as SS
+participant "SearchDAO" as DAO
+database "PostgreSQL" as DB
+
+U -> B : Select sort option from dropdown\n(e.g. "Ending soonest")
+B -> S : GET /search?q=watch&sortBy=endingSoon\n         [&filters…]
+
+activate S
+
+note right of S
+  <b>SCRUM-349 – sortBy security:</b>
+  sortBy validated via SearchSort.fromParam()
+  Whitelist: newest | endingSoon | priceLow | priceHigh
+  Unknown / blank / SQL injection string → DEFAULT (newest)
+  Never concatenated raw into SQL — enum maps to
+  hard-coded ORDER BY fragments only.
+end note
+
+S -> S : validate keyword, parse filters (SCRUM-59)
+S -> SS : fromParam("endingSoon")
+activate SS
+SS --> S : SearchSort.ENDING_SOON
+deactivate SS
+
+S -> DAO : search(keyword, category, filter,\n         SearchSort.ENDING_SOON, page, size)
+activate DAO
+
+note right of DAO
+  <b>ORDER BY mapping (SCRUM-348) — fixed strings only:</b>
+  NEWEST      → ORDER BY a.date_created DESC
+  ENDING_SOON → ORDER BY a.date_end ASC
+  PRICE_LOW   → ORDER BY current_price ASC
+  PRICE_HIGH  → ORDER BY current_price DESC
+
+  sort.orderBySimple() or sort.orderByWrapped()
+  depending on whether price-filter subquery wrap is used.
+  No user input reaches the ORDER BY clause.
+end note
+
+DAO -> DAO : buildInnerFromWhere(keyword, category, filter)
+DAO -> DAO : append sort.orderBySimple()\n  → "ORDER BY a.date_end ASC"
+DAO -> DB : SELECT … FROM auction a …\n  WHERE … (all params bound via PreparedStatement)\n  ORDER BY a.date_end ASC\n  LIMIT ? OFFSET ?
+DB --> DAO : sorted result rows
+DAO --> S : List<SearchResultItem>
+deactivate DAO
+
+S -> S : setAttribute("sortBy", "endingSoon")
+S -> B : forward search.jsp
+deactivate S
+
+B -> U : Render results in chosen sort order\n  Sort dropdown + pagination preserve sortBy
+
+== Invalid sortBy (SCRUM-349) ==
+
+U -> B : Manipulate URL: sortBy='; DROP TABLE bids;--
+B -> S : GET /search?q=phone&sortBy='; DROP TABLE bids;--
+activate S
+S -> SS : fromParam("'; DROP TABLE bids;--")
+SS --> S : SearchSort.DEFAULT (NEWEST)
+note right of SS : Unknown value → DEFAULT\nInjection string never reaches SQL
+S -> DAO : search(…, SearchSort.NEWEST, …)
+DAO -> DB : … ORDER BY a.date_created DESC …
+S -> B : forward (sorted by newest — no error)
+deactivate S
+
+@enduml

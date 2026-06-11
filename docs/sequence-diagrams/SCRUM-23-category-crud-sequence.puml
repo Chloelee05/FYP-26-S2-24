@@ -1,0 +1,142 @@
+@startuml SCRUM-23 Admin Category CRUD
+
+title Admin Category Management — Create / Edit / Delete (SCRUM-23)
+
+actor Admin as A
+participant "Browser\n(categories.jsp)" as B
+participant "AdminFilter\n/admin/*" as AF
+participant "AdminCategoriesServlet\nGET+POST /admin/categories" as S
+participant "CategoryDAO" as DAO
+participant "InputValidator\n+ SecurityUtil" as V
+database "PostgreSQL\n(categories)" as DB
+
+== GET — list categories ==
+
+A -> B : Navigate to /admin/categories
+B -> AF : GET /admin/categories (JSESSIONID)
+activate AF
+AF -> S : chain (ADMIN role verified)
+deactivate AF
+
+activate S
+S -> DAO : listAll()
+activate DAO
+DAO -> DB : SELECT c.*, COUNT(ad.id) AS auction_count\nFROM categories c\nLEFT JOIN auction_details ad ON ad.category = c.name\nGROUP BY c.id ORDER BY c.display_order
+DB --> DAO : rows
+DAO --> S : List<Category>
+deactivate DAO
+S -> B : forward categories.jsp
+deactivate S
+B -> A : Category table + Create button
+
+== POST — Create ==
+
+A -> B : Fill "New Category" form → submit
+B -> AF : POST action=CREATE, name=…, desc=…, order=…
+activate AF
+AF -> S : chain
+deactivate AF
+
+activate S
+note right of S
+  <b>SCRUM-280</b>: all string params
+  sanitized via SecurityUtil.sanitize()
+  before use; validated via
+  InputValidator.getCategoryNameViolation()
+end note
+S -> V : getCategoryNameViolation(name)
+V --> S : null (valid)
+S -> V : getCategoryDescriptionViolation(desc)
+V --> S : null (valid)
+S -> DAO : nameExists(sanitizedName)
+activate DAO
+DAO -> DB : SELECT 1 FROM categories WHERE LOWER(name)=LOWER(?) LIMIT 1
+DB --> DAO : empty
+DAO --> S : false
+deactivate DAO
+S -> S : generateSlug(name)
+S -> DAO : insert(name, description, displayOrder, slug)
+activate DAO
+DAO -> DB : INSERT INTO categories (name, description,\ndisplay_order, slug) VALUES (?,?,?,?)
+DB --> DAO : 1 row
+DAO --> S : true
+deactivate DAO
+S -> B : flash "Category created." + Redirect /admin/categories
+deactivate S
+
+== POST — Edit ==
+
+A -> B : Edit modal → submit
+B -> AF : POST action=EDIT, categoryId=N, name=…, desc=…, order=…
+activate AF
+AF -> S : chain
+deactivate AF
+
+activate S
+S -> V : validate + sanitize (same as create)
+S -> DAO : nameExistsExcluding(name, id)
+DAO --> S : false
+S -> DAO : update(id, name, description, displayOrder, slug)
+activate DAO
+DAO -> DB : UPDATE categories SET name=?, description=?,\ndisplay_order=?, slug=? WHERE id=? AND is_deleted=FALSE
+DB --> DAO : 1 row
+DAO --> S : true
+deactivate DAO
+S -> B : flash "Category updated." + Redirect
+deactivate S
+
+== POST — Delete (restrict if auctions exist; soft delete otherwise) ==
+
+A -> B : Click "Delete" → confirm
+B -> AF : POST action=DELETE, categoryId=N
+activate AF
+AF -> S : chain
+deactivate AF
+
+activate S
+S -> DAO : findById(id)
+DAO --> S : Category
+S -> DAO : countAuctions(id)
+activate DAO
+DAO -> DB : SELECT COUNT(*) FROM auction_details\nWHERE category = (SELECT name FROM categories WHERE id=?)
+DB --> DAO : count
+DAO --> S : int
+deactivate DAO
+
+alt count > 0  — SCRUM-217 restrict policy
+    S -> B : flash error "Category has N linked auctions …" + Redirect
+else count == 0 — soft delete
+    S -> DAO : softDelete(id)
+    activate DAO
+    DAO -> DB : UPDATE categories SET is_deleted=TRUE WHERE id=?
+    DB --> DAO : 1 row
+    DAO --> S : true
+    deactivate DAO
+    S -> B : flash "Category deactivated." + Redirect
+end
+deactivate S
+
+== POST — Restore ==
+
+A -> B : Click "Restore"
+B -> AF : POST action=RESTORE, categoryId=N
+activate AF
+AF -> S : chain
+deactivate AF
+
+activate S
+S -> DAO : restore(id)
+activate DAO
+DAO -> DB : UPDATE categories SET is_deleted=FALSE WHERE id=?
+DB --> DAO : 1 row
+DAO --> S : true
+deactivate DAO
+S -> B : flash "Category restored." + Redirect
+deactivate S
+
+note over AF, DB
+  <b>SCRUM-219 RBAC</b>: AdminFilter enforces ADMIN-only access for all mutations.
+  BUYER / SELLER roles → 403 Forbidden (tested in TestAdminFilter).
+end note
+
+@enduml

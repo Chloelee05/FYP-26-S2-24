@@ -1,0 +1,13 @@
+.git
+.gitignore
+**/.git
+**/node_modules
+**/target
+**/.vite
+**/.idea
+**/.vscode
+**/*.md
+**/dist
+**/.env
+**/.env.*
+**/terminals

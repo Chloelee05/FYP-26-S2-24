@@ -52,8 +52,10 @@ function MainLayout({ children }) {
 }
 
 function App() {
+  const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || undefined;
+
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <AuthProvider>
         <Routes>
           {/* Auth pages – no navbar */}

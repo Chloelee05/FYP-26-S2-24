@@ -9,6 +9,7 @@ import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, decodeHtmlEntities } from '../utils/helpers';
+import { appBase, publicPath } from '../utils/appBase';
 
 export default function AuctionDetail() {
   const { id } = useParams();
@@ -49,7 +50,7 @@ export default function AuctionDetail() {
 
   // Real-time price sync: other buyers' bids update this screen live over SSE.
   useEffect(() => {
-    const es = new EventSource(`/api/auction-events/${id}`);
+    const es = new EventSource(`${appBase()}/api/auction-events/${id}`);
     es.addEventListener('bid', (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -302,7 +303,7 @@ export default function AuctionDetail() {
           {/* Image */}
           <div className="bg-gray-100 rounded-xl aspect-video flex items-center justify-center mb-3 text-gray-400">
             {auction.images?.[selectedImage]
-              ? <img src={auction.images[selectedImage]} alt={auction.title} className="w-full h-full object-contain rounded-xl" />
+              ? <img src={publicPath(auction.images[selectedImage])} alt={auction.title} className="w-full h-full object-contain rounded-xl" />
               : <span className="text-lg">{auction.title.split(' ').slice(0, 2).join(' ')}</span>
             }
           </div>
@@ -314,7 +315,7 @@ export default function AuctionDetail() {
                   onClick={() => setSelectedImage(i)}
                   className={`w-20 h-16 rounded-lg overflow-hidden border-2 ${selectedImage === i ? 'border-blue-500' : 'border-gray-200'}`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <img src={publicPath(img)} alt="" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
