@@ -27,21 +27,6 @@ public class AdminReportServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        HttpSession session = req.getSession(false);
-        if (session == null) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
-        User user = (User) session.getAttribute("user");
-        if (user == null) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
-        if(!RbacUtil.isAdmin(session))
-        {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
         try {
             List<AccountReport> result;
             result = reportDAO.getAllReports();

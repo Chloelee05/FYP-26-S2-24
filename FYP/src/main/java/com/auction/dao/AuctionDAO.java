@@ -351,4 +351,47 @@ public class AuctionDAO {
             throw new RuntimeException(e);
         }
     }
+
+    public List<AdminListingRow> listForGenReport(String sellerUsername, String category, Instant from, Instant to) throws Exception {
+        StringBuilder sql = new StringBuilder(
+                "SELECT a.auction_id, ad.title, u.username, a.moderation_state, a.date_created " +
+                        "FROM auction a " +
+                        "JOIN auction_details ad ON a.auction_id = ad.id " +
+                        "JOIN users u ON a.seller_id = u.id " +
+                        "WHERE 1=1 ");
+
+        if (sellerUsername != null && !sellerUsername.isBlank())
+            sql.append("AND u.username = ? ");
+        if (category != null && !category.isBlank())
+            sql.append("AND ad.category = ? ");
+        if (from != null)
+            sql.append("AND a.date_created >= ? ");
+        if (to != null)
+            sql.append("AND a.date_created <= ? ");
+
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+            int i = 1;
+            if (sellerUsername != null && !sellerUsername.isBlank()) stmt.setString(i++, sellerUsername);
+            if (category != null && !category.isBlank())             stmt.setString(i++, category);
+            if (from != null)                                         stmt.setTimestamp(i++, Timestamp.from(from));
+            if (to != null)                                           stmt.setTimestamp(i++, Timestamp.from(to));
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                List<AdminListingRow> result = new ArrayList<>();
+                while (rs.next()) {
+                    AdminListingRow row = new AdminListingRow();
+                    row.setAuctionId(rs.getLong("auction_id"));
+                    row.setTitle(rs.getString("title"));
+                    row.setSellerUsername(rs.getString("username"));
+                    row.setModerationState(rs.getString("moderation_state"));
+                    row.setListedDate(LocalDate.from(rs.getTimestamp("date_created").toInstant()));
+                    result.add(row);
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            throw new Exception("Failed to retrieve listings for report", e);
+        }
+    }
 }

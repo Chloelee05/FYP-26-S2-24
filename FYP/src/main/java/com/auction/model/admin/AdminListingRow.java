@@ -7,14 +7,17 @@ import java.time.LocalDate;
  * Listing row for admin listing moderation table.
  */
 public final class AdminListingRow {
-    private final long auctionId;
-    private final String title;
-    private final LocalDate listedDate;
-    private final String sellerUsername;
-    private final String category;
-    private final BigDecimal currentBid;
-    private final int reportCount;
-    private final String moderationState;
+    private  long auctionId;
+    private  String title;
+    private  LocalDate listedDate;
+    private  String sellerUsername;
+    private String category;
+    private  BigDecimal currentBid;
+    private  int reportCount;
+    private  String moderationState;
+
+    public AdminListingRow()
+    {}
 
     public AdminListingRow(long auctionId, String title, LocalDate listedDate, String sellerUsername,
                            String category, BigDecimal currentBid, int reportCount, String moderationState) {
@@ -32,31 +35,64 @@ public final class AdminListingRow {
         return auctionId;
     }
 
+    public void setAuctionId(Long auctionId)
+    {
+        this.auctionId = auctionId;
+    }
+
     public String getTitle() {
         return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
     }
 
     public LocalDate getListedDate() {
         return listedDate;
     }
 
+    public void setListedDate(LocalDate listedDate) {
+        this.listedDate = listedDate;
+    }
+
     public String getSellerUsername() {
         return sellerUsername;
+    }
+
+    public void setSellerUsername(String sellerUsername) {
+        this.sellerUsername = sellerUsername;
     }
 
     public String getCategory() {
         return category;
     }
 
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
     public BigDecimal getCurrentBid() {
         return currentBid;
+    }
+
+    public void setCurrentBid(BigDecimal currentBid) {
+        this.currentBid = currentBid;
     }
 
     public int getReportCount() {
         return reportCount;
     }
 
+    public void setReportCount(int reportCount) {
+        this.reportCount = reportCount;
+    }
+
     public String getModerationState() {
         return moderationState;
+    }
+
+    public void setModerationState(String moderationState) {
+        this.moderationState = moderationState;
     }
 }
