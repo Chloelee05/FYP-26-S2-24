@@ -10,15 +10,24 @@ import java.io.IOException;
 import java.nio.file.Files;
 
 /**
- * Serves uploaded files stored in the system temp directory.
+ * Serves uploaded files from {@link #BASE_DIR}.
+ * <p>On Render, set {@code AUCTION_UPLOAD_DIR} (e.g. {@code /data/auction-uploads})
+ * to a persistent disk mount; locally falls back to {@code java.io.tmpdir}.</p>
  * GET /uploads/auction/{filename}  — auction listing images
  * GET /uploads/profile/{filename}  — user profile photos
  */
 @WebServlet("/uploads/*")
 public class UploadedFileServlet extends HttpServlet {
 
-    public static final String BASE_DIR =
-            System.getProperty("java.io.tmpdir") + File.separator + "auction-uploads";
+    public static final String BASE_DIR = resolveUploadBaseDir();
+
+    private static String resolveUploadBaseDir() {
+        String fromEnv = System.getenv("AUCTION_UPLOAD_DIR");
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv.trim();
+        }
+        return System.getProperty("java.io.tmpdir") + File.separator + "auction-uploads";
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

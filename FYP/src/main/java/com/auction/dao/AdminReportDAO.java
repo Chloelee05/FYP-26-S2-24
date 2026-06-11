@@ -83,6 +83,15 @@ public class AdminReportDAO {
             appendCount(sb, conn, "Completed orders",
                     "SELECT COUNT(*) FROM orders WHERE status = 'COMPLETED'");
 
+            sb.append("\n--- Platform business model revenue ---\n");
+            appendDecimal(sb, conn, "Sale commissions (6%)",
+                    "SELECT COALESCE(SUM(amount), 0) FROM platform_revenue WHERE revenue_type = 'COMMISSION'");
+            appendDecimal(sb, conn, "Featured listing fees",
+                    "SELECT COALESCE(SUM(amount), 0) FROM platform_revenue WHERE revenue_type = 'FEATURED_LISTING'");
+            appendCount(sb, conn, "Active featured listings",
+                    "SELECT COUNT(*) FROM auction WHERE is_featured = TRUE "
+                  + "AND (featured_until IS NULL OR featured_until > now())");
+
             sb.append("\n--- Revenue by period ---\n");
             String[] labels = { "Last 24 hours", "Last 7 days", "Last 30 days", "Last 90 days" };
             String[] intervals = { "1 day", "7 days", "30 days", "90 days" };
