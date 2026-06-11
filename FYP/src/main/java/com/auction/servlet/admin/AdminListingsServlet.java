@@ -13,13 +13,14 @@ import java.io.IOException;
 @WebServlet("/admin/listings")
 public class AdminListingsServlet extends HttpServlet {
 
-    private final AuctionDAO auctionDAO;
+    private AuctionDAO auctionDAO;
 
     public AdminListingsServlet() {
         this.auctionDAO = new AuctionDAO();
     }
 
-    AdminListingsServlet(AuctionDAO auctionDAO) {
+    /** Test hook */
+    public void setAuctionDAO(AuctionDAO auctionDAO) {
         this.auctionDAO = auctionDAO;
     }
 

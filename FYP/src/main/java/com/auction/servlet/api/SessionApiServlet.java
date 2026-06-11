@@ -18,7 +18,14 @@ import java.util.Map;
 @WebServlet("/api/session")
 public class SessionApiServlet extends ApiBase {
 
-    private final UserDAO userDAO = new UserDAO();
+    private UserDAO userDAO;
+
+    public SessionApiServlet() {
+        this.userDAO = new UserDAO();
+    }
+
+    /** Test hook */
+    public void setUserDAO(UserDAO userDAO) { this.userDAO = userDAO; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

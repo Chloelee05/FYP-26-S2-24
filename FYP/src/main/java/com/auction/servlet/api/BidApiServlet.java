@@ -24,7 +24,14 @@ import java.math.BigDecimal;
 @WebServlet("/api/bid")
 public class BidApiServlet extends ApiBase {
 
-    private final BidDAO bidDAO = new BidDAO();
+    private BidDAO bidDAO;
+
+    public BidApiServlet() {
+        this.bidDAO = new BidDAO();
+    }
+
+    /** Test hook */
+    public void setBidDAO(BidDAO bidDAO) { this.bidDAO = bidDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

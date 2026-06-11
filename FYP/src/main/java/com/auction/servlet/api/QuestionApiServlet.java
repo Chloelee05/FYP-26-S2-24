@@ -17,7 +17,14 @@ import java.io.IOException;
 @WebServlet("/api/question/*")
 public class QuestionApiServlet extends ApiBase {
 
-    private final QuestionDAO questionDAO = new QuestionDAO();
+    private QuestionDAO questionDAO;
+
+    public QuestionApiServlet() {
+        this.questionDAO = new QuestionDAO();
+    }
+
+    /** Test hook */
+    public void setQuestionDAO(QuestionDAO questionDAO) { this.questionDAO = questionDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
