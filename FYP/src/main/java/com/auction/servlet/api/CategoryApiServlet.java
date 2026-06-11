@@ -13,7 +13,14 @@ import java.io.IOException;
 @WebServlet("/api/categories")
 public class CategoryApiServlet extends ApiBase {
 
-    private final CategoryDAO categoryDAO = new CategoryDAO();
+    private CategoryDAO categoryDAO;
+
+    public CategoryApiServlet() {
+        this.categoryDAO = new CategoryDAO();
+    }
+
+    /** Test hook */
+    public void setCategoryDAO(CategoryDAO categoryDAO) { this.categoryDAO = categoryDAO; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

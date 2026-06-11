@@ -20,7 +20,14 @@ import java.util.Map;
 public class NotificationApiServlet extends ApiBase {
 
     private static final int LIST_LIMIT = 30;
-    private final NotificationDAO dao = new NotificationDAO();
+    private NotificationDAO dao;
+
+    public NotificationApiServlet() {
+        this.dao = new NotificationDAO();
+    }
+
+    /** Test hook */
+    public void setNotificationDAO(NotificationDAO dao) { this.dao = dao; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

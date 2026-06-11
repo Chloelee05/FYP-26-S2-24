@@ -23,7 +23,14 @@ import java.util.Map;
 @WebServlet("/api/search")
 public class SearchApiServlet extends ApiBase {
 
-    private final SearchDAO searchDAO = new SearchDAO();
+    private SearchDAO searchDAO;
+
+    public SearchApiServlet() {
+        this.searchDAO = new SearchDAO();
+    }
+
+    /** Test hook */
+    public void setSearchDAO(SearchDAO searchDAO) { this.searchDAO = searchDAO; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

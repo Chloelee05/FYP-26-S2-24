@@ -72,24 +72,24 @@ public class TestAdminReportServlet {
     class TestDoGet {
 
         @Test
-        @DisplayName("No session returns 401")
-        public void testNoSession() throws Exception {
+        @DisplayName("GET — no session returns 401")
+        public void testGetNoSession() throws Exception {
             when(mockRequest.getSession(false)).thenReturn(null);
             servlet.doGet(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
 
         @Test
-        @DisplayName("No user returns 401")
-        public void testNoUser() throws Exception {
+        @DisplayName("GET — no user returns 401")
+        public void testGetNoUser() throws Exception {
             when(mockSession.getAttribute("user")).thenReturn(null);
             servlet.doGet(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
 
         @Test
-        @DisplayName("Non-admin returns 401")
-        public void testNonAdmin() throws Exception {
+        @DisplayName("GET — non-admin returns 401")
+        public void testGetNonAdmin() throws Exception {
             mockedRbac.when(() -> RbacUtil.isAdmin(any())).thenReturn(false);
             servlet.doGet(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
@@ -123,24 +123,24 @@ public class TestAdminReportServlet {
         }
 
         @Test
-        @DisplayName("No session returns 401")
-        public void testNoSession() throws Exception {
+        @DisplayName("POST — no session returns 401")
+        public void testPostNoSession() throws Exception {
             when(mockRequest.getSession(false)).thenReturn(null);
             servlet.doPost(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
 
         @Test
-        @DisplayName("No user returns 401")
-        public void testNoUser() throws Exception {
+        @DisplayName("POST — no user returns 401")
+        public void testPostNoUser() throws Exception {
             when(mockSession.getAttribute("user")).thenReturn(null);
             servlet.doPost(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
 
         @Test
-        @DisplayName("Non-admin returns 401")
-        public void testNonAdmin() throws Exception {
+        @DisplayName("POST — non-admin returns 401")
+        public void testPostNonAdmin() throws Exception {
             mockedRbac.when(() -> RbacUtil.isAdmin(any())).thenReturn(false);
             servlet.doPost(mockRequest, mockResponse);
             verify(mockResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
