@@ -61,4 +61,7 @@
 \echo '== support chat read receipts =='
 \ir migration_support_reads.sql
 
+\echo '== browse history + platform revenue =='
+\ir migration_browse_history_and_revenue.sql
+
 \echo 'All migrations applied.'

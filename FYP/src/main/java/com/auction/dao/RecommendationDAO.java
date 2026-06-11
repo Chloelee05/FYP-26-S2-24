@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
+import com.auction.util.UserBasedCollaborativeFilter;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -10,8 +11,10 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,15 +37,122 @@ public class RecommendationDAO {
     public List<SearchResultItem> recommendForUser(int userId, int limit) {
         List<SearchResultItem> cf = collaborativeFiltering(userId, limit);
 
-        if (cf.size() >= limit) return cf;
-
         Set<Long> exclude = new LinkedHashSet<>();
         for (SearchResultItem item : cf) exclude.add(item.getAuctionId());
 
-        List<SearchResultItem> filler = trending(limit - cf.size(), exclude, userId);
         List<SearchResultItem> combined = new ArrayList<>(cf);
+
+        if (combined.size() < limit) {
+            List<SearchResultItem> ubcf = userBasedCosineRecommendations(userId, limit - combined.size(), exclude);
+            for (SearchResultItem item : ubcf) {
+                combined.add(item);
+                exclude.add(item.getAuctionId());
+            }
+        }
+
+        if (combined.size() >= limit) return combined;
+
+        List<SearchResultItem> filler = trending(limit - combined.size(), exclude, userId);
         combined.addAll(filler);
         return combined;
+    }
+
+    /**
+     * User-based CF with cosine similarity (FR4.1), using bids, watchlist, and browse history (FR4.3).
+     */
+    private List<SearchResultItem> userBasedCosineRecommendations(int userId, int limit, Set<Long> exclude) {
+        if (limit <= 0) return List.of();
+
+        Map<Integer, Map<Long, Double>> vectors = loadInteractionVectors();
+        List<Long> rankedIds = UserBasedCollaborativeFilter.rankAuctionIds(userId, vectors, limit, exclude);
+        if (rankedIds.isEmpty()) return List.of();
+        return fetchItemsByIds(rankedIds, userId, limit);
+    }
+
+    private Map<Integer, Map<Long, Double>> loadInteractionVectors() {
+        Map<Integer, Map<Long, Double>> vectors = new HashMap<>();
+        String sql =
+            "SELECT user_id, auction_id, 'BID' AS src FROM bids "
+          + "UNION ALL SELECT user_id, auction_id, 'WATCH' FROM watchlist "
+          + "UNION ALL SELECT user_id, auction_id, 'BROWSE' FROM browse_history";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                int uid = rs.getInt("user_id");
+                long aid = rs.getLong("auction_id");
+                double w;
+                String src = rs.getString("src");
+                if ("BID".equals(src)) {
+                    w = UserBasedCollaborativeFilter.weightBid();
+                } else if ("WATCH".equals(src)) {
+                    w = UserBasedCollaborativeFilter.weightWatchlist();
+                } else {
+                    w = UserBasedCollaborativeFilter.weightBrowse();
+                }
+                UserBasedCollaborativeFilter.addInteraction(vectors, uid, aid, w);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return vectors;
+    }
+
+    private List<SearchResultItem> fetchItemsByIds(List<Long> auctionIds, int excludeSellerId, int limit) {
+        if (auctionIds.isEmpty()) return List.of();
+
+        StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < auctionIds.size(); i++) {
+            if (i > 0) placeholders.append(',');
+            placeholders.append('?');
+        }
+
+        String sql =
+            "SELECT a.auction_id, d.title, d.category, "
+          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+          + "  a.date_end, u.username, "
+          + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
+          + "FROM auction a "
+          + "JOIN auction_details d ON d.id = a.auction_id "
+          + "JOIN users u ON u.id = a.seller_id "
+          + "WHERE a.auction_id IN (" + placeholders + ") "
+          + "  AND a.status_id = 1 AND a.moderation_state = 'active' AND a.date_end > now() "
+          + "  AND a.seller_id <> ?";
+
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int idx = 1;
+            for (Long id : auctionIds) ps.setLong(idx++, id);
+            ps.setInt(idx, excludeSellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                Map<Long, SearchResultItem> byId = new HashMap<>();
+                while (rs.next()) {
+                    long aid = rs.getLong("auction_id");
+                    BigDecimal price = rs.getBigDecimal("current_price");
+                    Timestamp end = rs.getTimestamp("date_end");
+                    Instant endInstant = end != null ? end.toInstant() : null;
+                    byId.put(aid, new SearchResultItem(
+                            aid,
+                            rs.getString("title"),
+                            rs.getString("category"),
+                            price,
+                            endInstant,
+                            rs.getString("username"),
+                            rs.getString("thumb")));
+                }
+                List<SearchResultItem> ordered = new ArrayList<>();
+                for (Long id : auctionIds) {
+                    SearchResultItem item = byId.get(id);
+                    if (item != null) {
+                        ordered.add(item);
+                        if (ordered.size() >= limit) break;
+                    }
+                }
+                return ordered;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private List<SearchResultItem> collaborativeFiltering(int userId, int limit) {

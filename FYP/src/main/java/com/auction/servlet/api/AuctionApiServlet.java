@@ -2,6 +2,7 @@ package com.auction.servlet.api;
 
 import com.auction.dao.AuctionTagsDAO;
 import com.auction.dao.BidDAO;
+import com.auction.dao.BrowseHistoryDAO;
 import com.auction.dao.QuestionDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionBidHistoryEntry;
@@ -44,9 +45,10 @@ public class AuctionApiServlet extends ApiBase {
     private static final String UPLOAD_SUBDIR = "auction";
     private static final String UPLOAD_DIR = UploadedFileServlet.BASE_DIR + File.separator + UPLOAD_SUBDIR;
 
-    private final BidDAO         bidDAO      = new BidDAO();
-    private final QuestionDAO    questionDAO = new QuestionDAO();
-    private final AuctionTagsDAO tagsDAO     = new AuctionTagsDAO();
+    private final BidDAO            bidDAO            = new BidDAO();
+    private final QuestionDAO       questionDAO       = new QuestionDAO();
+    private final AuctionTagsDAO    tagsDAO           = new AuctionTagsDAO();
+    private final BrowseHistoryDAO  browseHistoryDAO  = new BrowseHistoryDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -165,6 +167,12 @@ public class AuctionApiServlet extends ApiBase {
         body.put("isOwner", isOwner);
         if (isOwner) {
             body.put("costPrice", detail.getCostPrice());
+        }
+
+        if (viewerId != null && viewerId != detail.getSellerId()) {
+            try {
+                browseHistoryDAO.recordView(viewerId, auctionId);
+            } catch (Exception ignored) { }
         }
 
         ok(resp, body);
