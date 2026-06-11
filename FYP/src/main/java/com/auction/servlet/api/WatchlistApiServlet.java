@@ -17,7 +17,14 @@ import java.io.IOException;
 @WebServlet("/api/watchlist")
 public class WatchlistApiServlet extends ApiBase {
 
-    private final WatchlistDAO watchlistDAO = new WatchlistDAO();
+    private WatchlistDAO watchlistDAO;
+
+    public WatchlistApiServlet() {
+        this.watchlistDAO = new WatchlistDAO();
+    }
+
+    /** Test hook */
+    public void setWatchlistDAO(WatchlistDAO watchlistDAO) { this.watchlistDAO = watchlistDAO; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

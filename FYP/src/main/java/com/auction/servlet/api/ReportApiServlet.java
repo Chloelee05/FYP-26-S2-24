@@ -22,8 +22,17 @@ import java.time.Instant;
 @WebServlet("/api/report/*")
 public class ReportApiServlet extends ApiBase {
 
-    private final ReportDAO reportDAO = new ReportDAO();
-    private final UserDAO userDAO = new UserDAO();
+    private ReportDAO reportDAO;
+    private UserDAO userDAO;
+
+    public ReportApiServlet() {
+        this.reportDAO = new ReportDAO();
+        this.userDAO    = new UserDAO();
+    }
+
+    /** Test hook */
+    public void setReportDAO(ReportDAO reportDAO) { this.reportDAO = reportDAO; }
+    public void setUserDAO(UserDAO userDAO)       { this.userDAO    = userDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

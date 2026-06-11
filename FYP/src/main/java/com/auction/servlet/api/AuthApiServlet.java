@@ -37,8 +37,17 @@ public class AuthApiServlet extends ApiBase {
 
     private static final Logger LOG = Logger.getLogger(AuthApiServlet.class.getName());
 
-    private final UserDAO  userDAO  = new UserDAO();
-    private final OtpStore otpStore = new OtpStore();
+    private UserDAO  userDAO;
+    private OtpStore otpStore;
+
+    public AuthApiServlet() {
+        this.userDAO  = new UserDAO();
+        this.otpStore = new OtpStore();
+    }
+
+    /** Test hook */
+    public void setUserDAO(UserDAO userDAO)  { this.userDAO  = userDAO; }
+    public void setOtpStore(OtpStore otpStore) { this.otpStore = otpStore; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

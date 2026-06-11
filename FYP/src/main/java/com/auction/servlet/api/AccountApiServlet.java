@@ -26,9 +26,20 @@ import java.util.Map;
 @WebServlet("/api/account/*")
 public class AccountApiServlet extends ApiBase {
 
-    private final UserDAO            userDAO  = new UserDAO();
-    private final ProfileActivityDAO actDAO   = new ProfileActivityDAO();
-    private final PaymentMethodDAO   paymentDAO = new PaymentMethodDAO();
+    private UserDAO            userDAO;
+    private ProfileActivityDAO actDAO;
+    private PaymentMethodDAO   paymentDAO;
+
+    public AccountApiServlet() {
+        this.userDAO    = new UserDAO();
+        this.actDAO     = new ProfileActivityDAO();
+        this.paymentDAO = new PaymentMethodDAO();
+    }
+
+    /** Test hook */
+    public void setUserDAO(UserDAO userDAO)                   { this.userDAO    = userDAO; }
+    public void setProfileActivityDAO(ProfileActivityDAO dao) { this.actDAO     = dao; }
+    public void setPaymentMethodDAO(PaymentMethodDAO pm)      { this.paymentDAO = pm; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

@@ -25,7 +25,16 @@ public class RecommendationApiServlet extends ApiBase {
     private static final int DEFAULT_LIMIT = 8;
     private static final int MAX_LIMIT = 24;
 
-    private final RecommendationDAO recommendationDAO = new RecommendationDAO();
+    private RecommendationDAO recommendationDAO;
+
+    public RecommendationApiServlet() {
+        this.recommendationDAO = new RecommendationDAO();
+    }
+
+    /** Test hook */
+    public void setRecommendationDAO(RecommendationDAO recommendationDAO) {
+        this.recommendationDAO = recommendationDAO;
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
