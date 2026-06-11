@@ -27,11 +27,10 @@ public class AdminReportServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (!requireAdmin(req, resp)) return;
         try {
-            List<AccountReport> result;
-            result = reportDAO.getAllReports();
+            List<AccountReport> result = reportDAO.getAllReports();
             req.setAttribute("report_list", result);
-            //redirect
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -39,21 +38,7 @@ public class AdminReportServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        HttpSession session = req.getSession(false);
-        if (session == null) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
-        User user = (User) session.getAttribute("user");
-        if (user == null) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
-        if(!RbacUtil.isAdmin(session))
-        {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
+        if (!requireAdmin(req, resp)) return;
 
         String moderationStatus = req.getParameter("moderation_status");
         moderationStatus = (moderationStatus == null) ? null : moderationStatus.trim().toLowerCase();
@@ -90,5 +75,24 @@ public class AdminReportServlet extends HttpServlet {
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message) throws ServletException, IOException {
         req.setAttribute("Error", message);
         // req.getRequestDispatcher("???").forward(req, resp);
+    }
+
+    /** @return false when the caller is unauthenticated or not an admin (response already sent). */
+    private boolean requireAdmin(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        if (session == null) {
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return false;
+        }
+        User user = (User) session.getAttribute("user");
+        if (user == null) {
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return false;
+        }
+        if (!RbacUtil.isAdmin(session)) {
+            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return false;
+        }
+        return true;
     }
 }

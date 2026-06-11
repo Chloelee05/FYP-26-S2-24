@@ -18,7 +18,14 @@ import java.util.Map;
 @WebServlet(urlPatterns = {"/api/rate", "/api/rate/*"})
 public class RateApiServlet extends ApiBase {
 
-    private final RatingDAO ratingDAO = new RatingDAO();
+    private RatingDAO ratingDAO;
+
+    public RateApiServlet() {
+        this.ratingDAO = new RatingDAO();
+    }
+
+    /** Test hook */
+    public void setRatingDAO(RatingDAO ratingDAO) { this.ratingDAO = ratingDAO; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

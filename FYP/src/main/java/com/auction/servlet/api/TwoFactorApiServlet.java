@@ -24,7 +24,14 @@ import java.util.Map;
 @WebServlet("/api/2fa/*")
 public class TwoFactorApiServlet extends ApiBase {
 
-    private final UserDAO userDAO = new UserDAO();
+    private UserDAO userDAO;
+
+    public TwoFactorApiServlet() {
+        this.userDAO = new UserDAO();
+    }
+
+    /** Test hook */
+    public void setUserDAO(UserDAO userDAO) { this.userDAO = userDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

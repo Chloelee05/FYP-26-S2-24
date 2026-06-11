@@ -24,8 +24,17 @@ import java.io.IOException;
 @WebServlet("/api/orders/*")
 public class OrderApiServlet extends ApiBase {
 
-    private final OrderDAO orderDAO = new OrderDAO();
-    private final PaymentMethodDAO paymentDAO = new PaymentMethodDAO();
+    private OrderDAO orderDAO;
+    private PaymentMethodDAO paymentDAO;
+
+    public OrderApiServlet() {
+        this.orderDAO   = new OrderDAO();
+        this.paymentDAO = new PaymentMethodDAO();
+    }
+
+    /** Test hook */
+    public void setOrderDAO(OrderDAO orderDAO)             { this.orderDAO   = orderDAO; }
+    public void setPaymentMethodDAO(PaymentMethodDAO pm)   { this.paymentDAO = pm; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

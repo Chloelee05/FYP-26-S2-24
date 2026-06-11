@@ -16,7 +16,14 @@ import java.math.BigDecimal;
 @WebServlet("/api/auto-bid")
 public class AutoBidApiServlet extends ApiBase {
 
-    private final AutoBidDAO autoBidDAO = new AutoBidDAO();
+    private AutoBidDAO autoBidDAO;
+
+    public AutoBidApiServlet() {
+        this.autoBidDAO = new AutoBidDAO();
+    }
+
+    /** Test hook */
+    public void setAutoBidDAO(AutoBidDAO autoBidDAO) { this.autoBidDAO = autoBidDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
