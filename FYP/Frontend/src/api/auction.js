@@ -14,6 +14,7 @@ export const getTags         = ()       => api.get('/auction/tags');
 
 // Personalised recommendations (collaborative filtering; trending fallback)
 export const getRecommendations = (limit = 8) => api.get('/recommendations', { params: { limit } });
+export const getFeaturedListings = (limit = 8) => api.get('/featured', { params: { limit } });
 
 // Auction detail
 export const getAuctionDetail = (id) => api.get(`/auction/${id}`);

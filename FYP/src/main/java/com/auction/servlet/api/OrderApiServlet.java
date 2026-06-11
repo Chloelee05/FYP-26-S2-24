@@ -4,6 +4,7 @@ import com.auction.dao.OrderDAO;
 import com.auction.dao.OrderDAO.DeclareResult;
 import com.auction.dao.OrderDAO.DeclareStatus;
 import com.auction.dao.PaymentMethodDAO;
+import com.auction.dao.PlatformRevenueDAO;
 import com.auction.notification.NotificationService;
 import com.auction.realtime.AuctionEventPublisher;
 import jakarta.servlet.annotation.WebServlet;
@@ -26,10 +27,12 @@ public class OrderApiServlet extends ApiBase {
 
     private OrderDAO orderDAO;
     private PaymentMethodDAO paymentDAO;
+    private PlatformRevenueDAO platformRevenueDAO;
 
     public OrderApiServlet() {
         this.orderDAO   = new OrderDAO();
         this.paymentDAO = new PaymentMethodDAO();
+        this.platformRevenueDAO = new PlatformRevenueDAO();
     }
 
     /** Test hook */
@@ -110,6 +113,9 @@ public class OrderApiServlet extends ApiBase {
 
         int[] parties = orderDAO.partiesAndAuction(orderId);
         if (parties != null) NotificationService.notifySellerReceiptConfirmed(parties[2], parties[1]);
+        try {
+            platformRevenueDAO.recordCommission(orderId);
+        } catch (Exception ignored) { }
         okMsg(resp, "Receipt confirmed. You can now rate the seller.");
     }
 
