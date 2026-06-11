@@ -1,3 +1,5 @@
+import { publicPath } from '../utils/appBase';
+
 /** Telegram-style bubble — own messages right, others left. */
 export default function ChatMessage({ message, currentUserId, peerLabel = 'Support' }) {
   const isMe = Number(message.senderId) === Number(currentUserId);
@@ -21,9 +23,9 @@ export default function ChatMessage({ message, currentUserId, peerLabel = 'Suppo
           }`}
         >
           {message.attachmentUrl && (
-            <a href={message.attachmentUrl} target="_blank" rel="noreferrer" className="block mb-1">
+            <a href={publicPath(message.attachmentUrl)} target="_blank" rel="noreferrer" className="block mb-1">
               <img
-                src={message.attachmentUrl}
+                src={publicPath(message.attachmentUrl)}
                 alt="attachment"
                 className="max-w-full rounded-lg max-h-52 object-cover"
               />

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import StarRating from './StarRating';
+import { publicPath } from '../utils/appBase';
 
 export default function AuctionSellerCard({ seller }) {
   if (!seller) return null;
@@ -14,7 +15,7 @@ export default function AuctionSellerCard({ seller }) {
       <div className="flex gap-4">
         <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold shrink-0">
           {seller.profileImageUrl
-            ? <img src={seller.profileImageUrl} alt="" className="w-full h-full rounded-full object-cover" />
+            ? <img src={publicPath(seller.profileImageUrl)} alt="" className="w-full h-full rounded-full object-cover" />
             : (seller.username?.[0]?.toUpperCase() ?? 'S')}
         </div>
         <div className="flex-1 min-w-0">

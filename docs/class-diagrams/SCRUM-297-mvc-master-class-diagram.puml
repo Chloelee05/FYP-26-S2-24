@@ -1,0 +1,438 @@
+@startuml SCRUM-297-Part1-DataLayer
+
+title Online Auction — Data Layer v1.1  (Model · DAO · Util)\nSprint 3: SCRUM-21/23/48/51/52
+
+skinparam roundcorner 6
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam nodesep 30
+skinparam ranksep 40
+
+' ============================================================
+' MODEL
+' ============================================================
+package "com.auction.model" #FFF8E6 {
+
+  class User {
+    - id : int
+    - email : String
+    - username : String
+    - password : String
+    - role : Role
+    - statusId : int
+    - twoFactorEnabled : boolean
+    - phoneEncrypted : String
+    - addressEncrypted : String
+    - profileImageUrl : String
+  }
+
+  enum Role {
+    ADMIN
+    BUYER
+    SELLER
+    --
+    + getId() : int
+    {static} + getRole(int) : Role
+  }
+
+  enum Status {
+    ACTIVE
+    SUSPENDED
+    DELETED
+    --
+    + getId() : int
+    {static} + getStatus(int) : Status
+  }
+
+  enum AuctionStatus {
+    ACTIVE
+    FINISHED
+    CANCELLED
+    PENDING
+    --
+    + getId() : int
+    {static} + getAuctionStatus(int) : AuctionStatus
+  }
+
+  enum ItemCondition {
+    BRAND_NEW
+    SLIGHTLY_USED
+    USED
+    DAMAGED
+    --
+    + getId() : int
+  }
+
+  class Auction {
+    - auctionName : String
+    - sellerId : int
+    - startDate : Instant
+    - endDate : Instant
+    - startingPrice : double
+    - maxPrice : BigDecimal
+    - itemCondition : ItemCondition
+  }
+
+  class SearchResultItem <<SCRUM-48>> {
+    - auctionId : long
+    - title : String
+    - category : String
+    - currentPrice : BigDecimal
+    - endDate : Instant
+    - sellerUsername : String
+    - thumbnailUrl : String
+  }
+
+  class AuctionDetail <<SCRUM-51>> {
+    - auctionId : long
+    - title : String
+    - description : String
+    - category : String
+    - startingPrice : BigDecimal
+    - currentBid : BigDecimal
+    - maxPrice : BigDecimal
+    - bidCount : int
+    - endDate : Instant
+    - sellerId : int
+    - sellerUsername : String
+    - imageUrls : List<String>
+    - open : boolean
+  }
+
+  package "admin" {
+    class AdminListingRow {
+      - auctionId : long
+      - title : String
+      - sellerUsername : String
+      - category : String
+      - currentBid : BigDecimal
+      - reportCount : int
+      - moderationState : String
+    }
+    class Category <<SCRUM-23>> {
+      - id : int
+      - name : String
+      - description : String
+      - slug : String
+      - displayOrder : int
+      - deleted : boolean
+      - createdAt : Instant
+      - auctionCount : int
+    }
+  }
+
+  package "seller" {
+    class SellerAuctionRow {
+      - auctionId : long
+      - title : String
+      - startingPrice : BigDecimal
+      - maxPrice : BigDecimal
+      - currentBid : BigDecimal
+      - bidCount : int
+      - startDate : Instant
+      - endDate : Instant
+      - statusName : String
+    }
+  }
+
+  User *-- Role
+  Auction *-- AuctionStatus
+  Auction *-- ItemCondition
+}
+
+' ============================================================
+' DAO
+' ============================================================
+package "com.auction.dao" #F0FFF0 {
+
+  class UserDAO {
+    + checkUser(username) : User
+    + insertUser(User) : void
+    + updateStatus(id, statusId) : boolean
+    + getUserById(id) : User
+  }
+
+  class AuctionDAO {
+    + listListingsForModeration() : List<AdminListingRow>
+    + updateModerationState(id, state) : boolean
+    + createAuction(Auction, images) : long
+  }
+
+  class SellerAuctionDAO {
+    + cancelAuction(id, sellerId, reason) : boolean
+    + withinBidCap(id, amount) : boolean
+    + listSellerAuctions(sellerId) : List<SellerAuctionRow>
+    + getAuctionForEdit(id, sellerId) : AuctionEditData
+  }
+
+  class CategoryDAO <<SCRUM-23>> {
+    + listAll() : List<Category>
+    + listActive() : List<Category>
+    + findById(id) : Category
+    + insert(c) / update(c) : void
+    + softDelete(id) / restore(id) : boolean
+    + nameExists(n) : boolean
+    + countAuctions(id) : int
+  }
+
+  class SearchDAO <<SCRUM-48>> {
+    {static} MAX_PAGE_SIZE : int = 50
+    --
+    + search(keyword, page, size) : List<SearchResultItem>
+    + count(keyword) : int
+    {static} + likePattern(kw) : String
+  }
+
+  class BidDAO <<SCRUM-51>> {
+    + placeBid(auctionId, buyerId, amount) : BidResult
+    + findByIdForDisplay(auctionId) : AuctionDetail
+  }
+
+  enum BidResult <<SCRUM-51>> {
+    SUCCESS
+    AUCTION_NOT_FOUND
+    AUCTION_CLOSED
+    AUCTION_REMOVED
+    SELF_BID
+    BID_TOO_LOW
+    EXCEEDS_MAX_PRICE
+  }
+
+  class AutoBidDAO <<SCRUM-52>> {
+    {static} MIN_INCREMENT : BigDecimal = 0.01
+    {static} MAX_ROUNDS : int = 50
+    --
+    + upsert(auctionId, userId, maxAmount, note)
+    + getMaxAmountForUser(auctionId, userId) : BigDecimal
+    + delete(auctionId, userId) : boolean
+    + processAutoBids(conn, auctionId) : int
+    {static} + resolveNextAutoBid(...) : CounterBid
+  }
+
+  class AutoBidRow <<inner SCRUM-52>> {
+    + userId : int
+    + maxAmount : BigDecimal
+    + createdAt : Instant
+  }
+
+  class CounterBid <<inner SCRUM-52>> {
+    + userId : int
+    + amount : BigDecimal
+  }
+
+  class ProfileActivityDAO {
+    + getRecentBids(userId) : List
+    + getWonAuctions(userId) : List
+  }
+
+  BidDAO +-- BidResult
+  AutoBidDAO +-- AutoBidRow
+  AutoBidDAO +-- CounterBid
+  BidDAO *-right- AutoBidDAO : triggers >
+
+  UserDAO ..> User
+  AuctionDAO ..> Auction
+  AuctionDAO ..> AdminListingRow
+  SellerAuctionDAO ..> SellerAuctionRow
+  CategoryDAO ..> Category
+  SearchDAO ..> SearchResultItem
+  BidDAO ..> AuctionDetail
+}
+
+' ============================================================
+' UTIL
+' ============================================================
+package "com.auction.util" #F5F5F5 {
+  class DBUtil <<utility>> {
+    {static} + connectDB() : Connection
+    {static} + runInTransaction(block) : T
+  }
+  class SecurityUtil <<utility>> {
+    {static} + hashPassword(pw) : String
+    {static} + verifyPassword(plain, hash) : boolean
+    {static} + encrypt(data) : String
+    {static} + decrypt(data) : String
+    {static} + sanitize(input) : String
+    {static} + maskEmail(e) : String
+  }
+  class InputValidator <<utility>> {
+    {static} + isValidEmail(e) : boolean
+    {static} + meetsPasswordPolicy(pw) : boolean
+    {static} + getSearchQueryViolation(q) : String
+    {static} + getCategoryNameViolation(n) : String
+  }
+  class RbacUtil <<utility>> {
+    {static} + isAdmin(session) : boolean
+    {static} + isSeller(session) : boolean
+    {static} + isBuyer(session) : boolean
+  }
+  class TotpUtil <<utility>>
+}
+
+UserDAO ..> DBUtil
+AuctionDAO ..> DBUtil
+SellerAuctionDAO ..> DBUtil
+CategoryDAO ..> DBUtil
+SearchDAO ..> DBUtil
+BidDAO ..> DBUtil
+AutoBidDAO ..> DBUtil
+AutoBidDAO ..> SecurityUtil
+
+@enduml
+
+
+@startuml SCRUM-297-Part2-WebLayer
+
+title Online Auction — Web Layer v1.1  (Servlet · Filter · View)\nSprint 3: SCRUM-21/23/48/51/52
+
+skinparam roundcorner 6
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam nodesep 30
+skinparam ranksep 40
+
+' ============================================================
+' VIEW
+' ============================================================
+package "View (JSP)" #E8F4FC {
+  class "login.jsp"              as VLogin      <<JSP>>
+  class "register.jsp"           as VRegister   <<JSP>>
+  class "dashboard.jsp"          as VDash       <<JSP>>
+  class "edit.jsp"               as VEdit       <<JSP>>
+  class "change-password.jsp"    as VPwd        <<JSP>>
+  class "index.jsp"              as VIndex      <<JSP>>
+  class "search.jsp"             as VSearch     <<JSP>>
+  class "auction-detail.jsp"     as VDetail     <<JSP>>
+  class "admin/categories.jsp"   as VCategories <<JSP>>
+  class "admin/listings.jsp"     as VListings   <<JSP>>
+  class "admin/users.jsp"        as VUsers      <<JSP>>
+  class "seller/auctions.jsp"    as VSellerDash <<JSP>>
+}
+
+' ============================================================
+' FILTER
+' ============================================================
+package "com.auction.filter" #F0E8FF {
+  interface Filter <<Jakarta>>
+  class SecurityFilter
+  class AuthFilter {
+    note: guards /protected/*
+  }
+  class AdminFilter {
+    note: guards /admin/*
+  }
+  Filter <|.. SecurityFilter
+  Filter <|.. AuthFilter
+  Filter <|.. AdminFilter
+}
+
+' ============================================================
+' BASE
+' ============================================================
+abstract class HttpServlet <<Jakarta>>
+
+' ============================================================
+' AUTH / ACCOUNT SERVLETS
+' ============================================================
+package "com.auction.servlet (auth/account)" #FFE8E8 {
+  class LoginServlet
+  class RegisterServlet
+  class LogoutServlet
+  class AccountManagementServlet
+  class EditProfileServlet
+  class UpdateProfileServlet
+  class ChangePasswordServlet
+  class DeleteAccountServlet
+  class ForgotPasswordServlet
+  class ResetPasswordServlet
+  class TwoFactorServlet
+
+  HttpServlet <|-- LoginServlet
+  HttpServlet <|-- RegisterServlet
+  HttpServlet <|-- LogoutServlet
+  HttpServlet <|-- AccountManagementServlet
+  HttpServlet <|-- EditProfileServlet
+  HttpServlet <|-- UpdateProfileServlet
+  HttpServlet <|-- ChangePasswordServlet
+  HttpServlet <|-- DeleteAccountServlet
+  HttpServlet <|-- ForgotPasswordServlet
+  HttpServlet <|-- ResetPasswordServlet
+  HttpServlet <|-- TwoFactorServlet
+}
+
+' ============================================================
+' BUYER / PUBLIC SERVLETS (Sprint 3)
+' ============================================================
+package "com.auction.servlet (buyer/public)" #FFE8E8 {
+  class SearchServlet <<SCRUM-48>> {
+    GET /search
+    {static} DEFAULT_PAGE_SIZE : int = 12
+  }
+  class AuctionDetailServlet <<SCRUM-51>> {
+    GET /auction/*
+  }
+  class PlaceBidServlet <<SCRUM-51>> {
+    POST /protected/bid
+    {static} + toMessage(BidResult) : String
+  }
+  class SetAutoBidServlet <<SCRUM-52>> {
+    POST /protected/auto-bid
+    action: SET or CANCEL
+  }
+  HttpServlet <|-- SearchServlet
+  HttpServlet <|-- AuctionDetailServlet
+  HttpServlet <|-- PlaceBidServlet
+  HttpServlet <|-- SetAutoBidServlet
+}
+
+' ============================================================
+' ADMIN SERVLETS
+' ============================================================
+package "com.auction.servlet.admin" #FFE8E8 {
+  class AdminManageUserServlet {
+    SCRUM-21: unban + audit log
+  }
+  class AdminCategoriesServlet <<SCRUM-23>> {
+    GET+POST /admin/categories
+    {static} + generateSlug(name) : String
+  }
+  class AdminAuctionServlet
+  class AdminDashboardServlet
+
+  HttpServlet <|-- AdminManageUserServlet
+  HttpServlet <|-- AdminCategoriesServlet
+  HttpServlet <|-- AdminAuctionServlet
+  HttpServlet <|-- AdminDashboardServlet
+}
+
+' ============================================================
+' SELLER SERVLETS
+' ============================================================
+package "com.auction.servlet.seller" #FFE8E8 {
+  class CreateAuctionServlet
+  class EditAuctionServlet
+  class CancelAuctionServlet
+  class SellerDashboardServlet
+
+  HttpServlet <|-- CreateAuctionServlet
+  HttpServlet <|-- EditAuctionServlet
+  HttpServlet <|-- CancelAuctionServlet
+  HttpServlet <|-- SellerDashboardServlet
+}
+
+' ============================================================
+' Servlet -> View (key forwards)
+' ============================================================
+LoginServlet ..> VLogin
+RegisterServlet ..> VRegister
+AccountManagementServlet ..> VDash
+EditProfileServlet ..> VEdit
+ChangePasswordServlet ..> VPwd
+SearchServlet ..> VSearch
+AuctionDetailServlet ..> VDetail
+AdminCategoriesServlet ..> VCategories
+AdminAuctionServlet ..> VListings
+AdminManageUserServlet ..> VUsers
+SellerDashboardServlet ..> VSellerDash
+
+@enduml

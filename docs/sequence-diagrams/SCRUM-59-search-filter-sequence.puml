@@ -1,0 +1,85 @@
+@startuml SCRUM-59 Search Filter
+
+title Buyer Filter Search Results (SCRUM-59)\n(price range · item condition · location · end time)
+
+actor Buyer as U
+participant "Browser\n(search.jsp)" as B
+participant "SearchServlet\nGET /search" as S
+participant "SearchDAO" as DAO
+database "PostgreSQL\n(auction + auction_details)" as DB
+
+U -> B : Enter keyword + select filters\n(minPrice, maxPrice, condition, location, endWithin)
+B -> S : GET /search?q=...&minPrice=X&maxPrice=Y\n         &condition=BRAND_NEW&location=Singapore\n         &endWithin=24&page=1
+
+activate S
+
+note right of S
+  <b>SCRUM-345 – Server-side validation (silently drop invalid):</b>
+  minPrice/maxPrice → parse as BigDecimal, must be ≥ 0
+     negative or non-numeric → filter silently ignored
+  condition → ItemCondition.valueOf() whitelist lookup
+     unknown string → filter silently ignored (not 400)
+  location  → trim; if > 100 chars → silently ignored
+  endWithin → parse as int > 0; invalid → silently ignored
+  Keyword length → InputValidator.getSearchQueryViolation()
+     too long → error banner (existing SCRUM-294 check)
+  All filter values passed to DAO via PreparedStatement
+     parameters — never concatenated into SQL (SCRUM-345).
+end note
+
+S -> S : blank query? → redirect /
+S -> S : keyword length > 200? → error banner
+S -> S : parseFilter(req):\n  minPrice=50 (BigDecimal ≥ 0) ✓\n  maxPrice=500 (BigDecimal ≥ 0) ✓\n  condition=BRAND_NEW → ItemCondition.BRAND_NEW.getId()=1 ✓\n  location="Singapore" (len ≤ 100) ✓\n  endWithin=24 (int > 0) ✓\n  → SearchFilter built
+
+S -> S : categorySlug? → CategoryDAO.findBySlug()\n  (existing SCRUM-47 logic)
+
+S -> DAO : search(keyword, categoryName, filter, page, size)
+activate DAO
+
+note right of DAO
+  <b>Dynamic WHERE clause (parameterized — SCRUM-345):</b>
+  Always: moderation_state='active' AND date_end > NOW()
+           AND (title ILIKE ? OR description ILIKE ?)
+  +condition: AND item_condition_id = ?
+  +endWithin: AND date_end <= ?   (Java Timestamp, not raw SQL)
+  +location:  AND (title ILIKE ? OR description ILIKE ?)
+  +category:  AND LOWER(category) = LOWER(?)
+
+  Price filter wraps query in subquery:
+    SELECT * FROM (inner_query) AS base
+    WHERE current_price >= ?    ← minPrice
+      AND current_price <= ?    ← maxPrice
+  This lets us filter on the computed COALESCE(MAX(bid), starting_price).
+end note
+
+DAO -> DB : [inner query] SELECT auction_id, title, category,\n  COALESCE(MAX(bids.bid_amount), starting_price) AS current_price,\n  date_end, seller_username, thumbnail_url\n  FROM auction JOIN auction_details JOIN users\n  WHERE moderation_state='active'\n    AND date_end > NOW()\n    AND (title ILIKE ? OR description ILIKE ?)\n    AND item_condition_id = ?\n    AND date_end <= ?\n    AND (title ILIKE ? OR description ILIKE ?)\n[outer WHERE] AND current_price >= ?\n               AND current_price <= ?\n  ORDER BY date_created DESC LIMIT ? OFFSET ?
+
+DB --> DAO : result rows
+DAO --> S : List<SearchResultItem>
+deactivate DAO
+
+S -> DAO : count(keyword, categoryName, filter)
+activate DAO
+DAO -> DB : SELECT COUNT(*)::int FROM (same inner query) AS base\n  WHERE current_price >= ? AND current_price <= ?
+DB --> DAO : total count
+DAO --> S : int total
+deactivate DAO
+
+S -> S : totalPages = ceil(total / size)
+S -> S : set request attrs:\n  results, query, filter (minPrice, maxPrice,\n  conditionLabel, location, endWithin),\n  total, currentPage, totalPages, searchEmpty
+
+S -> B : forward /WEB-INF/views/search.jsp
+deactivate S
+
+B -> U : Render results grid + active filter badges\n  Pagination links preserve all filter params
+
+note over U, DB
+  <b>Security summary (SCRUM-345):</b>
+  - All filter values are PreparedStatement parameters — no SQL injection possible.
+  - Invalid / out-of-range values are silently dropped before reaching the DAO.
+  - ItemCondition is validated against an enum whitelist — arbitrary strings never reach SQL.
+  - Price params parsed as BigDecimal — SQL-special characters cause parse failure → dropped.
+  - Location text searched via ILIKE PreparedStatement param — XSS mitigated by JSP <c:out>.
+end note
+
+@enduml

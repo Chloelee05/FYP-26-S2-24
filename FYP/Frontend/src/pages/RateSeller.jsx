@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { getAuctionDetail, rateSeller, getSellerProfile, checkSellerRated } from '../api/auction';
 import StarRating from '../components/StarRating';
+import { publicPath } from '../utils/appBase';
 
 function StarDisplay({ value, size = 18 }) {
   return (
@@ -110,7 +111,7 @@ export default function RateSeller() {
       <div className="card p-5 flex items-center gap-4 mb-6">
         <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center text-3xl shrink-0">
           {auction.images?.[0]
-            ? <img src={auction.images[0]} alt={auction.title} className="w-full h-full object-cover rounded-xl" />
+            ? <img src={publicPath(auction.images[0])} alt={auction.title} className="w-full h-full object-cover rounded-xl" />
             : '🏷'}
         </div>
         <div>

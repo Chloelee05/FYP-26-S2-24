@@ -1,0 +1,111 @@
+@startuml SCRUM-62 Auction Q&A
+
+title Buyer Ask Question & Seller Reply (SCRUM-62)
+
+actor Buyer as B
+actor Seller as S
+participant "Browser\n(auction-detail.jsp)" as UI
+participant "AuctionDetailServlet\nGET /auction/{id}" as ADS
+participant "AuctionQuestionServlet\nGET /auction-question" as AQS_GET
+participant "AuctionQuestionServlet\nPOST /protected/auction-question" as AQS_POST
+participant "QuestionDAO" as DAO
+participant "AuthFilter\n(/protected/*)" as AF
+database "PostgreSQL\n(auction_questions)" as DB
+
+== View listing with Q&A (public) ==
+
+B -> UI : Open /auction/42
+UI -> ADS : GET /auction/42
+activate ADS
+ADS -> DAO : listByAuction(42)
+activate DAO
+DAO -> DB : SELECT q.*, u.username\n  FROM auction_questions q JOIN users u\n  WHERE auction_id = ? ORDER BY created_at ASC
+DB --> DAO : rows
+DAO --> ADS : List<AuctionQuestion>
+deactivate DAO
+ADS -> ADS : set canAsk (buyer, not seller, open)\n     canAnswer (seller, isSelf)
+ADS -> UI : forward auction-detail.jsp\n  (questions + timestamps via <c:out>)
+deactivate ADS
+UI -> B : Display Q&A thread with askedAt / answeredAt
+
+== Alternative GET list endpoint ==
+
+B -> AQS_GET : GET /auction-question?auctionId=42
+activate AQS_GET
+AQS_GET -> AQS_GET : parse auctionId (long)\n  invalid → 400
+AQS_GET -> DAO : listByAuction(42)
+DAO -> DB : same SELECT
+DB --> DAO : rows
+AQS_GET -> UI : redirect /auction/42#questions
+deactivate AQS_GET
+
+== Buyer asks a question ==
+
+B -> UI : Submit question form (action=ASK)
+UI -> AF : POST /protected/auction-question\n  action=ASK&auctionId=42&question=...
+activate AF
+AF -> AF : session required → else redirect /login
+AF -> AQS_POST : forward POST
+activate AQS_POST
+
+note right of AQS_POST
+  <b>SCRUM-353 security:</b>
+  • RbacUtil.isBuyer(session) → else 403
+  • askerId from session only (no IDOR)
+  • auctionId parsed as long → 400 if invalid
+  • seller cannot ask on own auction (DAO check)
+  • blank question → 400
+  • InputValidator length check
+  • SecurityUtil.sanitize(question) before persist
+end note
+
+AQS_POST -> AQS_POST : isBuyer? askerId from session
+AQS_POST -> AQS_POST : validate question not blank\n  InputValidator.getQuestionViolation()\n  SecurityUtil.sanitize()
+AQS_POST -> DAO : insertQuestion(42, askerId, sanitizedText)
+activate DAO
+DAO -> DB : BEGIN\n  SELECT seller_id, date_end, moderation_state FROM auction WHERE auction_id=?\n  reject if not found / self / closed\n  INSERT INTO auction_questions ...
+DB --> DAO : OK
+DAO --> AQS_POST : QuestionResult.SUCCESS
+deactivate DAO
+AQS_POST -> AQS_POST : session.questionFlash = success
+AQS_POST -> UI : redirect /auction/42#questions
+deactivate AQS_POST
+deactivate AF
+UI -> B : Flash + updated Q&A list
+
+== Seller replies ==
+
+S -> UI : Submit reply form (action=REPLY)
+UI -> AF : POST /protected/auction-question\n  action=REPLY&questionId=7&answer=...
+AF -> AQS_POST : forward POST
+activate AQS_POST
+
+note right of AQS_POST
+  <b>SCRUM-353 reply security:</b>
+  • RbacUtil.isSeller(session) → else 403
+  • sellerId from session only
+  • questionId parsed as long → 400
+  • DAO verifies question.auction.seller_id = sellerId\n    wrong seller → 403 (NOT_SELLER)
+  • sanitize answer text (XSS)
+end note
+
+AQS_POST -> AQS_POST : isSeller? sellerId from session
+AQS_POST -> DAO : insertReply(7, sellerId, sanitizedAnswer)
+activate DAO
+DAO -> DB : SELECT q.auction_id, a.seller_id, q.answer_text\n  FROM auction_questions q JOIN auction a\n  WHERE q.id = ?
+DAO -> DB : UPDATE auction_questions\n  SET answer_text=?, answered_at=NOW()\n  WHERE id=? AND answer_text IS NULL
+DB --> DAO : 1 row updated
+DAO --> AQS_POST : QuestionResult.SUCCESS
+deactivate DAO
+AQS_POST -> UI : redirect /auction/{auctionId}#questions
+deactivate AQS_POST
+UI -> S : Reply visible with answeredAt timestamp
+
+== Wrong seller reply → 403 ==
+
+S -> AQS_POST : POST action=REPLY (seller B tries to reply on seller A's auction)
+AQS_POST -> DAO : insertReply(...)
+DAO --> AQS_POST : QuestionResult.NOT_SELLER
+AQS_POST -> S : HTTP 403 Forbidden
+
+@enduml

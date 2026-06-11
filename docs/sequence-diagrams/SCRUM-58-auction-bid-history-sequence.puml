@@ -1,0 +1,86 @@
+@startuml SCRUM-58 Auction Bid History
+
+title Public Bid History List (SCRUM-58)
+
+actor Buyer as B
+participant "Browser\n(auction-detail.jsp /\nauction-bid-history.jsp)" as UI
+participant "AuctionDetailServlet\nGET /auction/{id}" as ADS
+participant "AuctionBidHistoryServlet\nGET /auction-bids" as ABHS
+participant "BidDAO" as DAO
+participant "SecurityUtil" as SEC
+database "PostgreSQL\n(bids, users, auction)" as DB
+
+== View bid history on auction detail (public) ==
+
+B -> UI : Open /auction/42
+UI -> ADS : GET /auction/42\n  optional bidPage, bidSize
+activate ADS
+ADS -> ADS : parse auctionId from path (long)\n  invalid → 400
+ADS -> DAO : findByIdForDisplay(42)
+DAO -> DB : SELECT auction + images
+DB --> DAO : auction row
+ADS -> DAO : countBidHistory(42)
+DAO -> DB : SELECT COUNT(*) FROM bids WHERE auction_id = ?
+DB --> DAO : total count
+ADS -> DAO : getBidHistory(42, page, size)
+activate DAO
+DAO -> DAO : findCurrentLeaderUserId(42)
+DAO -> DB : SELECT user_id FROM bids\n  WHERE auction_id = ?\n  ORDER BY bid_amount DESC, bid_time DESC LIMIT 1
+DB --> DAO : leader user_id (or none)
+DAO -> DB : SELECT b.bid_amount, b.bid_time, b.user_id, u.username\n  FROM bids b JOIN users u\n  WHERE auction_id = ?\n  ORDER BY bid_time DESC LIMIT ? OFFSET ?
+DB --> DAO : bid rows
+loop each bid row
+    DAO -> SEC : leader ? maskUsername(username)\n  : maskUsernameFully(username)
+    SEC --> DAO : masked display name
+    DAO -> DAO : new AuctionBidHistoryEntry\n  (amount, timestamp, masked name, isLeader)
+end
+DAO --> ADS : List<AuctionBidHistoryEntry>
+deactivate DAO
+ADS -> UI : forward auction-detail.jsp\n  (#bid-history section + pagination)
+deactivate ADS
+UI -> B : Bid amount, time, masked bidder,\n  leading badge on current highest bid
+
+== Standalone paginated endpoint (public) ==
+
+B -> UI : Open /auction-bids?auctionId=42&page=2&size=10
+UI -> ABHS : GET /auction-bids?auctionId=42&page=2&size=10
+activate ABHS
+
+note right of ABHS
+  <b>SCRUM-361 security:</b>
+  • No session / auth required
+  • auctionId parsed as long → 400 if invalid
+  • page clamped to ≥ 1
+  • size clamped to [1, MAX_BID_HISTORY_PAGE_SIZE]
+  • auction not found → 404
+end note
+
+ABHS -> ABHS : parseAuctionId, parsePage, parsePageSize
+ABHS -> DAO : auctionExists(42)
+DAO -> DB : SELECT 1 FROM auction WHERE auction_id = ?
+DB --> DAO : exists
+ABHS -> DAO : countBidHistory(42)\n  getBidHistory(42, page, size)
+DAO -> DB : same queries as above
+DB --> DAO : rows
+DAO --> ABHS : masked List<AuctionBidHistoryEntry>
+ABHS -> UI : forward auction-bid-history.jsp
+deactivate ABHS
+UI -> B : Full paginated bid history table
+
+== Non-existent auction → 404 ==
+
+B -> ABHS : GET /auction-bids?auctionId=99999
+ABHS -> DAO : auctionExists(99999)
+DAO -> DB : SELECT 1 FROM auction WHERE auction_id = ?
+DB --> DAO : no row
+ABHS -> B : HTTP 404 Auction not found
+
+== Auction with no bids → empty list ==
+
+B -> ABHS : GET /auction-bids?auctionId=5
+ABHS -> DAO : auctionExists(5) → true
+ABHS -> DAO : countBidHistory(5) → 0\n  getBidHistory(5, 1, 10) → []
+ABHS -> UI : bidHistoryEmpty = true
+UI -> B : "No bids yet" message
+
+@enduml

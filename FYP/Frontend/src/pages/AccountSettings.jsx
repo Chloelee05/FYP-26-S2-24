@@ -5,6 +5,7 @@ import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount } from '..
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
 import { useAuth } from '../context/AuthContext';
+import { publicPath } from '../utils/appBase';
 
 const TABS = [
   { key: 'profile', label: 'Edit Profile' },
@@ -77,7 +78,7 @@ function EditProfileSection() {
     }
   };
 
-  const displayImage = previewUrl || currentImageUrl;
+  const displayImage = previewUrl || publicPath(currentImageUrl);
   const initials = (form.username?.[0] ?? 'U').toUpperCase();
 
   return (

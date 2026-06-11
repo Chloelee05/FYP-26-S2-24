@@ -1,0 +1,99 @@
+@startuml SCRUM-48 Buyer Search Items
+
+title Buyer Search Items by Name (SCRUM-48)
+
+actor Buyer as U
+participant "Browser\n(home-navbar / search.jsp)" as B
+participant "SecurityFilter\n/*" as SF
+participant "SearchServlet\nGET /search" as S
+participant "InputValidator\n+ SecurityUtil" as V
+participant "SearchDAO" as DAO
+database "PostgreSQL\n(auction + auction_details)" as DB
+
+== User submits search ==
+
+U -> B : Type keyword in search bar → submit
+B -> SF : GET /search?q=keyword&page=1&size=12
+note right of SF
+  SecurityFilter (/*) adds
+  security headers only — no auth.
+  /search is PUBLIC (SCRUM-260 decision):
+  buyers do not need to log in to search.
+end note
+activate SF
+SF -> S : chain
+deactivate SF
+
+activate S
+
+== SCRUM-294: Validate + sanitize query ==
+
+S -> S : read q, page, size params
+S -> V : getSearchQueryViolation(q)
+
+alt q blank
+    S -> B : Redirect / (home)
+else q too long (> 200 chars)
+    S -> B : req attr "searchError" + forward search.jsp\n(error banner shown, no DB call)
+else q valid
+    V --> S : null (valid)
+    note right of S
+      <b>SCRUM-294</b>: q is bound as PreparedStatement
+      parameter — no string concatenation.
+      Pattern built as: '%' + q + '%'
+      Sanitized copy (SecurityUtil.sanitize)
+      used only when echoed in JSP/logs.
+    end note
+    S -> S : clamp page ≥ 1; clamp size 1–50
+end
+
+== SCRUM-258: DAO query (ILIKE, pagination) ==
+
+S -> DAO : search(keyword, page, size)
+activate DAO
+DAO -> DB : SELECT a.auction_id, d.title, d.category,\n  COALESCE(max_bid, d.starting_price) AS current_price,\n  a.date_end, u.username, thumbnail\nFROM auction a\nJOIN auction_details d ON d.id = a.auction_id\nJOIN users u ON u.id = a.seller_id\nWHERE a.moderation_state = 'active'\n  AND a.date_end > CURRENT_TIMESTAMP\n  AND (d.title ILIKE ? OR d.description ILIKE ?)\nORDER BY a.date_created DESC\nLIMIT ? OFFSET ?
+note right of DB
+  <b>SCRUM-258</b>: ILIKE = case-insensitive
+  (SCRUM-259 case policy).
+  <b>SCRUM-261</b>: Parameters bound via
+  PreparedStatement — SQL injection
+  impossible regardless of keyword chars.
+  LIMIT/OFFSET = pagination.
+end note
+DB --> DAO : result rows
+DAO --> S : List<SearchResultItem>
+deactivate DAO
+
+S -> DAO : count(keyword)
+activate DAO
+DAO -> DB : SELECT COUNT(*) …same WHERE…
+DB --> DAO : total
+DAO --> S : int total
+deactivate DAO
+
+S -> S : totalPages = ceil(total / size)
+S -> S : sanitizedQuery = SecurityUtil.sanitize(keyword)\n(for echo in JSP — SCRUM-294)
+
+== SCRUM-259: Empty results UX ==
+
+alt results empty
+    note right of S
+      req attr "searchEmpty" = true
+      JSP renders "No results found for '…'"
+    end note
+end
+
+S -> B : forward search.jsp\n(results, total, currentPage, totalPages, sanitizedQuery)
+deactivate S
+
+== JSP renders results ==
+
+B -> U : Search results page\n(card grid + pagination + result count)
+
+note over U, DB
+  <b>SCRUM-259</b>: empty → friendly "No results" banner.
+  <b>SCRUM-260</b>: Auth policy = PUBLIC. No session required.
+  <b>SCRUM-294</b>: sanitizedQuery echoed via <c:out> (HTML-escaped).
+end note
+
+@enduml
