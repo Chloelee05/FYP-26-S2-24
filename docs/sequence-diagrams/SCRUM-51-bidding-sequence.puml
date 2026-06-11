@@ -1,0 +1,142 @@
+@startuml SCRUM-51 Place Bid
+
+title Buyer Place Bid on Auction (SCRUM-51)
+
+actor Buyer as U
+participant "Browser\n(auction-detail.jsp)" as B
+participant "AuthFilter\n/protected/*" as AF
+participant "PlaceBidServlet\nPOST /protected/bid" as S
+participant "BidDAO" as DAO
+database "PostgreSQL\n(auction + bids)" as DB
+participant "java.util.logging\n(Logger)" as LOG
+
+== View auction detail (public) ==
+U -> B : Click auction / search result
+B -> B : GET /auction/{id}\n(AuctionDetailServlet — public, no auth)
+B -> U : Auction detail page\n(title, current bid, end time, bid form)
+
+== Place bid ==
+U -> B : Enter bid amount → submit form
+B -> AF : POST /protected/bid\n(JSESSIONID, auctionId=N, bidAmount=X)
+activate AF
+alt not authenticated
+    AF -> B : Redirect /login
+else authenticated
+    AF -> S : chain
+end
+deactivate AF
+
+activate S
+
+note right of S
+  <b>SCRUM-295</b>: All IDs come from server-side
+  session (buyerId) or are parsed as integers
+  (auctionId). No client-supplied role or
+  identity is trusted (no IDOR).
+end note
+
+S -> S : buyerId = session.getAttribute("userId")
+S -> S : role check: isBuyer(session) ?
+
+alt role != BUYER
+    S -> B : 403 Forbidden
+end
+
+S -> S : parse auctionId (Long.parseLong)\n→ 400 if non-numeric
+S -> S : parse bidAmount (BigDecimal)\n→ 400 if not a positive number
+
+S -> DAO : placeBid(auctionId, buyerId, bidAmount)
+activate DAO
+
+note right of DAO
+  <b>SCRUM-265 Optimistic locking:</b>
+  Transaction + SELECT … FOR UPDATE
+  serializes concurrent bids on
+  the same auction row.
+end note
+
+DAO -> DB : BEGIN
+DAO -> DB : SELECT a.auction_id, a.status_id, a.date_end,\n  a.moderation_state, a.seller_id,\n  d.starting_price, d.max_price\nFROM auction a\nJOIN auction_details d ON d.id = a.auction_id\nWHERE a.auction_id = ? FOR UPDATE
+activate DB
+
+alt auction not found
+    DB --> DAO : empty
+    DAO -> DB : ROLLBACK
+    DAO --> S : AUCTION_NOT_FOUND
+end
+
+alt status_id != ACTIVE or date_end <= NOW()
+    note right of DB
+      <b>SCRUM-267</b>: last-second bid —
+      date_end check is inside the
+      locked transaction (no TOCTOU).
+    end note
+    DAO -> DB : ROLLBACK
+    DAO --> S : AUCTION_CLOSED
+end
+
+alt moderation_state != 'active'
+    DAO -> DB : ROLLBACK
+    DAO --> S : AUCTION_REMOVED
+end
+
+alt seller_id == buyerId
+    note right of DB
+      <b>SCRUM-266</b>: self-bid check —
+      seller cannot bid on own auction.
+    end note
+    DAO -> DB : ROLLBACK
+    DAO --> S : SELF_BID
+end
+
+DAO -> DB : SELECT MAX(bid_amount) FROM bids\nWHERE auction_id = ?
+DB --> DAO : currentMax (or NULL if no bids)
+
+note right of DAO
+  currentFloor = MAX(currentMax, starting_price)
+  <b>SCRUM-263 min increment:</b>
+  bid must be > currentFloor
+  <b>SCRUM-267 equal bid:</b>
+  bid == currentFloor → BID_TOO_LOW
+end note
+
+alt bidAmount <= currentFloor
+    DAO -> DB : ROLLBACK
+    DAO --> S : BID_TOO_LOW
+end
+
+alt max_price != NULL and bidAmount > max_price
+    note right of DB
+      <b>SCRUM-263</b>: hard-ceiling from
+      SellerAuctionDAO.withinBidCap logic.
+    end note
+    DAO -> DB : ROLLBACK
+    DAO --> S : EXCEEDS_MAX_PRICE
+end
+
+DAO -> DB : INSERT INTO bids (auction_id, user_id, bid_amount, bid_time)\nVALUES (?, ?, ?, CURRENT_TIMESTAMP)
+DB --> DAO : 1 row
+deactivate DB
+DAO -> DB : COMMIT
+DAO --> S : SUCCESS
+deactivate DAO
+
+note right of S
+  <b>SCRUM-295</b>: log only (auctionId, buyerId, amount).
+  Never log session tokens, passwords, or full payload.
+end note
+S -> LOG : INFO "Bid placed [auctionId=N, buyerId=M, amount=X]"
+
+S -> B : session flash "Bid placed!" + Redirect /auction/{id}
+deactivate S
+
+B -> U : Auction detail page\n(updated bid + success banner)
+
+note over U, DB
+  <b>SCRUM-265</b>: FOR UPDATE on auction row guarantees that two
+  concurrent requests cannot both read the same currentMax and
+  both insert a bid at the same amount. One wins; the other
+  retries or sees BID_TOO_LOW after the lock is released.
+end note
+
+@enduml

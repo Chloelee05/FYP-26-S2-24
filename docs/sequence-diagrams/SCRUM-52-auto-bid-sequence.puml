@@ -1,0 +1,169 @@
+@startuml SCRUM-52 Auto-Bid
+
+title Buyer Set Max Auto-Bid & Proxy Bidding Resolution (SCRUM-52)
+
+actor "Buyer A\n(auto-bidder)" as BA
+actor "Buyer B\n(manual bidder)" as BB
+participant "Browser" as BR
+participant "AuthFilter\n/protected/*" as AF
+participant "SetAutoBidServlet\nPOST /protected/auto-bid" as SA
+participant "PlaceBidServlet\nPOST /protected/bid" as PB
+participant "BidDAO" as BDAO
+participant "AutoBidDAO" as ADAO
+database "PostgreSQL\n(auto_bids + bids)" as DB
+
+== Buyer A sets maximum auto-bid ==
+
+BA -> BR : Enter max auto-bid $150 + optional note\n(on auction-detail page)
+BR -> AF : POST /protected/auto-bid\n(auctionId=N, maxAmount=150, note=...)
+activate AF
+alt not authenticated
+    AF -> BR : Redirect /login
+else role != BUYER
+    AF -> BR : 403 Forbidden
+else BUYER
+    AF -> SA : chain
+end
+deactivate AF
+
+activate SA
+
+note right of SA
+  <b>SCRUM-296</b>: maxAmount comes from
+  the request but is validated server-side.
+  userId always from session (no IDOR).
+  The form field is never auto-trusted.
+end note
+
+SA -> SA : buyerId = session.getAttribute("userId")
+SA -> SA : parse auctionId (Long) → 400 if non-numeric
+SA -> SA : parse maxAmount (BigDecimal) → error if ≤ 0
+SA -> BDAO : findByIdForDisplay(auctionId)
+activate BDAO
+BDAO -> DB : SELECT ... FROM auction JOIN auction_details\nWHERE auction_id = ?
+DB --> BDAO : AuctionDetail
+BDAO --> SA : detail
+deactivate BDAO
+
+alt auction is null or not open (ended / cancelled)
+    note right of SA
+      <b>SCRUM-271</b>: Cannot set auto-bid on
+      ended or cancelled auctions.
+    end note
+    SA -> BR : session flash error + Redirect /auction/N
+end
+
+alt maxAmount ≤ detail.currentBid
+    SA -> BR : session flash error "Max must exceed current bid" + Redirect
+end
+
+note right of SA
+  <b>SCRUM-296</b>: Sensitive fields encrypted
+  at rest via SecurityUtil.encrypt(AES-GCM).
+  max_amount_enc → stored in auto_bids.
+  note_enc       → stored in auto_bids (if provided).
+  Neither value is stored in plaintext.
+end note
+
+SA -> ADAO : upsert(auctionId, buyerId, maxAmount, note)
+activate ADAO
+ADAO -> ADAO : encMaxAmount = SecurityUtil.encrypt(maxAmount.toPlainString())
+ADAO -> ADAO : encNote = SecurityUtil.encrypt(note) if note not blank, else null
+ADAO -> DB : INSERT INTO auto_bids (auction_id, user_id, max_amount_enc, note_enc, ...)\nON CONFLICT (auction_id, user_id) DO UPDATE SET ...
+DB --> ADAO : ok
+ADAO --> SA : done
+deactivate ADAO
+
+SA -> ADAO : processAutoBids(conn, auctionId)
+note right of SA
+  Immediate effect: if A's max > current bid,
+  fire proxy-bid now; no wait for next manual bid.
+end note
+
+SA -> BR : session flash "Auto-bid set!" + Redirect /auction/N
+deactivate SA
+
+== Manual bid by Buyer B triggers proxy resolution ==
+
+BB -> BR : POST /protected/bid (bidAmount=50)
+BR -> PB : (after AuthFilter)
+activate PB
+PB -> BDAO : placeBid(auctionId, buyerBId, $50)
+activate BDAO
+BDAO -> DB : BEGIN\nSELECT … FOR UPDATE (auction row)
+BDAO -> DB : validate auction open, self-bid, bid > floor
+BDAO -> DB : INSERT INTO bids (auction_id=N, user_id=B, bid_amount=50, bid_time=now)
+BDAO -> ADAO : processAutoBids(conn, auctionId)
+
+activate ADAO
+
+note right of ADAO
+  <b>Proxy bidding algorithm (SCRUM-268):</b>
+  Loop (max 50 rounds) until no auto-bid fires.
+  Each round:
+    1. Read current top bid (amount + bidder_id).
+    2. Fetch all auto_bids rows, decrypt each max_amount_enc.
+    3. Exclude auto-bids where user_id == currentTopBidder.
+    4. Find WINNER = highest decrypted max > floor
+       (tie-break: earlier created_at wins).
+    5. Compute COUNTER:
+         secondBest = max of all non-winner bids (incl. top bidder's own auto-bid)
+         counter    = min(max(floor+0.01, secondBest+0.01), winner.max)
+    6. INSERT bid for winner at counter amount.
+    7. Repeat until no auto-bidder can beat current top.
+end note
+
+loop proxy resolution (round 1)
+    ADAO -> DB : SELECT MAX(bid_amount), user_id FROM bids WHERE auction_id = ? …
+    DB --> ADAO : top = $50 / topBidder = B
+    ADAO -> DB : SELECT * FROM auto_bids WHERE auction_id = ?
+    DB --> ADAO : [A: max_amount_enc=…]
+    ADAO -> ADAO : decrypt A.max = $150
+    note right of ADAO
+      floor=$50, winner=A($150>$50).
+      secondBest=B(no auto-bid)→$50.
+      counter=min(max($50.01,$50.01),$150)=$50.01
+    end note
+    ADAO -> DB : INSERT INTO bids (A, $50.01)
+end
+
+loop proxy resolution (round 2)
+    ADAO -> DB : top = $50.01 / topBidder = A
+    ADAO -> DB : no auto-bids where user_id != A with max > $50.01
+    note right of ADAO
+      B has no auto-bid → no competitor.
+      Break.
+    end note
+end
+
+ADAO --> BDAO : 1 auto-bid placed
+deactivate ADAO
+
+BDAO -> DB : COMMIT
+BDAO --> PB : SUCCESS
+deactivate BDAO
+PB -> BR : Redirect /auction/N
+deactivate PB
+BR -> BB : Auction page (top bid: $50.01 by A)
+
+== Competing auto-bids (SCRUM-270) ==
+note over BA, DB
+  <b>Competing scenario</b>:
+  A sets max=$100 (earlier), B sets max=$150 (later).
+  Manual bid $10 triggers processAutoBids.
+  Round 1 (B counters):  floor=$10, winner=B($150), secondBest=A($100)
+                          counter=min(max($10.01,$100.01),$150)=$100.01 → B bids $100.01
+  Round 2 (A counters?): floor=$100.01, A.max=$100 NOT > $100.01 → no winner → break.
+  Result: B wins at $100.01 in ONE round. Efficient resolution without 9,000 loop iterations.
+end note
+
+note over BA, DB
+  <b>Limit reached scenario (SCRUM-270)</b>:
+  A sets max=$80, B sets max=$150.
+  Round 1: winner=B($150), secondBest=A($80)
+            counter=min(max(floor+0.01,$80.01),$150)=$80.01 → B bids $80.01
+  Round 2: A.max=$80 NOT > $80.01 → break.
+  B wins. A's limit was reached (their max was the "second-best ceiling").
+end note
+
+@enduml

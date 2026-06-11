@@ -1,0 +1,161 @@
+@startuml SCRUM-154 MVC Master Class Diagram
+
+title Online Auction — MVC-oriented master class diagram (current codebase snapshot)
+
+skinparam roundcorner 8
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+
+note as LAYER
+  **Layers (MVC mapping)**
+  **Model:** domain types + **UserDAO** (persistence)
+  **Controller:** **HttpServlet** + **Filter** (routing / orchestration)
+  **View:** JSP under **WEB-INF/views** (forwards from servlets)
+  **Util:** SecurityUtil, DBUtil, validation, RBAC, TOTP
+  Some servlets lack **@WebServlet** in source; confirm URL mappings at deploy time.
+end note
+
+package "View (JSP)" #E8F4FC {
+  together {
+    class "login.jsp" as VLogin <<JSP>>
+    class "register.jsp" as VRegister <<JSP>>
+    class "dashboard.jsp" as VDash <<JSP>>
+    class "edit.jsp" as VEdit <<JSP>>
+    class "change-password.jsp" as VPwd <<JSP>>
+    class "index.jsp" as VIndex <<JSP>>
+  }
+  note bottom of VLogin
+    Paths under **WEB-INF/views/** (auth, account)
+    and **webapp/** (index)
+  end note
+}
+
+package "com.auction.model" #FFF8E6 {
+  class User {
+    - id : int
+    - email : String
+    - username : String
+    - password : String
+    - role : Role
+    - twoFactorEnabled : boolean
+    - twoFactorSecret : String
+    - phoneEncrypted : String
+    - addressEncrypted : String
+    - profileImageUrl : String
+    __
+    + getters / setters
+  }
+  enum Role {
+    ADMIN(1)
+    BUYER(2)
+    SELLER(3)
+    __
+    + getId()
+    {static} getRole(int)
+  }
+  enum Status {
+    ACTIVE(1)
+    SUSPENDED(2)
+    DELETED(3)
+    __
+    + getId()
+    {static} getStatus(int)
+  }
+  User *-- Role
+}
+
+package "com.auction.dao" #F0FFF0 {
+  class UserDAO {
+    + checkUser(username)
+    + checkEmail(email)
+    + insertUser(User)
+    + updateStatus(id, status)
+    + ... (find / update profile, 2FA, admin listing, etc.)
+  }
+  UserDAO ..> User : maps rows to
+  UserDAO ..> DBUtil : Connection
+}
+
+package "com.auction.util" #F5F5F5 {
+  class DBUtil <<utility>> {
+    {static} connectDB() : Connection
+  }
+  class SecurityUtil <<utility>>
+  class InputValidator <<utility>>
+  class RbacUtil <<utility>>
+  class TotpUtil <<utility>>
+  UserDAO ..> SecurityUtil
+}
+
+package "com.auction.servlet (Controller)" #FFE8E8 {
+  abstract class HttpServlet <<Jakarta>> {
+  }
+  class LoginServlet
+  class RegisterServlet
+  class LogoutServlet
+  class AccountManagementServlet
+  class EditProfileServlet
+  class UpdateProfileServlet
+  class ChangePasswordServlet
+  class DeleteAccountServlet
+  class ForgotPasswordServlet
+  class ResetPasswordServlet
+  class TwoFactorServlet
+  HttpServlet <|-- LoginServlet
+  HttpServlet <|-- RegisterServlet
+  HttpServlet <|-- LogoutServlet
+  HttpServlet <|-- AccountManagementServlet
+  HttpServlet <|-- EditProfileServlet
+  HttpServlet <|-- UpdateProfileServlet
+  HttpServlet <|-- ChangePasswordServlet
+  HttpServlet <|-- DeleteAccountServlet
+  HttpServlet <|-- ForgotPasswordServlet
+  HttpServlet <|-- ResetPasswordServlet
+  HttpServlet <|-- TwoFactorServlet
+  LoginServlet ..> UserDAO
+  RegisterServlet ..> UserDAO
+  AccountManagementServlet ..> UserDAO
+  EditProfileServlet ..> UserDAO
+  UpdateProfileServlet ..> UserDAO
+  ChangePasswordServlet ..> UserDAO
+  DeleteAccountServlet ..> UserDAO
+  TwoFactorServlet ..> UserDAO
+  ForgotPasswordServlet ..> UserDAO
+  ResetPasswordServlet ..> UserDAO
+  LoginServlet ..> User
+  TwoFactorServlet ..> User
+}
+
+package "com.auction.servlet.admin (Controller)" #FFE8E8 {
+  class AdminManageUserServlet
+  HttpServlet <|-- AdminManageUserServlet
+  AdminManageUserServlet ..> UserDAO
+  AdminManageUserServlet ..> User
+  AdminManageUserServlet ..> Role
+  AdminManageUserServlet ..> Status
+}
+
+package "com.auction.filter (Controller cross-cutting)" #F0E8FF {
+  interface Filter <<Jakarta>>
+  class SecurityFilter
+  class AuthFilter
+  class AdminFilter
+  Filter <|.. SecurityFilter
+  Filter <|.. AuthFilter
+  Filter <|.. AdminFilter
+}
+
+' Typical request flow (conceptual)
+LoginServlet ..> VLogin : forward / redirect
+RegisterServlet ..> VRegister
+AccountManagementServlet ..> VDash
+EditProfileServlet ..> VEdit
+ChangePasswordServlet ..> VPwd
+
+note as N1
+  **DB tables** for auctions/bids/tags are defined in **auction_db.sql**
+  but there are **no Java entity/DAO classes** for them in **com.auction** yet—
+  only **User** persistence is implemented in code.
+end note
+
+@enduml

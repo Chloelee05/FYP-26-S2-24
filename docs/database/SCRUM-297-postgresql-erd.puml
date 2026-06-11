@@ -1,0 +1,205 @@
+@startuml SCRUM-297 PostgreSQL ERD v1.1
+
+title PostgreSQL schema — auction_db  (v1.1, Sprint 3)\nSource of truth: FYP/src/main/resources/auction_db.sql\n+ migration_seller_features.sql · migration_categories.sql\n+ migration_search_index.sql · migration_auto_bids.sql
+
+skinparam roundcorner 8
+skinparam linetype ortho
+hide circle
+
+' ============================================================
+' Lookup / reference tables
+' ============================================================
+entity "roles" as roles {
+  * id : SMALLINT <<PK, IDENTITY>>
+  --
+  * role : VARCHAR(50)
+}
+
+entity "user_status" as user_status {
+  * id : SMALLINT <<PK, IDENTITY>>
+  --
+  * status : VARCHAR(50)
+}
+
+entity "auction_status" as auction_status {
+  * id : SMALLINT <<PK, IDENTITY>>
+  --
+  * status : VARCHAR(50)
+  ..values..
+  1=ACTIVE · 2=FINISHED
+  3=CANCELLED · 4=PENDING
+}
+
+entity "auction_type" as auction_type {
+  * id : SMALLINT <<PK, IDENTITY>>
+  --
+  * type : VARCHAR(50)
+}
+
+entity "item_status" as item_status {
+  * id : SMALLINT <<PK, IDENTITY>>
+  --
+  * item_condition : VARCHAR(50)
+}
+
+entity "tags" as tags {
+  * id : BIGINT <<PK, IDENTITY>>
+  --
+  * tag_name : VARCHAR(255)
+}
+
+' ============================================================
+' Core user table
+' ============================================================
+entity "users" as users {
+  * id : BIGINT <<PK, IDENTITY>>
+  --
+  * email : VARCHAR(255) <<UNIQUE>>
+  * username : VARCHAR(255) <<UNIQUE>>
+  * password : VARCHAR(255)
+  * role_id : SMALLINT <<FK→roles>>
+  * date_created : TIMESTAMPTZ
+  * status_id : SMALLINT <<FK→user_status>>
+  two_factor_enabled : BOOLEAN
+  two_factor_secret : TEXT
+  phone_encrypted : TEXT
+  address_encrypted : TEXT
+  profile_image_url : VARCHAR(512)
+}
+note right of users
+  PII: phone/address stored AES-GCM encrypted.
+  Passwords: salted SHA-256 at application layer.
+end note
+
+' ============================================================
+' Auction tables (v1.0 base + v1.1 additions)
+' ============================================================
+entity "auction" as auction {
+  * auction_id : BIGINT <<PK, IDENTITY>>
+  --
+  * status_id : SMALLINT <<FK→auction_status>>
+  * seller_id : BIGINT <<FK→users>>
+  * date_created : TIMESTAMP
+  * date_end : TIMESTAMP
+  * auction_type : SMALLINT <<FK→auction_type>>
+  ' --- added by migration_seller_features.sql ---
+  cancel_reason : TEXT
+  ' --- moderation (admin SCRUM-20/SCRUM-21) ---
+  report_count : INTEGER NOT NULL DEFAULT 0
+  moderation_state : VARCHAR(20) DEFAULT 'active'
+  ..CHECK..
+  moderation_state IN ('active','flagged','removed')
+}
+
+entity "auction_details" as auction_details {
+  * id : BIGINT <<PK, FK→auction>>
+  --
+  * title : VARCHAR(255)
+  * description : TEXT
+  ' --- category free-text (SCRUM-23 adds FK ref via name) ---
+  * category : VARCHAR(100) DEFAULT 'Other'
+  * item_condition_id : SMALLINT <<FK→item_status>>
+  winning_bid : INTEGER
+  winner_id : INTEGER
+  ' --- added by migration_seller_features.sql ---
+  starting_price : NUMERIC(10,2) NOT NULL DEFAULT 0
+  max_price : NUMERIC(10,2)
+}
+
+entity "auction_images" as auction_images {
+  * id : BIGINT <<PK, IDENTITY>>
+  --
+  * auction_id : BIGINT <<FK→auction>>
+  * image_url : TEXT
+  * upload_date : TIMESTAMP
+}
+
+entity "auction_tag_info" as auction_tag_info {
+  * auction_id : BIGINT <<PK, FK→auction>>
+  * tag_id : BIGINT <<PK, FK→tags>>
+}
+
+' ============================================================
+' Bids table (v1.0)
+' ============================================================
+entity "bids" as bids {
+  * bid_id : BIGINT <<PK, IDENTITY>>
+  --
+  * auction_id : BIGINT <<FK→auction>>
+  * user_id : BIGINT <<FK→users>>
+  * bid_amount : NUMERIC(10,2)  CHECK ≥ 0
+  * bid_time : TIMESTAMP
+}
+
+' ============================================================
+' [NEW v1.1] Categories table — SCRUM-23
+' ============================================================
+entity "categories" as categories #LightYellow {
+  * id : BIGINT <<PK, IDENTITY>>
+  --
+  * name : VARCHAR(100) <<UNIQUE>>
+  description : TEXT
+  display_order : INTEGER NOT NULL DEFAULT 0
+  * slug : VARCHAR(120) <<UNIQUE>>
+  is_deleted : BOOLEAN NOT NULL DEFAULT false
+  created_at : TIMESTAMP NOT NULL DEFAULT NOW()
+  ..note..
+  Soft-delete: is_deleted=true
+  preserves FK integrity.
+}
+
+' ============================================================
+' [NEW v1.1] Auto-bids table — SCRUM-52
+' ============================================================
+entity "auto_bids" as auto_bids #LightYellow {
+  * id : BIGINT <<PK, IDENTITY>>
+  --
+  * auction_id : BIGINT <<FK→auction>>
+  * user_id : BIGINT <<FK→users>>
+  ' --- AES-256-GCM ciphertext (SCRUM-296) ---
+  * max_amount_enc : TEXT
+  note_enc : TEXT
+  created_at : TIMESTAMP NOT NULL DEFAULT NOW()
+  updated_at : TIMESTAMP NOT NULL DEFAULT NOW()
+  ..UNIQUE..
+  (auction_id, user_id)
+  ..note..
+  max_amount_enc: buyer's ceiling encrypted
+  at rest (SecurityUtil.encrypt).
+  Never stored in plaintext.
+}
+
+' ============================================================
+' [NEW v1.1] Performance indexes — SCRUM-48
+' ============================================================
+note as IDX
+  **Search indexes (migration_search_index.sql):**
+  idx_auction_details_title ON auction_details (LOWER(title))
+  idx_auction_moderation_end ON auction (moderation_state, date_end)
+end note
+
+' ============================================================
+' Relationships
+' ============================================================
+users }o--|| roles         : role_id
+users }o--|| user_status   : status_id
+
+auction }o--|| auction_status : status_id
+auction }o--|| auction_type   : auction_type
+auction }o--|| users          : seller_id
+
+auction_details ||--|| auction     : 1:1 detail
+auction_details }o--|| item_status : item_condition_id
+
+auction_images }o--|| auction : auction_id
+
+auction_tag_info }o--|| auction : auction_id
+auction_tag_info }o--|| tags   : tag_id
+
+bids }o--|| auction : auction_id
+bids }o--|| users   : user_id
+
+auto_bids }o--|| auction : auction_id
+auto_bids }o--|| users   : user_id
+
+@enduml

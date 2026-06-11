@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { uploadAuctionImage } from '../api/seller';
+import { publicPath } from '../utils/appBase';
 
 /**
  * Props:
@@ -68,7 +69,7 @@ export default function ImageUploader({ existingImages = [], onChange }) {
   };
 
   const allImages = [
-    ...kept.map(img => ({ key: img.imageId, src: img.imageUrl, onRemove: () => removeExisting(img.imageId) })),
+    ...kept.map(img => ({ key: img.imageId, src: publicPath(img.imageUrl), onRemove: () => removeExisting(img.imageId) })),
     ...uploaded.map(u => ({ key: u.serverUrl, src: u.localUrl, onRemove: () => removeUploaded(u.serverUrl) })),
   ];
 

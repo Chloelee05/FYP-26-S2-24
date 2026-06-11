@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getProfile, updateProfile, uploadProfilePhoto } from '../api/user';
 import { useAuth } from '../context/AuthContext';
+import { publicPath } from '../utils/appBase';
 
 export default function EditProfile() {
   const { setUser } = useAuth();
@@ -62,7 +63,7 @@ export default function EditProfile() {
     }
   };
 
-  const displayImage = previewUrl || currentImageUrl;
+  const displayImage = previewUrl || publicPath(currentImageUrl);
   const initials = (form.username?.[0] ?? 'U').toUpperCase();
 
   return (
