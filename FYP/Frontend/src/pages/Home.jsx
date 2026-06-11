@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuctionCard from '../components/AuctionCard';
-import { searchAuctions, getCategories, getRecommendations } from '../api/auction';
+import { searchAuctions, getCategories, getRecommendations, getFeaturedListings } from '../api/auction';
 import { useAuth } from '../context/AuthContext';
 
 export default function Home() {
@@ -11,10 +11,12 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [recommended, setRecommended] = useState([]);
   const [personalised, setPersonalised] = useState(false);
+  const [featured, setFeatured] = useState([]);
 
   useEffect(() => {
     getCategories().then(r => setCategories(r.data)).catch(() => {});
     searchAuctions({ trending: true }).then(r => setAuctions(r.data.results ?? r.data)).catch(() => {});
+    getFeaturedListings(8).then(r => setFeatured(r.data.results ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -74,6 +76,17 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        {/* Featured listings */}
+        {featured.length > 0 && (
+          <section className="mb-12">
+            <h2 className="text-xl font-bold text-gray-900 mb-1">Featured Listings</h2>
+            <p className="text-sm text-gray-500 mb-6">Promoted auctions from our sellers.</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {featured.map(a => <AuctionCard key={`f-${a.auctionId}`} auction={a} />)}
+            </div>
+          </section>
+        )}
 
         {/* Recommendations */}
         {recommended.length > 0 && (

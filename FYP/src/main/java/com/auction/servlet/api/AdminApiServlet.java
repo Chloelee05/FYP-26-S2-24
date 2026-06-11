@@ -3,7 +3,9 @@ package com.auction.servlet.api;
 import com.auction.dao.AdminReportDAO;
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.CategoryDAO;
+import com.auction.dao.FeaturedListingDAO;
 import com.auction.dao.OrderDAO;
+import com.auction.dao.PlatformRevenueDAO;
 import com.auction.dao.ReportDAO;
 import com.auction.dao.SellerAnalyticsDAO;
 import com.auction.dao.UserDAO;
@@ -58,6 +60,8 @@ public class AdminApiServlet extends ApiBase {
     private final OrderDAO    orderDAO   = new OrderDAO();
     private final AdminReportDAO adminReportDAO = new AdminReportDAO();
     private final SellerAnalyticsDAO sellerAnalyticsDAO = new SellerAnalyticsDAO();
+    private final FeaturedListingDAO featuredListingDAO = new FeaturedListingDAO();
+    private final PlatformRevenueDAO platformRevenueDAO = new PlatformRevenueDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -188,6 +192,8 @@ public class AdminApiServlet extends ApiBase {
             body.put("activeListings",auctionDAO.countListingsModerationActive());
             body.put("flagged",       auctionDAO.countListingsFlagged());
             body.put("revenue",       auctionDAO.sumWinningBidDollars());
+            body.put("platformCommissionRevenue", platformRevenueDAO.sumByType("COMMISSION"));
+            body.put("featuredListingRevenue", platformRevenueDAO.sumByType("FEATURED_LISTING"));
             body.put("topCreators",   auctionDAO.getTopAuctionCreator());
             body.put("topRevenue",    auctionDAO.getTopSellerRevenue());
             ok(resp, body);
@@ -408,6 +414,24 @@ public class AdminApiServlet extends ApiBase {
                 ok = auctionDAO.updateModerationState(auctionId, "active");
                 if (ok) okMsg(resp, "Listing restored.");
                 else serverError(resp, "Could not restore listing.");
+                break;
+            case "FEATURE": {
+                int days = parseInt(param(req, "days"), 7);
+                int sellerId = featuredListingDAO.sellerIdForAuction(auctionId);
+                if (sellerId < 0) { error(resp, 404, "Auction not found."); return; }
+                ok = featuredListingDAO.featureAuction(auctionId, days);
+                if (ok) {
+                    try { platformRevenueDAO.recordFeaturedListing(auctionId, sellerId); } catch (Exception ignored) { }
+                    okMsg(resp, "Listing featured for " + days + " days.");
+                } else {
+                    serverError(resp, "Could not feature listing.");
+                }
+                break;
+            }
+            case "UNFEATURE":
+                ok = featuredListingDAO.unfeatureAuction(auctionId);
+                if (ok) okMsg(resp, "Listing removed from featured.");
+                else serverError(resp, "Could not unfeature listing.");
                 break;
             default:
                 badRequest(resp, "Unknown action: " + action);
