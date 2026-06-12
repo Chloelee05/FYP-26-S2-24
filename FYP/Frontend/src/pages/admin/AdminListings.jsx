@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getAdminListings, flagListing, removeListing, restoreListing } from '../../api/admin';
+import {
+  getAdminListings, flagListing, removeListing, restoreListing,
+  featureListing, unfeatureListing,
+} from '../../api/admin';
 import { formatCurrency } from '../../utils/helpers';
 
 const STATUS_STYLE = {
@@ -22,18 +25,36 @@ export default function AdminListings() {
 
   useEffect(() => { reload(); }, []);
 
+  const patchListing = (auctionId, patch) => {
+    setListings(prev => prev.map(l => l.auctionId !== auctionId ? l : { ...l, ...patch }));
+    if (selected?.auctionId === auctionId) {
+      setSelected(l => ({ ...l, ...patch }));
+    }
+  };
+
   const handle = async (action, auctionId) => {
     setMsg('');
     try {
       if (action === 'flag') await flagListing(auctionId);
       else if (action === 'remove') await removeListing(auctionId);
-      else await restoreListing(auctionId);
-      const nextState = action === 'flag' ? 'FLAGGED' : action === 'remove' ? 'REMOVED' : 'ACTIVE';
-      setListings(prev => prev.map(l => l.auctionId !== auctionId ? l : { ...l, moderationState: nextState }));
-      if (selected?.auctionId === auctionId) {
-        setSelected(l => ({ ...l, moderationState: nextState }));
-      }
-      setMsg(`Listing ${action === 'flag' ? 'flagged' : action === 'remove' ? 'removed' : 'restored'}.`);
+      else if (action === 'restore') await restoreListing(auctionId);
+      else if (action === 'feature') await featureListing(auctionId, 7);
+      else if (action === 'unfeature') await unfeatureListing(auctionId);
+
+      if (action === 'flag') patchListing(auctionId, { moderationState: 'FLAGGED' });
+      else if (action === 'remove') patchListing(auctionId, { moderationState: 'REMOVED' });
+      else if (action === 'restore') patchListing(auctionId, { moderationState: 'ACTIVE' });
+      else if (action === 'feature') patchListing(auctionId, { featured: true });
+      else if (action === 'unfeature') patchListing(auctionId, { featured: false });
+
+      const labels = {
+        flag: 'flagged',
+        remove: 'removed',
+        restore: 'restored',
+        feature: 'featured for 7 days ($9.99 platform fee recorded)',
+        unfeature: 'removed from featured',
+      };
+      setMsg(`Listing ${labels[action]}.`);
     } catch {
       setMsg('Action failed.');
     }
@@ -49,7 +70,7 @@ export default function AdminListings() {
         <table className="w-full text-sm">
           <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
             <tr>
-              {['Listing', 'Seller', 'Category', 'Current Bid', 'Reports', 'Status'].map(h => (
+              {['Listing', 'Seller', 'Category', 'Current Bid', 'Reports', 'Featured', 'Status'].map(h => (
                 <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
               ))}
             </tr>
@@ -76,6 +97,13 @@ export default function AdminListings() {
                     </span>
                   </td>
                   <td className="px-4 py-4">
+                    {l.featured ? (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">Featured</span>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-4">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[state] || 'bg-gray-100 text-gray-500'}`}>
                       {state}
                     </span>
@@ -100,6 +128,7 @@ export default function AdminListings() {
               <div><dt className="text-gray-400">Category</dt><dd>{selected.category}</dd></div>
               <div><dt className="text-gray-400">Current bid</dt><dd>{formatCurrency(selected.currentBid)}</dd></div>
               <div><dt className="text-gray-400">Reports</dt><dd>{selected.reportCount ?? 0}</dd></div>
+              <div><dt className="text-gray-400">Featured</dt><dd>{selected.featured ? 'Yes (home promo)' : 'No'}</dd></div>
               <div><dt className="text-gray-400">Status</dt>
                 <dd><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[normState(selected.moderationState)]}`}>
                   {normState(selected.moderationState)}
@@ -119,6 +148,23 @@ export default function AdminListings() {
               )}
               {normState(selected.moderationState) === 'REMOVED' && (
                 <button onClick={() => handle('restore', selected.auctionId)} className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg">Restore</button>
+              )}
+              {normState(selected.moderationState) === 'ACTIVE' && !selected.featured && (
+                <button
+                  onClick={() => handle('feature', selected.auctionId)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg"
+                  title="Records $9.99 platform revenue; listing appears on home Featured section"
+                >
+                  Feature (7 days)
+                </button>
+              )}
+              {selected.featured && (
+                <button
+                  onClick={() => handle('unfeature', selected.auctionId)}
+                  className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-800 text-sm rounded-lg"
+                >
+                  Remove featured
+                </button>
               )}
               <Link to={`/auction/${selected.auctionId}`} className="px-4 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50">
                 View auction

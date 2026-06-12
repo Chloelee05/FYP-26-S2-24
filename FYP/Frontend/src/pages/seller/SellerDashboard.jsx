@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Edit2, XCircle, RotateCcw, Eye, Star, BarChart3, Mail } from 'lucide-react';
+import { Plus, Edit2, XCircle, RotateCcw, Eye, Star, BarChart3, Mail, Sparkles } from 'lucide-react';
 import {
   getSellerAuctions, cancelAuction, relistAuction, rateBuyer,
   getSellerAnalytics, emailSellerAnalytics, reduceAuctionQuantity,
@@ -187,6 +187,32 @@ export default function SellerDashboard() {
             </button>
           </div>
           {analyticsMsg && <div className="text-sm text-blue-600 mb-3">{analyticsMsg}</div>}
+
+          {analytics.earningsSummary && (
+            <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-100">
+              <p className="text-sm font-semibold text-gray-900 mb-1">Earnings summary (simulated)</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Based on completed orders and platform fees. No in-app wallet or withdrawals in this prototype.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: 'Gross sales', value: formatCurrency(analytics.earningsSummary.grossSales) },
+                  { label: `Platform fee (${analytics.earningsSummary.commissionRatePct ?? 6}%)`, value: formatCurrency(analytics.earningsSummary.platformFee) },
+                  { label: 'Featured fees', value: formatCurrency(analytics.earningsSummary.featuredFees) },
+                  { label: 'Net earnings', value: formatCurrency(analytics.earningsSummary.netEarnings), highlight: true },
+                ].map(m => (
+                  <div key={m.label} className={`rounded-lg p-3 text-center ${m.highlight ? 'bg-white ring-1 ring-blue-200' : 'bg-white/70'}`}>
+                    <span className={`block text-lg font-bold ${m.highlight ? 'text-blue-700' : 'text-gray-900'}`}>{m.value}</span>
+                    <span className="text-xs text-gray-500">{m.label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                {analytics.earningsSummary.completedOrders ?? 0} completed order(s)
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             {[
               { label: 'Items Sold', value: analytics.soldCount },
@@ -289,6 +315,14 @@ export default function SellerDashboard() {
               </Link>
               {tab === 'ACTIVE' && (
                 <>
+                  <button
+                    type="button"
+                    disabled
+                    title="Wallet billing — future work. Contact admin to feature this listing ($9.99)."
+                    className="p-2 text-gray-300 cursor-not-allowed"
+                  >
+                    <Sparkles size={16} />
+                  </button>
                   <Link to={`/seller/auction/${auction.auctionId}/edit`} className="p-2 text-gray-400 hover:text-blue-500 transition-colors" title="Edit">
                     <Edit2 size={16} />
                   </Link>

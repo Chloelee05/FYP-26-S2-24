@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.util.DBUtil;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -84,6 +85,7 @@ public class SellerAnalyticsDAO {
             out.put("topListings", topListings);
             out.put("periodStats", loadPeriodStats(conn, sellerId));
             out.put("productRatings", loadProductRatings(conn, sellerId));
+            out.put("earningsSummary", loadEarningsSummary(conn, sellerId));
             return out;
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -117,6 +119,45 @@ public class SellerAnalyticsDAO {
             ps.setInt(1, sellerId);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /**
+     * Read-only seller earnings from completed orders and {@code platform_revenue}
+     * (no wallet balance or payouts).
+     */
+    private Map<String, Object> loadEarningsSummary(Connection conn, int sellerId) throws Exception {
+        BigDecimal gross = sumDecimal(conn,
+                "SELECT COALESCE(SUM(amount), 0) FROM orders WHERE seller_id = ? AND status = 'COMPLETED'",
+                sellerId);
+        BigDecimal platformFee = sumDecimal(conn,
+                "SELECT COALESCE(SUM(amount), 0) FROM platform_revenue "
+              + "WHERE seller_id = ? AND revenue_type = 'COMMISSION'",
+                sellerId);
+        BigDecimal featuredFees = sumDecimal(conn,
+                "SELECT COALESCE(SUM(amount), 0) FROM platform_revenue "
+              + "WHERE seller_id = ? AND revenue_type = 'FEATURED_LISTING'",
+                sellerId);
+        BigDecimal net = gross.subtract(platformFee).subtract(featuredFees);
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("grossSales", gross);
+        row.put("platformFee", platformFee);
+        row.put("featuredFees", featuredFees);
+        row.put("netEarnings", net);
+        row.put("completedOrders", countSince(conn,
+                "SELECT COUNT(*) FROM orders WHERE seller_id = ? AND status = 'COMPLETED'", sellerId));
+        row.put("commissionRatePct", 6);
+        row.put("simulated", true);
+        return row;
+    }
+
+    private BigDecimal sumDecimal(Connection conn, String sql, int sellerId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, sellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getBigDecimal(1) : BigDecimal.ZERO;
             }
         }
     }
