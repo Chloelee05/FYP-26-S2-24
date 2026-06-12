@@ -15,6 +15,7 @@ public final class AdminListingRow {
     private  BigDecimal currentBid;
     private  int reportCount;
     private  String moderationState;
+    private boolean featured;
 
     public AdminListingRow()
     {}
@@ -94,5 +95,13 @@ public final class AdminListingRow {
 
     public void setModerationState(String moderationState) {
         this.moderationState = moderationState;
+    }
+
+    public boolean isFeatured() {
+        return featured;
+    }
+
+    public void setFeatured(boolean featured) {
+        this.featured = featured;
     }
 }
