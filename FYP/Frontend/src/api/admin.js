@@ -40,6 +40,10 @@ export const getAdminListings  = () => api.get('/admin/listings');
 export const flagListing    = (auctionId) => api.post('/admin/listings', form({ action: 'FLAG',    auctionId }), F);
 export const removeListing  = (auctionId) => api.post('/admin/listings', form({ action: 'REMOVE',  auctionId }), F);
 export const restoreListing = (auctionId) => api.post('/admin/listings', form({ action: 'RESTORE', auctionId }), F);
+export const featureListing = (auctionId, days = 7) =>
+  api.post('/admin/listings', form({ action: 'FEATURE', auctionId, days: String(days) }), F);
+export const unfeatureListing = (auctionId) =>
+  api.post('/admin/listings', form({ action: 'UNFEATURE', auctionId }), F);
 
 // Categories
 export const getAdminCategories = () => api.get('/admin/categories');

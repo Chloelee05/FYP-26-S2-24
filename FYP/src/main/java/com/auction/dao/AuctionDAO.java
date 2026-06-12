@@ -25,7 +25,7 @@ public class AuctionDAO {
             String sql = "SELECT a.auction_id, d.title, a.date_created, u.username, "
                     + "d.category, "
                     + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), 0) AS current_bid, "
-                    + "a.report_count, a.moderation_state "
+                    + "a.report_count, a.moderation_state, a.is_featured "
                     + "FROM auction a "
                     + "JOIN auction_details d ON d.id = a.auction_id "
                     + "JOIN users u ON u.id = a.seller_id "
@@ -36,7 +36,7 @@ public class AuctionDAO {
                 while (rs.next()) {
                     LocalDate listed = rs.getTimestamp("date_created").toInstant()
                             .atZone(ADMIN_ZONE).toLocalDate();
-                    rows.add(new AdminListingRow(
+                    AdminListingRow row = new AdminListingRow(
                             rs.getLong("auction_id"),
                             rs.getString("title"),
                             listed,
@@ -44,7 +44,9 @@ public class AuctionDAO {
                             rs.getString("category"),
                             rs.getBigDecimal("current_bid"),
                             rs.getInt("report_count"),
-                            rs.getString("moderation_state")));
+                            rs.getString("moderation_state"));
+                    row.setFeatured(rs.getBoolean("is_featured"));
+                    rows.add(row);
                 }
             }
             return rows;
