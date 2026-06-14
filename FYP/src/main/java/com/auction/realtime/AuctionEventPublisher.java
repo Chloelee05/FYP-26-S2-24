@@ -75,9 +75,11 @@ public final class AuctionEventPublisher {
                 BigDecimal currentBid = rs.getBigDecimal("current_bid");
                 int bidCount = rs.getInt("bid_count");
 
+                Instant nowPub = Instant.now();
                 boolean open = statusId == AuctionStatus.ACTIVE.getId()
                         && "active".equals(modState)
-                        && Instant.now().isBefore(dateEnd);
+                        && nowPub.isBefore(dateEnd)
+                        && !nowPub.isBefore(dateCreated);
 
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("auctionId", auctionId);

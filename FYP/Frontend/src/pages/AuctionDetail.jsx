@@ -113,6 +113,9 @@ export default function AuctionDetail() {
   const isBlind = auctionType === 3;
   const isStandard = !isDutch && !isBlind;
 
+  // Scheduled (PENDING): start time is still in the future — not the same as ended.
+  const isScheduled = auction.startTime && now < new Date(auction.startTime).getTime();
+
   // Dutch descending clock, computed locally so the price animates between SSE frames.
   const dutchClockPrice = () => {
     const start = Number(auction.startingPrice ?? 0);
@@ -517,6 +520,14 @@ export default function AuctionDetail() {
           )}
 
           {!auction.open ? (
+            isScheduled ? (
+              <div className="card p-5 text-center text-sm">
+                <p className="mb-1 font-medium text-orange-600">This auction hasn't started yet.</p>
+                <p className="text-xs text-gray-400">
+                  Bidding opens {new Date(auction.startTime).toLocaleString()}
+                </p>
+              </div>
+            ) : (
             <div className="card p-5 text-center text-sm text-gray-500">
               <p className="mb-3">This auction has ended.</p>
               {auction.isOwner && (
@@ -533,6 +544,7 @@ export default function AuctionDetail() {
                 </>
               )}
             </div>
+            )
           ) : isStandard ? (
             <>
               {/* Place Bid (ascending) */}
