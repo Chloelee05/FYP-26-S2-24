@@ -25,10 +25,11 @@ public class AuctionDAO {
             String sql = "SELECT a.auction_id, d.title, a.date_created, u.username, "
                     + "d.category, "
                     + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), 0) AS current_bid, "
-                    + "a.report_count, a.moderation_state, a.is_featured "
+                    + "a.report_count, a.moderation_state, a.is_featured, s.status AS auction_status "
                     + "FROM auction a "
                     + "JOIN auction_details d ON d.id = a.auction_id "
                     + "JOIN users u ON u.id = a.seller_id "
+                    + "JOIN auction_status s ON s.id = a.status_id "
                     + "ORDER BY a.report_count DESC, a.auction_id DESC";
             List<AdminListingRow> rows = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(sql);
@@ -46,6 +47,7 @@ public class AuctionDAO {
                             rs.getInt("report_count"),
                             rs.getString("moderation_state"));
                     row.setFeatured(rs.getBoolean("is_featured"));
+                    row.setAuctionStatus(rs.getString("auction_status"));
                     rows.add(row);
                 }
             }
@@ -184,7 +186,10 @@ public class AuctionDAO {
     private long insertAuction(Connection conn, Auction auction) throws Exception {
         String sql = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) VALUES(?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
-            stmt.setInt(1, AuctionStatus.ACTIVE.getId());
+            // Use PENDING when the start date is in the future; ACTIVE otherwise.
+            boolean scheduled = auction.getStart_date() != null
+                    && auction.getStart_date().isAfter(java.time.Instant.now());
+            stmt.setInt(1, scheduled ? AuctionStatus.PENDING.getId() : AuctionStatus.ACTIVE.getId());
             stmt.setInt(2, auction.getSeller_id());
             stmt.setTimestamp(3, Timestamp.from(auction.getStart_date()));
             stmt.setTimestamp(4, Timestamp.from(auction.getEnd_date()));

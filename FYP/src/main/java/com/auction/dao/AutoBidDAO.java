@@ -280,12 +280,13 @@ public class AutoBidDAO {
             }
         }
 
-        // Counter bid: just above secondBest (or just above floor), capped at winner's max.
+        // Counter bid: one increment above the current floor (one-step ping-pong mode).
+        // This produces a visible step-by-step bid history instead of a single jump.
+        // The loop in processAutoBids re-enters until no competitor can respond,
+        // effectively resolving the final price through repeated small steps.
         // Uses winner's per-buyer increment (defaults to MIN_INCREMENT for legacy rows).
         BigDecimal step = winner.getIncrement();
-        BigDecimal minNeeded = floor.add(step);
-        BigDecimal aboveSecond = secondBestMax.add(step);
-        BigDecimal counter = minNeeded.max(aboveSecond).min(winner.maxAmount);
+        BigDecimal counter = floor.add(step).min(winner.maxAmount);
 
         // Edge: if counter ≤ floor (shouldn't happen given filters above), bail out
         if (counter.compareTo(floor) <= 0) return null;

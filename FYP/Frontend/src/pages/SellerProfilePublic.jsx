@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Flag } from 'lucide-react';
 import { getSellerProfile, reportUser } from '../api/auction';
+import { decodeHtmlEntities } from '../utils/helpers';
 import StarRating from '../components/StarRating';
 import { useAuth } from '../context/AuthContext';
 
@@ -98,7 +99,7 @@ export default function SellerProfilePublic() {
                   <StarRating value={r.score ?? r.rating ?? 0} size={14} />
                   <span className="text-xs text-gray-400">{r.buyerUsername ?? r.reviewer ?? 'Buyer'}</span>
                 </div>
-                {r.comment && <p className="text-sm text-gray-600">{r.comment}</p>}
+                {r.comment && <p className="text-sm text-gray-600">{decodeHtmlEntities(r.comment)}</p>}
               </div>
             ))}
           </div>

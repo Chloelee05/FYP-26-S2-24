@@ -44,12 +44,51 @@ public class AuctionExpiryListener implements ServletContextListener {
 
     private void runExpiryPass() {
         try {
+            // Activate any PENDING auctions whose start time has arrived.
+            activatePendingAuctions();
+        } catch (Exception ignored) { }
+
+        try {
             List<Long> ids = listExpiredActiveAuctionIds();
             for (Long id : ids) {
                 AuctionFinalizer.finalizeIfExpiredAndNotify(id);
             }
         } catch (Exception ignored) {
             // best-effort background task
+        }
+    }
+
+    /**
+     * Transitions PENDING auctions to ACTIVE when their {@code date_created} (= scheduled
+     * start time) is now in the past. Extends the expiry listener without touching the
+     * existing finalisation logic.
+     */
+    private static void activatePendingAuctions() throws Exception {
+        List<Long> ids = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT auction_id FROM auction "
+                   + "WHERE status_id = ? "
+                   + "  AND date_created IS NOT NULL "
+                   + "  AND date_created <= CURRENT_TIMESTAMP")) {
+            ps.setInt(1, AuctionStatus.PENDING.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) ids.add(rs.getLong("auction_id"));
+            }
+        }
+        if (ids.isEmpty()) return;
+
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE auction SET status_id = ? "
+                   + "WHERE auction_id = ? AND status_id = ?")) {
+            for (Long id : ids) {
+                ps.setInt(1, AuctionStatus.ACTIVE.getId());
+                ps.setLong(2, id);
+                ps.setInt(3, AuctionStatus.PENDING.getId());
+                ps.addBatch();
+            }
+            ps.executeBatch();
         }
     }
 
