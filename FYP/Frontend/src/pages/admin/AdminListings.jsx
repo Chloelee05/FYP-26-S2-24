@@ -142,7 +142,7 @@ export default function AdminListings() {
               <div><dt className="text-gray-400">Reports</dt><dd>{selected.reportCount ?? 0}</dd></div>
               <div><dt className="text-gray-400">Featured</dt><dd>{selected.featured ? 'Yes (home promo)' : 'No'}</dd></div>
               <div><dt className="text-gray-400">Status</dt>
-                <dd><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[normState(selected.moderationState)]}`}>
+                <dd><span className={`px-2 py-0.5 rounded text-xs font-medium ${MODERATION_STYLE[normState(selected.moderationState)] || 'bg-gray-100 text-gray-500'}`}>
                   {normState(selected.moderationState)}
                 </span></dd>
               </div>
