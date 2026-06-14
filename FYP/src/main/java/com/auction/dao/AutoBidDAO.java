@@ -59,27 +59,42 @@ public class AutoBidDAO {
     // -------------------------------------------------------------------------
 
     /**
-     * Creates or replaces the buyer's auto-bid for the given auction.
-     *
-     * <p>{@code maxAmount} is encrypted before storage (SCRUM-296).
-     * {@code note}, if non-blank, is also encrypted.</p>
-     *
-     * @param auctionId auction the auto-bid applies to
-     * @param userId    buyer setting the auto-bid (always from session, never from request)
-     * @param maxAmount buyer's maximum bid ceiling; must be positive
-     * @param note      optional private note; may be {@code null} or blank
+     * Creates or replaces the buyer's auto-bid for the given auction (legacy overload).
+     * Delegates to {@link #upsert(long, int, BigDecimal, String, BigDecimal)} with
+     * {@link #MIN_INCREMENT} as the increment.
      */
     public void upsert(long auctionId, int userId, BigDecimal maxAmount, String note) {
+        upsert(auctionId, userId, maxAmount, note, MIN_INCREMENT);
+    }
+
+    /**
+     * Creates or replaces the buyer's auto-bid with an explicit per-step increment.
+     *
+     * <p>{@code maxAmount} is encrypted before storage (SCRUM-296).
+     * {@code note}, if non-blank, is also encrypted.
+     * {@code bidIncrement} is stored as plain NUMERIC — not sensitive.</p>
+     *
+     * @param auctionId    auction the auto-bid applies to
+     * @param userId       buyer setting the auto-bid (always from session)
+     * @param maxAmount    buyer's maximum bid ceiling; must be positive
+     * @param note         optional private note; may be {@code null} or blank
+     * @param bidIncrement per-step counter-bid amount; clamped to MIN_INCREMENT floor
+     */
+    public void upsert(long auctionId, int userId, BigDecimal maxAmount, String note,
+                       BigDecimal bidIncrement) {
         String encAmount = SecurityUtil.encrypt(maxAmount.toPlainString());
         String encNote = (note != null && !note.isBlank())
                 ? SecurityUtil.encrypt(note.trim()) : null;
+        BigDecimal safeIncrement = (bidIncrement != null && bidIncrement.compareTo(MIN_INCREMENT) >= 0)
+                ? bidIncrement : MIN_INCREMENT;
 
         String sql =
-                "INSERT INTO auto_bids (auction_id, user_id, max_amount_enc, note_enc) "
-                + "VALUES (?, ?, ?, ?) "
+                "INSERT INTO auto_bids (auction_id, user_id, max_amount_enc, note_enc, bid_increment) "
+                + "VALUES (?, ?, ?, ?, ?) "
                 + "ON CONFLICT (auction_id, user_id) DO UPDATE SET "
                 + "  max_amount_enc = EXCLUDED.max_amount_enc, "
                 + "  note_enc       = EXCLUDED.note_enc, "
+                + "  bid_increment  = EXCLUDED.bid_increment, "
                 + "  updated_at     = CURRENT_TIMESTAMP";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -87,7 +102,32 @@ public class AutoBidDAO {
             ps.setInt(2, userId);
             ps.setString(3, encAmount);
             ps.setString(4, encNote);
+            ps.setBigDecimal(5, safeIncrement);
             ps.executeUpdate();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Returns the buyer's current auto-bid row (decrypted max + increment),
+     * or {@code null} if no auto-bid is registered for this auction.
+     */
+    public AutoBidRow getAutoBidForUser(long auctionId, int userId) {
+        String sql = "SELECT max_amount_enc, bid_increment, created_at "
+                   + "FROM auto_bids WHERE auction_id = ? AND user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                BigDecimal max = new BigDecimal(SecurityUtil.decrypt(rs.getString("max_amount_enc")));
+                BigDecimal inc = rs.getBigDecimal("bid_increment");
+                Instant createdAt = rs.getTimestamp("created_at").toInstant();
+                return new AutoBidRow(userId, max, createdAt,
+                        inc != null ? inc : MIN_INCREMENT);
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -240,9 +280,11 @@ public class AutoBidDAO {
             }
         }
 
-        // Counter bid: just above secondBest (or just above floor), capped at winner's max
-        BigDecimal minNeeded = floor.add(MIN_INCREMENT);
-        BigDecimal aboveSecond = secondBestMax.add(MIN_INCREMENT);
+        // Counter bid: just above secondBest (or just above floor), capped at winner's max.
+        // Uses winner's per-buyer increment (defaults to MIN_INCREMENT for legacy rows).
+        BigDecimal step = winner.getIncrement();
+        BigDecimal minNeeded = floor.add(step);
+        BigDecimal aboveSecond = secondBestMax.add(step);
         BigDecimal counter = minNeeded.max(aboveSecond).min(winner.maxAmount);
 
         // Edge: if counter ≤ floor (shouldn't happen given filters above), bail out
@@ -258,17 +300,20 @@ public class AutoBidDAO {
     private List<AutoBidRow> fetchAllDecrypted(Connection conn, long auctionId)
             throws SQLException {
         List<AutoBidRow> rows = new ArrayList<>();
-        String sql = "SELECT user_id, max_amount_enc, created_at FROM auto_bids WHERE auction_id = ?";
+        String sql = "SELECT user_id, max_amount_enc, bid_increment, created_at "
+                   + "FROM auto_bids WHERE auction_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, auctionId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     int uid = rs.getInt("user_id");
                     String enc = rs.getString("max_amount_enc");
+                    BigDecimal inc = rs.getBigDecimal("bid_increment");
                     Instant createdAt = rs.getTimestamp("created_at").toInstant();
                     try {
                         BigDecimal max = new BigDecimal(SecurityUtil.decrypt(enc));
-                        rows.add(new AutoBidRow(uid, max, createdAt));
+                        rows.add(new AutoBidRow(uid, max, createdAt,
+                                inc != null ? inc : MIN_INCREMENT));
                     } catch (Exception e) {
                         // Corrupt ciphertext — skip and log; don't fail the whole transaction
                         LOGGER.warning(String.format(
@@ -299,21 +344,31 @@ public class AutoBidDAO {
     // Value objects
     // -------------------------------------------------------------------------
 
-    /** An auto-bid row with its decrypted max amount. */
+    /** An auto-bid row with its decrypted max amount and per-buyer bid increment. */
     public static final class AutoBidRow {
         private final int userId;
         private final BigDecimal maxAmount;
         private final Instant createdAt;
+        /** Per-buyer bid increment; defaults to MIN_INCREMENT (0.01) for legacy rows. */
+        private final BigDecimal increment;
 
+        /** Legacy constructor — increment defaults to MIN_INCREMENT. */
         public AutoBidRow(int userId, BigDecimal maxAmount, Instant createdAt) {
+            this(userId, maxAmount, createdAt, MIN_INCREMENT);
+        }
+
+        public AutoBidRow(int userId, BigDecimal maxAmount, Instant createdAt, BigDecimal increment) {
             this.userId = userId;
             this.maxAmount = maxAmount;
             this.createdAt = createdAt;
+            this.increment = (increment != null && increment.compareTo(MIN_INCREMENT) >= 0)
+                    ? increment : MIN_INCREMENT;
         }
 
-        public int getUserId()          { return userId; }
-        public BigDecimal getMaxAmount(){ return maxAmount; }
-        public Instant getCreatedAt()   { return createdAt; }
+        public int getUserId()           { return userId; }
+        public BigDecimal getMaxAmount() { return maxAmount; }
+        public Instant getCreatedAt()    { return createdAt; }
+        public BigDecimal getIncrement() { return increment; }
     }
 
     /** The result of {@link #resolveNextAutoBid}: who bids and how much. */
