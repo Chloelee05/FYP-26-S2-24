@@ -436,9 +436,13 @@ public class BidDAO {
                 Instant dateEnd = rs.getTimestamp("date_end").toInstant();
                 int statusId = rs.getInt("status_id");
                 String modState = rs.getString("moderation_state");
+                Instant dateCreatedInner = rs.getTimestamp("date_created") != null
+                        ? rs.getTimestamp("date_created").toInstant() : Instant.EPOCH;
+                Instant nowInner = Instant.now();
                 boolean open = statusId == AuctionStatus.ACTIVE.getId()
                         && "active".equals(modState)
-                        && Instant.now().isBefore(dateEnd);
+                        && nowInner.isBefore(dateEnd)
+                        && !nowInner.isBefore(dateCreatedInner);
 
                 BigDecimal startingPrice = rs.getBigDecimal("starting_price");
                 if (startingPrice == null) startingPrice = BigDecimal.ZERO;

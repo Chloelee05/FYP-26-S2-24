@@ -6,7 +6,7 @@ import {
   getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
 } from '../api/user';
 import { getOrders, payOrder, completeOrder, advanceOrderShipping, resolveOrderRefund } from '../api/orders';
-import { formatCurrency, getRoleDisplay } from '../utils/helpers';
+import { formatCurrency, getRoleDisplay, decodeHtmlEntities } from '../utils/helpers';
 import StarRating from '../components/StarRating';
 import OrderTrackingModal from '../components/OrderTrackingModal';
 import RateBuyerModal from '../components/RateBuyerModal';
@@ -537,7 +537,7 @@ export default function UserProfile() {
                             ))}
                           </div>
                           {rev.auctionTitle && <p className="text-xs text-gray-400 mt-0.5">on {rev.auctionTitle}</p>}
-                          {rev.comment && <p className="text-sm text-gray-600 mt-1.5">{rev.comment}</p>}
+                          {rev.comment && <p className="text-sm text-gray-600 mt-1.5">{decodeHtmlEntities(rev.comment)}</p>}
                         </div>
                       </div>
                     ))}

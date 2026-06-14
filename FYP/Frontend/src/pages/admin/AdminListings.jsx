@@ -6,10 +6,17 @@ import {
 } from '../../api/admin';
 import { formatCurrency } from '../../utils/helpers';
 
-const STATUS_STYLE = {
-  ACTIVE: 'bg-green-100 text-green-600',
+const MODERATION_STYLE = {
+  ACTIVE:  'bg-green-100 text-green-600',
   FLAGGED: 'bg-yellow-100 text-yellow-600',
   REMOVED: 'bg-red-100 text-red-600',
+};
+
+const AUCTION_STATUS_STYLE = {
+  Active:    'bg-blue-100 text-blue-600',
+  Pending:   'bg-orange-100 text-orange-600',
+  Finished:  'bg-gray-100 text-gray-500',
+  Cancelled: 'bg-red-100 text-red-400',
 };
 
 const REPORT_STYLE = (n) => n === 0 ? 'bg-green-100 text-green-600' : n < 5 ? 'bg-yellow-100 text-yellow-600' : 'bg-red-100 text-red-600';
@@ -70,7 +77,7 @@ export default function AdminListings() {
         <table className="w-full text-sm">
           <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
             <tr>
-              {['Listing', 'Seller', 'Category', 'Current Bid', 'Reports', 'Featured', 'Status'].map(h => (
+              {['Listing', 'Seller', 'Category', 'Current Bid', 'Reports', 'Featured', 'Lifecycle', 'Moderation'].map(h => (
                 <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
               ))}
             </tr>
@@ -104,7 +111,12 @@ export default function AdminListings() {
                     )}
                   </td>
                   <td className="px-4 py-4">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[state] || 'bg-gray-100 text-gray-500'}`}>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${AUCTION_STATUS_STYLE[l.auctionStatus] || 'bg-gray-100 text-gray-500'}`}>
+                      {l.auctionStatus ?? '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${MODERATION_STYLE[state] || 'bg-gray-100 text-gray-500'}`}>
                       {state}
                     </span>
                   </td>

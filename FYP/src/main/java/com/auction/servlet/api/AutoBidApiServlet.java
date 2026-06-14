@@ -1,7 +1,9 @@
 package com.auction.servlet.api;
 
 import com.auction.dao.AutoBidDAO;
+import com.auction.realtime.AuctionEventPublisher;
 import com.auction.util.AuthSession;
+import com.auction.util.DBUtil;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -10,6 +12,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * POST /api/auto-bid  params: auctionId, action (SET|CANCEL), maxAmount, note, bidIncrement
@@ -18,6 +21,8 @@ import java.util.Map;
  */
 @WebServlet("/api/auto-bid")
 public class AutoBidApiServlet extends ApiBase {
+
+    private static final Logger LOGGER = Logger.getLogger(AutoBidApiServlet.class.getName());
 
     private AutoBidDAO autoBidDAO;
 
@@ -105,6 +110,21 @@ public class AutoBidApiServlet extends ApiBase {
 
         String note = param(req, "note");
         autoBidDAO.upsert(auctionId, buyerId, maxAmount, note, bidIncrement);
+
+        // Fire proxy resolution immediately so the new auto-bid activates without
+        // requiring another manual bid — mirrors SetAutoBidServlet (legacy JSP path).
+        final long auctionIdFinal = auctionId;
+        try {
+            DBUtil.runInTransaction(conn -> {
+                autoBidDAO.processAutoBids(conn, auctionIdFinal);
+                return null;
+            });
+            AuctionEventPublisher.publishSnapshot(auctionIdFinal);
+        } catch (Exception e) {
+            // Auto-bid stored; processing failed — log and continue.
+            LOGGER.warning("AutoBidApiServlet processAutoBids failed: " + e.getMessage());
+        }
+
         okMsg(resp, "Auto-bid enabled up to $" + maxAmount.toPlainString()
                 + " (step $" + bidIncrement.toPlainString() + ").");
     }
