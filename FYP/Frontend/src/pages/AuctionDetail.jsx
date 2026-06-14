@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
-import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
+import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
 import AuctionSellerCard from '../components/AuctionSellerCard';
 import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
@@ -21,6 +21,8 @@ export default function AuctionDetail() {
   const [bidAmount, setBidAmount] = useState('');
   const [autoBidMax, setAutoBidMax] = useState('');
   const [autoBidIncrement, setAutoBidIncrement] = useState('50');
+  const [myAutoBid, setMyAutoBid] = useState(null);   // active auto-bid from server
+  const [autoBidEditing, setAutoBidEditing] = useState(false); // edit mode toggle
   const [question, setQuestion] = useState('');
   const [replyDrafts, setReplyDrafts] = useState({});
   const [message, setMessage] = useState('');
@@ -33,6 +35,12 @@ export default function AuctionDetail() {
   useEffect(() => {
     getAuctionDetail(id).then(r => {
       setAuction(r.data);
+      // myAutoBid is injected server-side for the authenticated buyer
+      if (r.data?.myAutoBid) {
+        setMyAutoBid(r.data.myAutoBid);
+      } else {
+        setMyAutoBid(null);
+      }
       if (r.data?.sellerId) {
         getSellerProfile(r.data.sellerId).then(sp => setSellerProfile(sp.data)).catch(() => {});
       }
@@ -151,12 +159,28 @@ export default function AuctionDetail() {
 
   const handleAutoBid = async () => {
     if (!user) { setError('Please log in to enable auto-bid.'); return; }
+    if (user.role !== 'BUYER') { setError('Only buyers can set auto-bid.'); return; }
     setError(''); setMessage('');
     try {
-      await setAutoBid(id, autoBidMax, autoBidIncrement);
+      await setAutoBid(id, autoBidMax, null, autoBidIncrement);
+      const inc = parseFloat(autoBidIncrement) || 50;
+      setMyAutoBid({ enabled: true, maxAmount: parseFloat(autoBidMax), bidIncrement: inc });
+      setAutoBidEditing(false);
       setMessage('Auto-bid enabled!');
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to enable auto-bid.');
+    }
+  };
+
+  const handleCancelAutoBid = async () => {
+    if (!window.confirm('Cancel your auto-bid for this auction?')) return;
+    setError(''); setMessage('');
+    try {
+      await cancelAutoBid(id);
+      setMyAutoBid(null);
+      setMessage('Auto-bid cancelled.');
+    } catch (err) {
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to cancel auto-bid.');
     }
   };
 
@@ -338,16 +362,40 @@ export default function AuctionDetail() {
               <p className="text-sm text-gray-400">No bids yet.</p>
             ) : (
               <div className="space-y-3">
-                {bids.map((bid, i) => (
-                  <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${i === 0 ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
-                    <div>
-                      {i === 0 && <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded mr-2">CURRENT</span>}
-                      <span className="font-medium text-sm">{bid.maskedBidderName}</span>
-                      <p className="text-xs text-gray-400 mt-0.5">{new Date(bid.bidTime).toLocaleString()}</p>
+                {(() => {
+                  let shownCurrent = false;
+                  return bids.map((bid, i) => {
+                  const isCurrentLeader = bid.currentLeader === true && !shownCurrent;
+                  if (bid.currentLeader === true && !shownCurrent) shownCurrent = true;
+                  const isSelf = bid.self === true;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        isCurrentLeader
+                          ? 'bg-green-50 border border-green-200'
+                          : isSelf
+                            ? 'bg-blue-50 border border-blue-100'
+                            : 'bg-gray-50'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                          {isCurrentLeader && (
+                            <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded">CURRENT</span>
+                          )}
+                          {isSelf && (
+                            <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded">YOU</span>
+                          )}
+                          <span className="font-medium text-sm">{bid.maskedBidderName}</span>
+                        </div>
+                        <p className="text-xs text-gray-400">{new Date(bid.bidTime).toLocaleString()}</p>
+                      </div>
+                      <span className="font-bold text-green-600">{formatCurrency(bid.bidAmount)}</span>
                     </div>
-                    <span className="font-bold text-green-600">{formatCurrency(bid.bidAmount)}</span>
-                  </div>
-                ))}
+                  );
+                });
+                })()}
               </div>
             )}
           </div>
@@ -525,34 +573,89 @@ export default function AuctionDetail() {
               {/* Auto-Bid */}
               <div className="card p-5 border-purple-200">
                 <h3 className="font-bold text-gray-900 mb-1">Auto-Bid</h3>
-                <p className="text-xs text-gray-500 mb-3">Set a maximum bid and let the system automatically bid for you</p>
-                <label className="text-xs text-gray-500 block mb-1">Maximum Bid</label>
-                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
-                  <span className="px-3 text-gray-400 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={autoBidMax}
-                    onChange={e => setAutoBidMax(e.target.value)}
-                    placeholder="2500"
-                    className="flex-1 py-2 pr-3 text-sm focus:outline-none"
-                  />
-                </div>
-                <label className="text-xs text-gray-500 block mb-1">Bid Increment</label>
-                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
-                  <span className="px-3 text-gray-400 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={autoBidIncrement}
-                    onChange={e => setAutoBidIncrement(e.target.value)}
-                    className="flex-1 py-2 pr-3 text-sm focus:outline-none"
-                  />
-                </div>
-                <button
-                  onClick={handleAutoBid}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 rounded-lg transition-colors"
-                >
-                  Enable Auto-Bid
-                </button>
+
+                {myAutoBid && !autoBidEditing ? (
+                  /* Active auto-bid: show summary + Cancel / Edit buttons */
+                  <div>
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-purple-600 font-semibold mb-1">Auto-Bid Active</p>
+                      <div className="flex justify-between text-sm text-gray-700">
+                        <span>Max bid</span>
+                        <span className="font-bold text-purple-700">{formatCurrency(myAutoBid.maxAmount)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-700 mt-0.5">
+                        <span>Bid increment</span>
+                        <span className="font-medium">{formatCurrency(myAutoBid.bidIncrement)}</span>
+                      </div>
+                    </div>
+                    {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+                    {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setAutoBidMax(String(myAutoBid.maxAmount));
+                          setAutoBidIncrement(String(myAutoBid.bidIncrement));
+                          setAutoBidEditing(true);
+                        }}
+                        className="flex-1 border border-purple-300 text-purple-700 font-medium py-2 rounded-lg text-sm hover:bg-purple-50 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={handleCancelAutoBid}
+                        className="flex-1 border border-red-300 text-red-600 font-medium py-2 rounded-lg text-sm hover:bg-red-50 transition-colors"
+                      >
+                        Cancel Auto-Bid
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* No active auto-bid or editing mode: show the form */
+                  <div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      {autoBidEditing ? 'Update your auto-bid settings below.' : 'Set a maximum bid and let the system automatically bid for you'}
+                    </p>
+                    <label className="text-xs text-gray-500 block mb-1">Maximum Bid</label>
+                    <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
+                      <span className="px-3 text-gray-400 text-sm">$</span>
+                      <input
+                        type="number"
+                        value={autoBidMax}
+                        onChange={e => setAutoBidMax(e.target.value)}
+                        placeholder="2500"
+                        className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                      />
+                    </div>
+                    <label className="text-xs text-gray-500 block mb-1">Bid Increment</label>
+                    <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mb-3">
+                      <span className="px-3 text-gray-400 text-sm">$</span>
+                      <input
+                        type="number"
+                        value={autoBidIncrement}
+                        onChange={e => setAutoBidIncrement(e.target.value)}
+                        className="flex-1 py-2 pr-3 text-sm focus:outline-none"
+                      />
+                    </div>
+                    {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+                    {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+                    <div className="flex gap-2">
+                      {autoBidEditing && (
+                        <button
+                          onClick={() => setAutoBidEditing(false)}
+                          className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                        >
+                          Back
+                        </button>
+                      )}
+                      <button
+                        onClick={handleAutoBid}
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 rounded-lg transition-colors"
+                      >
+                        {autoBidEditing ? 'Update Auto-Bid' : 'Enable Auto-Bid'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           ) : isDutch ? (

@@ -29,11 +29,14 @@ export const placeBid = (auctionId, bidAmount) =>
 export const acceptDutchPrice = (auctionId) =>
   api.post('/bid', form({ auctionId }), F);
 
-export const setAutoBid = (auctionId, maxAmount, note) =>
-  api.post('/auto-bid', form({ auctionId, action: 'SET', maxAmount, note }), F);
+export const setAutoBid = (auctionId, maxAmount, note, bidIncrement) =>
+  api.post('/auto-bid', form({ auctionId, action: 'SET', maxAmount, note, bidIncrement }), F);
 
 export const cancelAutoBid = (auctionId) =>
   api.post('/auto-bid', form({ auctionId, action: 'CANCEL' }), F);
+
+export const getMyAutoBid = (auctionId) =>
+  api.get(`/auto-bid?auctionId=${auctionId}`);
 
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist');

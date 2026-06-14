@@ -556,6 +556,65 @@ public class BidDAO {
         return list;
     }
 
+    /**
+     * Same as {@link #getBidHistory(long, int, int)} but also marks each entry with
+     * {@code isSelf = true} when the bid was placed by {@code viewerUserId}.
+     * Sorted by {@code bid_amount DESC, bid_time DESC} so the current leader always
+     * appears at the top regardless of timing.
+     *
+     * @param viewerUserId authenticated buyer's userId, or 0 / negative for anonymous
+     */
+    public List<AuctionBidHistoryEntry> getBidHistory(long auctionId, int page, int pageSize,
+                                                      int viewerUserId) {
+        Integer leaderUserId = findCurrentLeaderUserId(auctionId);
+        int offset = pageSize * (page - 1);
+
+        String sql =
+                "SELECT b.bid_amount, b.bid_time, b.user_id, u.username "
+                + "FROM bids b "
+                + "JOIN users u ON u.id = b.user_id "
+                + "WHERE b.auction_id = ? "
+                + "ORDER BY b.bid_amount DESC, b.bid_time DESC "
+                + "LIMIT ? OFFSET ?";
+
+        List<AuctionBidHistoryEntry> list = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, pageSize);
+            ps.setInt(3, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int bidderId = rs.getInt("user_id");
+                    String rawUsername = rs.getString("username");
+                    boolean isLeader = leaderUserId != null && leaderUserId == bidderId;
+                    boolean isSelf   = viewerUserId > 0 && viewerUserId == bidderId;
+                    // Self bid: show unmasked (only visible to the bidder themselves).
+                    // Others: partial mask for leader, full mask for the rest.
+                    String masked = isSelf
+                            ? rawUsername
+                            : (isLeader
+                                ? SecurityUtil.maskUsername(rawUsername)
+                                : SecurityUtil.maskUsernameFully(rawUsername));
+
+                    Timestamp bidTs = rs.getTimestamp("bid_time");
+                    BigDecimal amount = rs.getBigDecimal("bid_amount");
+                    if (amount == null) amount = BigDecimal.ZERO;
+
+                    list.add(new AuctionBidHistoryEntry(
+                            amount,
+                            bidTs != null ? bidTs.toInstant() : null,
+                            masked,
+                            isLeader,
+                            isSelf));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return list;
+    }
+
     /** Total bid count for an auction (used for pagination). */
     public int countBidHistory(long auctionId) {
         String sql = "SELECT COUNT(*)::int FROM bids WHERE auction_id = ?";

@@ -22,6 +22,9 @@
 \echo '== auto-bids =='
 \ir migration_auto_bids.sql
 
+\echo '== auto-bid increment (per-buyer step) =='
+\ir migration_auto_bid_increment.sql
+
 \echo '== watchlist =='
 \ir migration_watchlist.sql
 
