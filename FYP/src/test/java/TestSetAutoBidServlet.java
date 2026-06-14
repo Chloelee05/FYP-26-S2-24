@@ -359,11 +359,11 @@ public class TestSetAutoBidServlet {
     }
 
     // ==========================================================================
-    // resolveNextAutoBid algorithm (SCRUM-270 — competing auto-bids & limit reached)
+    // resolveNextAutoBid algorithm (one-step ping-pong mode)
     // ==========================================================================
 
     @Nested
-    @DisplayName("AutoBidDAO.resolveNextAutoBid algorithm – SCRUM-270")
+    @DisplayName("AutoBidDAO.resolveNextAutoBid algorithm – one-step ping-pong")
     class AlgorithmTests {
 
         private final Instant T0 = Instant.ofEpochSecond(1_000_000);
@@ -416,12 +416,12 @@ public class TestSetAutoBidServlet {
         }
 
         /**
-         * SCRUM-270: Competing auto-bids — higher max wins.
-         * B($150) vs A($100) at floor $10 (no current bidder).
-         * Expected: B wins at $100.01 (leapfrogs A's ceiling in one round).
+         * One-step mode: highest-max competitor bids floor + increment only.
+         * B($150) vs A($100) at floor $10 → B's first counter is $10.01 (not $100.01).
+         * processAutoBids loop repeats until equilibrium.
          */
         @Test
-        @DisplayName("competing auto-bids: higher max wins + leapfrogs in one round")
+        @DisplayName("competing auto-bids: higher max wins at floor + increment (one step)")
         void competingHigherMaxWins() {
             var bids = java.util.List.of(
                     row(1, "100.00", T0),   // A
@@ -430,16 +430,14 @@ public class TestSetAutoBidServlet {
 
             assertNotNull(result);
             assertEquals(2, result.userId); // B wins (higher max)
-            // secondBestMax = A's max ($100); counter = min(max($10.01, $100.01), $150) = $100.01
-            assertEquals(0, result.amount.compareTo(new BigDecimal("100.01")));
+            assertEquals(0, result.amount.compareTo(new BigDecimal("10.01")));
         }
 
         /**
-         * SCRUM-270: Equal max → earlier created_at wins (FIFO tie-break).
-         * A($100, T0) vs B($100, T1) — A should win.
+         * One-step mode: equal max → earlier created_at wins; bids floor + increment.
          */
         @Test
-        @DisplayName("equal max: earlier created_at (FIFO) wins")
+        @DisplayName("equal max: earlier created_at (FIFO) wins at floor + increment")
         void equalMaxFifoTiebreak() {
             var bids = java.util.List.of(
                     row(1, "100.00", T0),   // A — earlier
@@ -448,54 +446,45 @@ public class TestSetAutoBidServlet {
 
             assertNotNull(result);
             assertEquals(1, result.userId); // A wins (earlier)
-            // secondBestMax = B's max ($100); counter = min($100.01, $100) = $100 (A bids their ceiling)
-            assertEquals(0, result.amount.compareTo(new BigDecimal("100.00")));
+            assertEquals(0, result.amount.compareTo(new BigDecimal("10.01")));
         }
 
         /**
-         * SCRUM-270: Limit reached — winner bids exactly their max when the
-         * second-best competitor's ceiling is higher.
-         * B($150) is current top bidder. A($80) tries to counter.
-         * secondBestMax for A = B's max ($150) → counter = min($150.01, $80) = $80 (A hits limit).
+         * One-step mode: challenger bids floor + increment, capped at their max.
+         * B($150) is current top bidder at $79. A($80) counters one step to $79.01.
          */
         @Test
-        @DisplayName("limit reached: winner bids exactly their max when second-best is higher")
+        @DisplayName("limit reached: challenger bids floor + increment capped at max")
         void limitReached() {
             var bids = java.util.List.of(
                     row(1, "80.00",  T0),   // A — winner candidate
                     row(2, "150.00", T1));  // B — current top bidder (excluded)
-            // B is current top bidder (floor = their bid $79)
             var result = AutoBidDAO.resolveNextAutoBid(bids, new BigDecimal("79.00"), 2);
 
             assertNotNull(result);
             assertEquals(1, result.userId); // A counters
-            // secondBestMax = B's $150 → counter = min(max($79.01,$150.01),$80) = min($150.01,$80) = $80
-            assertEquals(0, result.amount.compareTo(new BigDecimal("80.00")));
+            assertEquals(0, result.amount.compareTo(new BigDecimal("79.01")));
         }
 
         /**
-         * SCRUM-270: After A bids their limit ($80), B counters at $80.01.
-         * Simulating the second loop iteration.
+         * One-step mode: after A bids $79.01, B counter-bids $79.02 (second loop iteration).
          */
         @Test
-        @DisplayName("after limit reached: B counter-bids just above A's ceiling")
+        @DisplayName("after limit step: B counter-bids one increment above new floor")
         void afterLimitReachedBCounters() {
-            // Now A is top bidder at $80, B tries to counter
             var bids = java.util.List.of(
                     row(1, "80.00",  T0),   // A — current top bidder
                     row(2, "150.00", T1));  // B — challenger
-            var result = AutoBidDAO.resolveNextAutoBid(bids, new BigDecimal("80.00"), 1);
+            var result = AutoBidDAO.resolveNextAutoBid(bids, new BigDecimal("79.01"), 1);
 
             assertNotNull(result);
             assertEquals(2, result.userId); // B wins
-            // secondBestMax = A's $80; counter = min(max($80.01,$80.01),$150) = $80.01
-            assertEquals(0, result.amount.compareTo(new BigDecimal("80.01")));
+            assertEquals(0, result.amount.compareTo(new BigDecimal("79.02")));
         }
 
         @Test
-        @DisplayName("three auto-bidders: highest max wins with optimal leapfrog amount")
+        @DisplayName("three auto-bidders: highest max wins at floor + increment (one step)")
         void threeAutoBidders() {
-            // C($200) > B($150) > A($100); floor = $10
             var bids = java.util.List.of(
                     row(1, "100.00", T0),
                     row(2, "150.00", T0.plusSeconds(1)),
@@ -504,8 +493,7 @@ public class TestSetAutoBidServlet {
 
             assertNotNull(result);
             assertEquals(3, result.userId); // C wins
-            // secondBestMax = B's $150; counter = min(max($10.01,$150.01),$200) = $150.01
-            assertEquals(0, result.amount.compareTo(new BigDecimal("150.01")));
+            assertEquals(0, result.amount.compareTo(new BigDecimal("10.01")));
         }
 
         @Test

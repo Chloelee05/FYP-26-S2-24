@@ -4,12 +4,19 @@ import { Filter, ChevronDown } from 'lucide-react';
 import AuctionCard from '../components/AuctionCard';
 import { searchAuctions, getCategories } from '../api/auction';
 
-const CONDITIONS = ['New', 'Like New', 'Good', 'Acceptable'];
+// Condition labels must match ItemCondition.displayName on the backend.
+const CONDITIONS = [
+  { label: 'Brand New',     value: 'BRAND_NEW' },
+  { label: 'Slightly Used', value: 'SLIGHTLY_USED' },
+  { label: 'Used',          value: 'USED' },
+  { label: 'Damaged',       value: 'DAMAGED' },
+];
+// Sort values must match SearchSort.paramValue on the backend.
 const SORTS = [
-  { value: 'ending_soon', label: 'Ending Soonest' },
-  { value: 'newest', label: 'Newly Listed' },
-  { value: 'price_asc', label: 'Price: Low to High' },
-  { value: 'price_desc', label: 'Price: High to Low' },
+  { value: 'endingSoon', label: 'Ending Soonest' },
+  { value: 'newest',     label: 'Newly Listed' },
+  { value: 'priceLow',   label: 'Price: Low to High' },
+  { value: 'priceHigh',  label: 'Price: High to Low' },
 ];
 
 export default function Search() {
@@ -89,15 +96,15 @@ export default function Search() {
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Condition</label>
             {CONDITIONS.map(c => (
-              <label key={c} className="flex items-center gap-2 text-sm text-gray-600 mb-1 cursor-pointer">
+              <label key={c.value} className="flex items-center gap-2 text-sm text-gray-600 mb-1 cursor-pointer">
                 <input
                   type="radio"
                   name="condition"
-                  value={c}
-                  checked={filters.condition === c}
-                  onChange={() => update('condition', c)}
+                  value={c.value}
+                  checked={filters.condition === c.value}
+                  onChange={() => update('condition', c.value)}
                 />
-                {c}
+                {c.label}
               </label>
             ))}
             {filters.condition && (
@@ -115,7 +122,7 @@ export default function Search() {
           </h2>
           <div className="flex items-center gap-2">
             <select
-              value={filters.sort}
+              value={filters.sortBy}
               onChange={e => update('sortBy', e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none"
             >

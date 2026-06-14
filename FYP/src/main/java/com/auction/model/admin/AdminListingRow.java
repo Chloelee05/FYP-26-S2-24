@@ -16,6 +16,8 @@ public final class AdminListingRow {
     private  int reportCount;
     private  String moderationState;
     private boolean featured;
+    /** Auction lifecycle status: ACTIVE, PENDING, FINISHED, CANCELLED */
+    private String auctionStatus;
 
     public AdminListingRow()
     {}
@@ -103,5 +105,13 @@ public final class AdminListingRow {
 
     public void setFeatured(boolean featured) {
         this.featured = featured;
+    }
+
+    public String getAuctionStatus() {
+        return auctionStatus;
+    }
+
+    public void setAuctionStatus(String auctionStatus) {
+        this.auctionStatus = auctionStatus;
     }
 }
