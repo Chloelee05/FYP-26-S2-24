@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import StarRating from './StarRating';
 import { publicPath } from '../utils/appBase';
+import { decodeHtmlEntities } from '../utils/helpers';
 
 export default function AuctionSellerCard({ seller }) {
   if (!seller) return null;
@@ -44,7 +45,7 @@ export default function AuctionSellerCard({ seller }) {
                   <StarRating value={r.rating} size={12} />
                   <span className="text-gray-400">{r.reviewerMaskedName ?? r.reviewerName}</span>
                 </div>
-                {r.comment && <p className="text-gray-600 line-clamp-2">{r.comment}</p>}
+                {r.comment && <p className="text-gray-600 line-clamp-2">{decodeHtmlEntities(r.comment)}</p>}
               </div>
             ))}
           </div>
