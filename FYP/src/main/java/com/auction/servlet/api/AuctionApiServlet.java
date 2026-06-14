@@ -1,6 +1,7 @@
 package com.auction.servlet.api;
 
 import com.auction.dao.AuctionTagsDAO;
+import com.auction.dao.AutoBidDAO;
 import com.auction.dao.BidDAO;
 import com.auction.dao.BrowseHistoryDAO;
 import com.auction.dao.QuestionDAO;
@@ -49,6 +50,7 @@ public class AuctionApiServlet extends ApiBase {
     private final QuestionDAO       questionDAO       = new QuestionDAO();
     private final AuctionTagsDAO    tagsDAO           = new AuctionTagsDAO();
     private final BrowseHistoryDAO  browseHistoryDAO  = new BrowseHistoryDAO();
+    private final AutoBidDAO        autoBidDAO        = new AutoBidDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -169,7 +171,22 @@ public class AuctionApiServlet extends ApiBase {
             body.put("costPrice", detail.getCostPrice());
         }
 
-        if (viewerId != null && viewerId != detail.getSellerId()) {
+        // Buyer-private: inject myAutoBid if the viewer is a BUYER with an active auto-bid.
+        // Exposed only to the bidder themselves — never to the seller or anonymous users.
+        if (viewerId != null && !isOwner) {
+            try {
+                AutoBidDAO.AutoBidRow myRow = autoBidDAO.getAutoBidForUser(auctionId, viewerId);
+                if (myRow != null) {
+                    Map<String, Object> myAutoBid = new LinkedHashMap<>();
+                    myAutoBid.put("enabled",      true);
+                    myAutoBid.put("maxAmount",    myRow.getMaxAmount());
+                    myAutoBid.put("bidIncrement", myRow.getIncrement());
+                    body.put("myAutoBid", myAutoBid);
+                }
+            } catch (Exception ignored) { }
+        }
+
+        if (viewerId != null && !isOwner) {
             try {
                 browseHistoryDAO.recordView(viewerId, auctionId);
             } catch (Exception ignored) { }
@@ -208,7 +225,10 @@ public class AuctionApiServlet extends ApiBase {
             return;
         }
 
-        List<AuctionBidHistoryEntry> bids  = bidDAO.getBidHistory(auctionId, page, size);
+        // Pass viewer ID so the DAO can mark the viewer's own bids as isSelf=true.
+        Integer viewerId = sessionUserId(req);
+        int viewerIdInt = viewerId != null ? viewerId : 0;
+        List<AuctionBidHistoryEntry> bids  = bidDAO.getBidHistory(auctionId, page, size, viewerIdInt);
         int total = bidDAO.countBidHistory(auctionId);
 
         Map<String, Object> body = new LinkedHashMap<>();

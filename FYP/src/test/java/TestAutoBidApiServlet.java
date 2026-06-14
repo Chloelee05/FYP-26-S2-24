@@ -57,7 +57,24 @@ class TestAutoBidApiServlet {
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
 
-        verify(mockDAO).upsert(10L, 2, new BigDecimal("500"), null);
+        verify(mockDAO).upsert(10L, 2, new BigDecimal("500"), null, new BigDecimal("0.01"));
+        verify(resp).setStatus(200);
+    }
+
+    @Test
+    @DisplayName("SET upserts auto-bid with explicit bidIncrement")
+    void setAutoBidWithIncrement() throws Exception {
+        AuthSession s = ApiTestSupport.newBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("maxAmount")).thenReturn("500");
+        when(req.getParameter("bidIncrement")).thenReturn("50");
+        when(req.getParameter("action")).thenReturn("SET");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(mockDAO).upsert(10L, 2, new BigDecimal("500"), null, new BigDecimal("50"));
         verify(resp).setStatus(200);
     }
 
