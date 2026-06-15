@@ -19,18 +19,23 @@ const SORTS = [
   { value: 'priceHigh',  label: 'Price: High to Low' },
 ];
 
+const PAGE_SIZE = 12;
+
 export default function Search() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [results, setResults] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [filters, setFilters] = useState({
     q: searchParams.get('q') || '',
     category: searchParams.get('category') || '',
     minPrice: '',
     maxPrice: '',
     condition: '',
-    sortBy: 'ending_soon',
+    sortBy: 'endingSoon',
   });
 
   useEffect(() => {
@@ -43,14 +48,33 @@ export default function Search() {
     setFilters(f => (f.q === q && f.category === category ? f : { ...f, q, category }));
   }, [searchParams]);
 
+  // Filters changed → reset to page 1 and replace results
   useEffect(() => {
     setLoading(true);
+    setPage(1);
     const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-    searchAuctions(params)
-      .then(r => setResults(r.data.results ?? r.data))
+    searchAuctions({ ...params, page: 1, size: PAGE_SIZE })
+      .then(r => {
+        setResults(r.data.results ?? r.data);
+        setTotalPages(r.data.totalPages ?? 1);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [filters]);
+
+  const handleLoadMore = () => {
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
+    searchAuctions({ ...params, page: nextPage, size: PAGE_SIZE })
+      .then(r => {
+        setResults(prev => [...prev, ...(r.data.results ?? r.data)]);
+        setPage(nextPage);
+        setTotalPages(r.data.totalPages ?? totalPages);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
 
   const update = (key, val) => setFilters(f => ({ ...f, [key]: val }));
 
@@ -136,9 +160,25 @@ export default function Search() {
         ) : results.length === 0 ? (
           <div className="text-center py-16 text-gray-400">No auctions found. Try different filters.</div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {results.map(a => <AuctionCard key={a.id} auction={a} />)}
-          </div>
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {results.map(a => <AuctionCard key={a.id} auction={a} />)}
+            </div>
+            {page < totalPages && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="px-8 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-medium rounded-full text-sm transition-colors"
+                >
+                  {loadingMore ? 'Loading…' : 'Load More'}
+                </button>
+              </div>
+            )}
+            {page >= totalPages && results.length > 0 && (
+              <p className="text-center text-xs text-gray-400 mt-6">All auctions loaded</p>
+            )}
+          </>
         )}
       </div>
     </div>
