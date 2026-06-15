@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database } from 'lucide-react';
+import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe } from 'lucide-react';
 import NotificationBell from '../../components/NotificationBell';
+import { useAuth } from '../../context/AuthContext';
 
 const NAV = [
   { to: '/admin', icon: LayoutDashboard, label: 'Overview', end: true },
@@ -15,6 +16,14 @@ const NAV = [
 ];
 
 export default function AdminLayout() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
   return (
     <div className="flex h-screen">
       <aside className="w-56 bg-gray-900 text-white shrink-0 flex flex-col">
@@ -37,6 +46,21 @@ export default function AdminLayout() {
             </NavLink>
           ))}
         </nav>
+        {/* Bottom actions: Browse Site + Logout */}
+        <div className="p-3 border-t border-gray-700 space-y-1">
+          <Link
+            to="/"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            <Globe size={16} /> Browse Site
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-gray-800 transition-colors"
+          >
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
       </aside>
       <main className="flex-1 bg-gray-50 overflow-auto flex flex-col min-h-0">
         <div className="flex items-center justify-end gap-2 px-6 py-3 border-b border-gray-200 bg-white shrink-0">
