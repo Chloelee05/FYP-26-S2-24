@@ -56,22 +56,24 @@ export default function AuctionDetail() {
     return () => clearInterval(t);
   }, [auction?.auctionType, auction?.open]);
 
-  // Real-time price sync: other buyers' bids update this screen live over SSE.
+  // Real-time price sync via polling (SSE is blocked by Cloudflare on Render).
+  // Poll every 4s while the auction is open; stop once it closes.
   useEffect(() => {
-    const es = new EventSource(`${appBase()}/api/auction-events/${id}`);
-    es.addEventListener('bid', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        setAuction(prev => prev ? {
-          ...prev,
-          currentBid: data.currentBid != null ? data.currentBid : prev.currentBid,
-          numBids: data.numBids != null ? data.numBids : prev.numBids,
-          open: data.open != null ? data.open : prev.open,
-        } : prev);
-        getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
-      } catch { /* ignore malformed frame */ }
-    });
-    return () => es.close();
+    const poll = () => {
+      getAuctionDetail(id)
+        .then(r => {
+          setAuction(prev => {
+            const next = r.data;
+            if (!next) return prev;
+            if (next.myAutoBid !== undefined) setMyAutoBid(next.myAutoBid ?? null);
+            return next;
+          });
+        })
+        .catch(() => {});
+      getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
+    };
+    const t = setInterval(poll, 4000);
+    return () => clearInterval(t);
   }, [id]);
 
   // Reflect whether this auction is already in the buyer's watchlist
