@@ -29,6 +29,11 @@ public final class AuctionEventBus {
 
     private static final Logger LOG = Logger.getLogger(AuctionEventBus.class.getName());
     private static final AuctionEventBus INSTANCE = new AuctionEventBus();
+    /**
+     * Some reverse proxies/CDNs terminate "idle" SSE connections aggressively.
+     * A short heartbeat keeps the stream alive under those intermediaries.
+     */
+    private static final int HEARTBEAT_SECONDS = 5;
 
     private final Map<Long, Set<AsyncContext>> subscribers = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper()
@@ -41,7 +46,8 @@ public final class AuctionEventBus {
             t.setDaemon(true);
             return t;
         });
-        heartbeat.scheduleAtFixedRate(this::sendHeartbeats, 25, 25, TimeUnit.SECONDS);
+        heartbeat.scheduleAtFixedRate(this::sendHeartbeats,
+                HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
     }
 
     public static AuctionEventBus getInstance() {
