@@ -1,0 +1,419 @@
+--- SLIDE 1 ---
+Implementation ofOnline AuctionPlatform
+1
+Lee Hae Eun 9096966
+Firnando Lie 9181933
+Bryan Soh Yong Qi 8550803
+Chung Kun Hong 6742117
+Aye Chan Maung 8877671
+June 20, 2026 FYP-26-S2-24 Mid-Pt Presentation
+
+--- SLIDE 2 ---
+2
+1
+CONTENTS
+TABLE OF
+Problem Statement
+Research Summary
+Business Model
+System Architecture
+Functional Design
+Team’s Progress
+Live Demo & Q&A
+2
+3
+Objective & Scope4
+5
+6
+7
+8
+
+--- SLIDE 3 ---
+3
+Problem 1
+Concurrent bids
+can corrupt the
+highest bid.
+Problem 2
+Buyers lack trust
+and pre-sale
+information.
+Problem 3
+Manual bidding is
+slow in competitive
+auctions.
+Problem Statement
+Problem 4
+Fixed-price
+marketplaces limit fair
+price discovery.
+Problem 5
+C2C platforms offer
+weak buyer protection
+after a sale.
+Problem 6
+Personal data and
+platform safety are
+often handled poorly.
+
+--- SLIDE 4 ---
+4
+Competitor Research - Competitor Selection Table
+
+--- SLIDE 5 ---
+Competitor Research  - Feature Comparison Matrix
+
+--- SLIDE 6 ---
+Key findings:
+1.Strong C2C demand in SEA, but no dedicated auction platform → Carousell: negotiation / fixed price · Shopee &
+Lazada: B2C-focused
+2.Global auction leaders (e.g. eBay) offer mature features but weak SEA focus and high seller fees → Opportunity for
+local positioning and a lower commission model
+3.Most platforms treat discovery (search/categories) separately from bidding → Differentiator: combine bidding with
+behaviour-based recommendations (CF) using bids, views, and watchlist
+4.Trust mechanisms are table stakes across peer marketplaces → Escrow-style payment flow, ratings, and admin
+moderation
+6
+Research Summary
+AuctionHub = SEA-oriented C2C marketplace that combines real-time auctions with behaviour-based recommendations,
+not fixed-price negotiation alone.
+
+--- SLIDE 7 ---
+7
+B u s i n e s s  M o d e l
+Revenue streams
+Value Proposition
+A SEA-focused C2C auction marketplace monetising successful sales and seller visibility, not listing volume alone.
+Primary = % on success · Secondary = paid promotion · No fee on failed/unsold auctions.
+
+--- SLIDE 8 ---
+Customer segments Buyers & sellers in SG/SEA C2C
+Value proposition Auction + trust + recommendations
+Channels Web app (Render)
+Revenue streams 6% commission + featured fees
+Key resources Platform, DB, moderation
+Key partners (Future) payment, logistics
+8
+B u s i n e s s  M o d e l
+Why this model?
+Aligns platform with successful trades (same as eBay/Yahoo; success-based)
+Lower than global auction leaders (~6% (our platform) vs eBay ~14%) → seller-friendly for SEA C2C
+Infrastructure: cloud hosting (Render Web Service) + managed PostgreSQL
+Storage: persistent disk for uploaded images in Render
+Development & operations: 
+Cost structure 
+Simplified Business Model Canvas
+
+--- SLIDE 9 ---
+9
+Primary Objective
+Build a SEA-focused C2C auction platform (AuctionHub) combining real-time bidding, collaborative-filtering
+recommendations, and trust & moderation for buyers, sellers, and administrators.
+In Scope
+Web platform with Buyer, Seller, Admin roles (RBAC)
+Timed auctions (ascending / Dutch / blind) with real-time bid updates (SSE)
+Concurrent-safe bidding and auto-bid (proxy bidding)
+Search, filters, sort, watchlist, and personalised recommendations (CF + trending fallback)
+Simulated escrow order flow (pay → ship → confirm → rate)
+Ratings, Q&A, reporting, and admin moderation (users, listings, categories)
+Seller analytics and platform revenue model (commission + featured listings)
+Out of Scope
+Real payment gateways (Stripe, PayNow)
+Native mobile apps (iOS/Android)
+Live video streaming auctions (Whatnot-style)
+Cross-border logistics / multi-language / blockchain fraud detection
+O b j e c t i v e  &  S c o p e
+
+--- SLIDE 10 ---
+10
+Buyer Seller Admin
+AuctionHub is built around three roles: 
+Buyer, Seller, and Admin, each with distinct permissions and features.
+search, bid, auto
+bid, watchlist, Q&A,
+ratings
+create/manage
+auctions, reply to
+questions
+users, listings,
+categories,
+moderation
+Objective & Scope
+
+--- SLIDE 11 ---
+ProjectObjectives
+Six pillars ofAuctionHub
+01
+02
+03
+04
+05
+06
+CONCURRENT-SAFE BIDDING & AUTO-BID
+B i d s  r u n  i n  o n e  t r a n s a c t i o n  w i t h  r o w -
+l e v e l  l o c k i n g  t o  p r e v e n t  c o n f l i c t i n g
+h i g h e s t  b i d s .  T h e  s y s t e m  c h e c k s
+a u c t i o n  s t a t u s ,  m i n i m u m  b i d ,  m a x
+p r i c e ,  a n d  s e l f - b i d  r u l e s .  B u y e r s  s e t  a n
+e n c r y p t e d  m a x  b i d ;  t h e  s y s t e m  a u t o
+c o u n t e r - b i d s  w h e n  o u t b i d .
+TRUST & COMMUNITY FEEDBACK
+B u y e r s  a s k  q u e s t i o n s ;  s e l l e r s  r e p l y
+b e f o r e  p u r c h a s e .  U s e r s  l e a v e  r a t i n g s
+a f t e r  t r a n s a c t i o n s  a n d  c a n  r e p o r t
+s u s p i c i o u s  l i s t i n g s  o r  a c c o u n t s .
+SECURITY BY DESIGN
+P a s s w o r d s ,  P I I ,  a n d  a u t o - b i d  l i m i t s
+a r e  h a s h e d  o r  e n c r y p t e d .  R B A C
+s e p a r a t e s  B u y e r ,  S e l l e r ,  a n d  A d m i n .
+I n p u t  i s  v a l i d a t e d  a n d  s a n i t i s e d .
+AUCTION DISCOVERY & PERSONALISATION
+U s e r s  s e a r c h  b y  k e y w o r d  a n d
+c a t e g o r y ,  f i l t e r  b y  p r i c e ,  c o n d i t i o n ,
+l o c a t i o n ,  a n d  e n d  t i m e ,  a n d  s o r t  b y
+n e w e s t ,  e n d i n g  s o o n ,  o r  p r i c e .
+B u y e r s  c a n  s a v e  a u c t i o n s  t o  a
+w a t c h l i s t .
+A d m i n s  b a n / u n b a n  u s e r s ,  f l a g  o r
+r e m o v e  l i s t i n g s ,  p r o v i d e  s u p p o r t  t o
+b u y e r / s e l l e r ,  a n d  m a n a g e  c a t e g o r i e s
+( c r e a t e ,  s o f t - d e l e t e ,  r e s t o r e ) .
+PLATFORM MODERATION & TAXONOMY
+POST-AUCTION COMMERCE & ESCROW
+W h e n  a n  a u c t i o n  e n d s ,  t h e  s e l l e r
+d e c l a r e s  t h e  w i n n e r  a n d  a n  o r d e r  i s
+c r e a t e d .  T h e  b u y e r  c o m p l e t e s
+s i m u l a t e d  p a y m e n t ;  f u n d s  s t a y  i n
+e s c r o w  u n t i l  d e l i v e r y  i s  c o n f i r m e d .  
+
+--- SLIDE 12 ---
+13
+Tech Stack
+F r o n t e n d :  R e a c t  1 9  ·  V i t e  ·  T a i l w i n d  ·  A x i o s  ·  S S E
+B a c k e n d :  J a v a  1 1  ·  T o m c a t  1 0  ·  R E S T  A P I  ·  J a c k s o n  ·  D A O
+D a t a :  P o s t g r e S Q L  ·  H i k a r i C P  ·  P e r s i s t e n t  d i s k  u p l o a d s
+D e v O p s  &  T e s t i n g :  D o c k e r  ·  R e n d e r  ·  G i t  ·  J U n i t / M o c k i t o
+REST API 
+Jackson 
+DAOSSE
+Persistent disk
+uploads
+
+--- SLIDE 13 ---
+14
+Development Tools
+IDE & Code
+IntelliJ IDEA / VS Code
+Git + GitHub
+Build & Run
+Maven (Java WAR) · npm / Vite (React)
+Docker · Render
+Database & API
+DBeaver (PostgreSQL)
+Browser DevTools 
+Project
+Scrum · Jira / Notion / Zoom
+
+--- SLIDE 14 ---
+15
+System Architecture
+Separation of concerns: React UI ↔ Java API ↔ PostgreSQL
+Real-time layer: SSE pushes bid updates to all viewers
+Cross-cutting: Auth/RBAC filters, notifications, admin moderation
+This diagram is generated from the code using PlantUML.
+
+--- SLIDE 15 ---
+16
+Design Pattern
+Design Patterns
+Model–View–Controller (MVC): React UI; servlets handle requests; DAOs persist data
+Data Access Object (DAO): isolates PostgreSQL access from business/API layer
+Front Controller: shared ApiBase for REST endpoints, auth, and JSON responses
+Filter Chain: cross-cutting security, CORS, and SPA routing before servlets
+Observer (Pub-Sub): AuctionEventBus broadcasts bid updates via SSE
+Observer
+Main Flow
+These diagrams are generated from the code using PlantUML.
+
+--- SLIDE 16 ---
+D a t a b a s e  E R D
+Database ERD (Core)
+Central hub: users connects to
+auctions, bids, orders, and account
+data
+Auction cluster: auction +
+auction_details hold listing info; bids
+and auto_bids record competition
+Post-sale & platform: orders →
+platform_revenue; watchlist /
+browse_history feed recommendations
+Core tables shown. Lookup tables (roles, auction_status,
+categories) and admin support tables omitted for clarity.
+
+--- SLIDE 17 ---
+18
+B i d d i n g  S e q u e n c e
+Bidding Sequence Diagram
+1. Buyer submits bid on auction page
+2.Server validates bid (active, amount,
+not self-bid)
+3.Bid saved in database (with row lock)
+4. Live price pushed to all viewers (SSE)
+5. Buyer sees confirmation
+Auto-bid and outbid notifications run inside the same server
+transaction.This diagram is generated from the code using PlantUML.
+
+--- SLIDE 18 ---
+Personalised Recommendation System
+Explainable, non-ML user-based collaborative filtering
+How it works
+Signals
+Bid on an auction → weight 3
+Watchlist → weight 2
+Browse (detail page view) → weight 1
+Algorithm
+Find similar buyers (same bids / watchlist / browse
+patterns)
+Score auctions they liked but you haven’t seen
+Cosine similarity ranks peer strength
+Trending fills gaps for new or sparse users (cold start)
+Where users see it
+Homepage: “Recommended for You” (logged in) ·
+“Popular Right Now” (guest)
+API: GET /api/recommendations
+Future sprint: hybrid / ML-enhanced recommendations (content features, tuning, detail-page widgets); current build stays explainable CF for the prototype
+C o s i n e  s i m i l a r i t y  m e a s u r e s  h o w  a l i k e  t w o
+b u y e r s ’  t a s t e s  a r e .  W e  r e c o m m e n d
+a u c t i o n s  t h a t  s i m i l a r  b u y e r s  e n g a g e d  w i t h
+b u t  t h e  c u r r e n t  u s e r  h a s  n o t  s e e n  y e t .
+
+--- SLIDE 19 ---
+20
+Functional Hierarchy
+Authentication & Account - Secure onboarding and
+account lifecycle: registration, login, OTP reset, 2FA,
+profile management, and PDPA-oriented account
+deletion.
+Buyer - Discovery and bidding: search, live auction pages,
+place bid / auto-bid, watchlist, Q&A, ratings,
+recommendations, and post-auction orders.
+Seller - Listing and sales: create and manage auctions,
+seller dashboard, answer questions, public profile, buyer
+ratings, and refund handling.
+Admin - Platform operations: health dashboard, user and
+listing moderation, category management, and analytics /
+report export.
+
+--- SLIDE 20 ---
+Defence in depth for AuctionHub
+• RBAC : Buyer, Seller, Admin enforced by filters & API
+• Authentication : hashed passwords, Bearer tokens, TOTP 2FA
+• Encryption : AES-256-GCM for sensitive fields at rest
+• Safe data access : parameterised SQL, no IDOR from client IDs
+• Browser hardening : security headers on all responses
+• Privacy : masking & anonymised account deletion (PDPA)
+21
+Security
+
+--- SLIDE 21 ---
+22
+Testing Methods
+1.White-box unit testing (primary)
+JUnit 5 + Mockito; API servlets and DAOs with mocked dependencies (~74 files, ~735 tests)
+2.Test-driven per sprint
+mvn test in FYP/ before merge and milestone submissions
+3.Boundary & equivalence testing
+BVA/EP on bids, search filters, ratings, pagination, and auth inputs
+4.Security-focused tests
+RBAC matrices, SQL-injection strings, IDOR checks, encryption and masking assertions
+5.Database & concurrency checks
+Transaction rollback, account anonymisation; row-locked bidding design (SELECT … FOR UPDATE)
+6.Black-box manual smoke (Render)
+Login, search, SSE bidding, seller listing, admin moderation, GET /api/health
+
+--- SLIDE 22 ---
+23
+Scrum Methodology
+Scrum Methodology
+Iterative delivery for AuctionHub (5-member team)
+• Sprint length: 2 weeks (flexible around key deadlines)
+• Ceremonies: sprint planning, daily stand-ups (Telegram), sprint review & backlog
+refinement
+• Artefacts: Product backlog, sprint backlog, increment (working software on main)
+• Tools: Jira (boards & burndown), GitHub (code review), Maven + mvn test before merge
+• Outcome: steady delivery of buyer, seller, and admin features toward PTD & demo
+milestones
+
+--- SLIDE 23 ---
+24
+Team’s Progress
+work items by statuswork item completion trend
+Jira snapshot as of June 2026: 393 work items tracked; majority Done, with remaining backlog
+carried into the next sprint.
+
+--- SLIDE 24 ---
+25
+Team’s Progress
+
+--- SLIDE 25 ---
+Responsibility Assignment Matrix
+Name Role Contribution
+Index Value Description
+Lee Hae Eun
+Leader (Hybrid:
+Frontend (overall) +
+Backend (overall)
+105
+Led end-to-end project delivery across frontend, backend, database, and
+deployment. Owned system architecture, core feature implementation,
+PostgreSQL schema and migrations, Docker/Render deployment, and
+integration of React.
+Firnando Lie Backend + Frontend
+(React UI/UX) 102
+Contributed across frontend and backend as a full-stack developer.
+Implemented application features in React and Java servlets, and supported
+technical documentation including requirements and design artifacts.
+Chung Kun
+Hong Backend 101
+Developed and maintained backend components, including servlet APIs, data
+access logic, and server-side business rules for auction and user management
+features.
+Bryan Soh
+Yong Qi Frontend 96 Frontend wireframes and UI layout design for key user journeys.
+Aye Chan
+Maung Frontend 96 Frontend wireframe design and UI structure for consistent user experience.
+
+--- SLIDE 26 ---
+26
+Post-prototype roadmap
+Future Work & Improvements
+AI Integration 
+AI chatbot : user support & platform guidance
+AI autofill : faster listing creation from images/text
+Smarter Personalised Recommendation System : Smarter personalised suggestions, homepage
+recommendations, admin performance tuning
+Notifications & Telegram : User notification preferences, auction alerts, Telegram bot for outbid and
+ending-soon messages
+Trust & login : OAuth social login, review edit/moderation, stronger dispute handling
+Seller tools : Buy It Now, relist unsold items, listing preview, platform-wide auction rules, anti-sniping
+Platform : Advanced admin reports, email verification, mobile app
+
+--- SLIDE 27 ---
+27
+Post-prototype roadmap
+Known prototype limitations (honest scope)
+• No payment deadline from buyer / auto-cancel for unpaid winners
+• No anti-sniping or bid-rate limits
+• Abuse handling: reports + admin ban (not automated shill detection)
+• Simulated payment only (no live gateway)
+The following are acknowledged limitations planned for future work.
+
+--- SLIDE 28 ---
+Live Demo
+28
+
+
+--- SLIDE 29 ---
+ThankYou!
+If you have anyquestions, pleasefeel free to ask!
+29
