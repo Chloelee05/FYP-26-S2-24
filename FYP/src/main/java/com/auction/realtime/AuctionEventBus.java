@@ -18,9 +18,10 @@ import java.util.logging.Logger;
  * In-memory pub/sub hub for real-time auction updates delivered over Server-Sent
  * Events (SSE). Subscribers are {@link AsyncContext}s registered per auction id.
  *
- * <p>A single shared scheduler emits heartbeat comments every 25s so idle
- * connections (and any intermediary proxies) are kept alive. Dead connections
- * are detected on write failure and pruned.</p>
+ * <p>A single shared scheduler emits periodic snapshots so idle connections
+ * (and any intermediary proxies) are kept alive. This also makes live updates
+ * robust in environments where requests may be routed across multiple app
+ * instances (the snapshot is recomputed from the DB).</p>
  *
  * <p>This is process-local state and is intentionally simple: it fits a single
  * Tomcat instance, which is the project's deployment model.</p>
@@ -29,11 +30,8 @@ public final class AuctionEventBus {
 
     private static final Logger LOG = Logger.getLogger(AuctionEventBus.class.getName());
     private static final AuctionEventBus INSTANCE = new AuctionEventBus();
-    /**
-     * Some reverse proxies/CDNs terminate "idle" SSE connections aggressively.
-     * A short heartbeat keeps the stream alive under those intermediaries.
-     */
-    private static final int HEARTBEAT_SECONDS = 5;
+    /** Keep SSE streams alive and clients in sync. */
+    private static final int SNAPSHOT_TICK_SECONDS = 5;
 
     private final Map<Long, Set<AsyncContext>> subscribers = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper()
@@ -41,13 +39,13 @@ public final class AuctionEventBus {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private AuctionEventBus() {
-        ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
+        ScheduledExecutorService tick = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "sse-heartbeat");
             t.setDaemon(true);
             return t;
         });
-        heartbeat.scheduleAtFixedRate(this::sendHeartbeats,
-                HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+        tick.scheduleAtFixedRate(this::tickSnapshots,
+                SNAPSHOT_TICK_SECONDS, SNAPSHOT_TICK_SECONDS, TimeUnit.SECONDS);
     }
 
     public static AuctionEventBus getInstance() {
@@ -91,14 +89,17 @@ public final class AuctionEventBus {
         }
     }
 
-    private void sendHeartbeats() {
-        for (Map.Entry<Long, Set<AsyncContext>> entry : subscribers.entrySet()) {
-            for (AsyncContext ctx : entry.getValue()) {
-                if (!write(ctx, ": heartbeat\n\n")) {
-                    entry.getValue().remove(ctx);
-                    complete(ctx);
-                }
-            }
+    /**
+     * Periodically publish a fresh snapshot for every auction with subscribers.
+     * This keeps long-lived SSE connections alive through proxies and ensures
+     * clients still receive updates even if a bid request is handled by a
+     * different app instance (snapshot is recomputed from the shared DB).
+     */
+    private void tickSnapshots() {
+        for (Long auctionId : subscribers.keySet()) {
+            // publishSnapshot ultimately calls back into this bus (publish), so it
+            // must never throw and it must tolerate subscribers changing mid-loop.
+            AuctionEventPublisher.publishSnapshot(auctionId);
         }
     }
 
