@@ -9,4 +9,10 @@ if grep -q "$HTTP_MARKER" /usr/local/tomcat/conf/server.xml; then
     /usr/local/tomcat/conf/server.xml
 fi
 
+if [ -n "$AUCTION_UPLOAD_DIR" ]; then
+  mkdir -p "$AUCTION_UPLOAD_DIR/auction" \
+           "$AUCTION_UPLOAD_DIR/profile" \
+           "$AUCTION_UPLOAD_DIR/support"
+fi
+
 exec catalina.sh run

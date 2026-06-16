@@ -1,0 +1,612 @@
+--- PAGE 1 ---
+Preliminary User Manual 26-S2-24 
+Page 1 of 24 
+ 
+ 
+                                                                                  
+University of Wollongong 
+Bachelor of Computer Science 
+CSIT321 - Final Year Project 
+ 
+User Manual 
+Supervisor: Mr. Tian Sion Hui 
+Assessor: Mr. Premarajan 
+Group Number: FYP 26-S2-24 
+Group Members: 
+Name UOW ID SIM ID SIM Email 
+Lee Hae Eun 9096966 10256491 lee170@mymail.sim.edu.sg 
+Firnando Lie 9181933 10251606 fl001@mymail.sim.edu.sg 
+Bryan Soh Yong 
+Qi 
+8550803 10256342 brqsoh001@mymail.sim.edu.sg 
+Chung Kun 
+Hong 
+6742117 10212181 khchung001@mymail.sim.edu.sg 
+Aye Chan 
+Maung 
+8877671 10250114 ayecm003@mymail.sim.edu.sg 
+
+
+--- PAGE 2 ---
+Preliminary User Manual 26-S2-24 
+Page 2 of 24 
+ 
+ 
+ 
+Table of Contents 
+1. Introduction .................................................................................................................... 4 
+1.1 What this manual covers ................................ ................................ ................................ .... 4 
+1.2 What we assume about the readers ................................ ................................ ................... 4 
+1.3 Scope and Purpose ................................ ................................ ................................ ............. 4 
+2. The Initial Installation Instructions ............................................................................... 4 
+2.1 Prerequisites ................................ ................................ ................................ ....................... 4 
+2.1.1 System Requirements ...................................................................................................................... 4 
+2.1.2 Backend Prerequisites ..................................................................................................................... 4 
+2.1.3Frontend Prerequisites ...................................................................................................................... 5 
+2.2 Backend Set Up ................................ ................................ ................................ ................... 5 
+2.2.1. Database setup (PostgreSQL) ........................................................................................................ 5 
+2.2.2 Mail / OTP configuration (email verification, 2FA, password reset)  ................................................. 5 
+2.2.3 Build and run the backend ............................................................................................................... 6 
+2.3 Frontend Set Up ................................ ................................ ................................ .................. 6 
+2.4 Optional: Docker Deployment ................................ ................................ ............................ 6 
+3. Key Features .................................................................................................................. 7 
+4. Initial GUIs1 of Our Project ........................................................................................... 8 
+4.1 Landing Page................................ ................................ ................................ ....................... 8 
+4.2 Sign-up Page ................................ ................................ ................................ ....................... 8 
+4.3 Log-in Page ................................ ................................ ................................ ......................... 9 
+4.4 Log-in Page – Wrong Details ................................ ................................ ............................ 10 
+4.5 Two-Factor Authentication (2FA) ................................ ................................ ..................... 10 
+4.6 Forgot / Reset Password ................................ ................................ ................................ .. 11 
+4.7 Notifications ................................ ................................ ................................ ...................... 11 
+4.8 Search & Browse Auctions ................................ ................................ ...............................  12 
+4.9 Auction Detail Page................................ ................................ ................................ ........... 12 
+4.10 Auction Types & Placing a Bid ................................ ................................ ....................... 13 
+4.11 Watchlist ................................ ................................ ................................ .......................... 14 
+4.12 Questions & Answers (Q&A) ................................ ................................ .......................... 14 
+4.13 Bidding History ................................ ................................ ................................ ............... 14 
+4.14 Orders, Checkout, Tracking & Refunds ................................ ................................ ......... 15 
+4.15 Order Messages ................................ ................................ ................................ .............. 16 
+4.16 Support / Help Center ................................ ................................ ................................ ..... 16 
+4.17 Rate Seller / Rate Buyer ................................ ................................ ................................ .. 17 
+4.18 Public Seller Profile ................................ ................................ ................................ ......... 17 
+4.19 User Profile & Account Settings ................................ ................................ .................... 17 
+4.20 Seller – Dashboard ................................ ................................ ................................ .......... 18 
+4.20.1 Seller – Create Auction ................................................................................................................ 20 
+
+--- PAGE 3 ---
+Preliminary User Manual 26-S2-24 
+Page 3 of 24 
+ 
+ 
+4.20.2 Seller – Edit / Cancel Auction ...................................................................................................... 21 
+4.21 System Admin – Dashboard ................................ ................................ ........................... 21 
+4.21.1 Admin – User Accounts ............................................................................................................... 22 
+4.21.2 Admin – Listings ........................................................................................................................... 22 
+4.21.3 Admin – Categories ..................................................................................................................... 22 
+4.21.4 Admin – Reports .......................................................................................................................... 23 
+4.21.5 Admin – Orders ............................................................................................................................ 23 
+4.21.6 Admin – Analytics ........................................................................................................................ 23 
+4.21.7 Admin – Database ....................................................................................................................... 23 
+4.21.8 Admin – Support Chat .................................................................................................................. 24 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+--- PAGE 4 ---
+Preliminary User Manual 26-S2-24 
+Page 4 of 24 
+ 
+ 
+1. Introduction 
+This Preliminary User Manual is written to help a first -time user get our Online Auction 
+Platform (AuctionHub) up and running, and then confidently navigate the main screens. We 
+keep things practical and lightweight so a reader can go from install → first run → first bid 
+without digging into advanced internals. 
+1.1 What this manual covers 
+• Initial installation on Windows and macOS (frontend + backend). 
+• First-time configuration (database, mail/OTP, and run steps). 
+• A quick tour of the main GUIs: Landing/Home page, Sign In / Sign Up, Search & Browse, 
+Auction Detail and Bidding, and the Seller and Admin areas. 
+1.2 What we assume about the readers 
+• Basic familiarity with opening a terminal and running simple commands. 
+• Readers know how to clone a project from GitHub and open it in an IDE such as IntelliJ 
+IDEA or VS Code. 
+1.3 Scope and Purpose 
+• This project is an Online Auction Platform: registered users can list items for auction, 
+place live bids (including automatic proxy bids), watch items, ask questions, and rate one 
+another after a sale completes. 
+• This Preliminary User Manual covers initial installation, initial configuration, and the main 
+GUIs of the project. It is meant to help a new user get from zero to a first successful bid 
+with minimal friction. 
+2. The Initial Installation Instructions 
+2.1 Prerequisites 
+2.1.1 System Requirements 
+• JDK 11+ (the backend targets Java 11) 
+• Apache Maven 3.9+ (build tool; the project is packaged as a WAR) 
+• PostgreSQL 12+ (application database auction_db) 
+• Node.js 18+ with npm (for the React frontend) 
+• Git (to clone the repository) 
+• Optional: Docker (to run the whole app from a single image — see Section 2.4) 
+2.1.2 Backend Prerequisites 
+• JDK 11+ on the PATH 
+• PostgreSQL installed and running 
+• Maven dependencies resolve automatically on build (declared in FYP/pom.xml): 
+• Jakarta Servlet API, JSP & JSTL (servlet container API) 
+• PostgreSQL JDBC driver 
+• HikariCP (connection pooling) 
+• Jakarta Mail (SMTP for OTP / notification emails) 
+
+--- PAGE 5 ---
+Preliminary User Manual 26-S2-24 
+Page 5 of 24 
+ 
+ 
+• An embedded Apache Tomcat 10 is launched automatically by the Cargo Maven plugin on port 8080 — 
+no separate Tomcat install is required for local runs. 
+2.1.3Frontend Prerequisites 
+• Node.js 18+ (comes with npm) 
+• Project dependencies (install with npm install): 
+• React 19 and React DOM 
+• React Router DOM 7 (navigation) 
+• Axios (HTTP client) 
+• lucide-react (icons), qrcode.react (2FA QR code) 
+• Vite (dev server and build tool) 
+2.2 Backend Set Up 
+Do these in a terminal inside the FYP/ folder. 
+2.2.1. Database setup (PostgreSQL) 
+macOS: 
+brew services start postgresql@14 
+createdb auction_db 
+psql -d auction_db -f src/main/resources/auction_db.sql 
+Windows (PowerShell): 
+psql -U postgres -c "CREATE DATABASE auction_db;" 
+psql -U postgres -d auction_db -f src\main\resources\auction_db.sql 
+The auction_db.sql script creates the full current schema (including the payment, notification, 
+order, messaging and support tables). To upgrade an older database instead of recreating 
+it, apply the incremental migrations: 
+psql -U postgres -d auction_db -f src/main/resources/db/migrate_all.sql 
+Database credentials: The connection settings live in com.auction.util.DBUtil (default 
+jdbc:postgresql://localhost:5432/auction_db, user postgres). If your PostgreSQL 
+username/password differ, update DBUtil accordingly before building. A hosted-PostgreSQL 
+setup script (supabase_setup.sql) is also provided under src/main/resources/db/ for cloud 
+deployments. 
+2.2.2 Mail / OTP configuration (email verification, 2FA, password reset) 
+Set these environment variables in your shell (or IDE run configuration) to your own mailbox 
+/ app password before starting the server: 
+macOS / Linux: 
+export AUCTION_SMTP_HOST="smtp.gmail.com" 
+export AUCTION_SMTP_PORT="587" 
+export AUCTION_SMTP_USER="your-mailbox@gmail.com" 
+export AUCTION_SMTP_PASSWORD="your-app-password" 
+export AUCTION_MAIL_FROM="your-mailbox@gmail.com" 
+
+--- PAGE 6 ---
+Preliminary User Manual 26-S2-24 
+Page 6 of 24 
+ 
+ 
+Windows (PowerShell): 
+$env:AUCTION_SMTP_HOST="smtp.gmail.com" 
+$env:AUCTION_SMTP_PORT="587" 
+$env:AUCTION_SMTP_USER="your-mailbox@gmail.com" 
+$env:AUCTION_SMTP_PASSWORD="your-app-password" 
+$env:AUCTION_MAIL_FROM="your-mailbox@gmail.com" 
+If no SMTP host is configured, OTP codes are shown on -screen / logged (development 
+behaviour). 
+2.2.3 Build and run the backend 
+From the FYP/ folder, build the WAR and start the embedded Tomcat 10 with the Cargo 
+plugin: 
+cd FYP 
+mvn clean package -DskipTests cargo:run 
+This launches the backend on http://localhost:8080, and the API is served under 
+http://localhost:8080/api/... 
+2.3 Frontend Set Up 
+Do these in a terminal inside the FYP/Frontend/ folder. 
+cd FYP/Frontend 
+npm install 
+npm run dev 
+The Vite dev server runs on http://localhost:3000 and proxies /api and /uploads requests to 
+the backend at http://localhost:8080, so make sure the backend (Section 2.2) is running first. 
+Open http://localhost:3000 in your browser to use the app. 
+To create a production build instead: 
+npm run build   # outputs to FYP/Frontend/dist 
+2.4 Optional: Docker Deployment 
+The repository includes a Dockerfile (and .dockerignore / docker -entrypoint.sh) that builds 
+the frontend and backend together and serves the application from a single container. From 
+the repository root: 
+docker build -t auctionhub . 
+docker run -p 8080:8080 \ 
+  -e DATABASE_URL="jdbc:postgresql://<host>:5432/auction_db" \ 
+  -e AUCTION_SMTP_HOST="smtp.gmail.com" \ 
+  auctionhub 
+Point the container at a reachable PostgreSQL instance (local, Docker network, or a hosted 
+database such as the provided Supabase setup) and pass the same SMTP variables from 
+Section 2.2 as needed. Then open the published port in your browser. 
+
+--- PAGE 7 ---
+Preliminary User Manual 26-S2-24 
+Page 7 of 24 
+ 
+ 
+3. Key Features 
+• Multiple Auction Types:  Sellers can run a standard ascending (English) auction, a 
+Dutch auction where the price falls on a clock until a buyer accepts, or a Blind (sealed -
+bid) auction where bids are hidden until the auction ends. 
+• Live Real-Time Bidding: The auction page updates live — current price, bid count, and 
+status are pushed to all viewers over a Server -Sent Events stream, with no need to re-
+fresh. 
+• Automatic (Proxy) Bidding: Buyers can set a maximum amount and let the system bid 
+on their behalf up to that limit, so they stay competitive without watching the auction 
+constantly. 
+• Price Caps: Sellers can set a starting price and an optional maximum price (hard ceiling) 
+when creating an auction. 
+• Orders, Checkout, Tracking & Refunds: When an auction is won, an order is created; 
+the buyer pays with a saved card, the seller advances the order through shipping/fulfil-
+ment stages, and either party can raise and resolve a refund request. 
+• Saved Payment Methods: Buyers can store cards for checkout; the full card number is 
+held AES-GCM encrypted and only the brand and last four digits are ever displayed. 
+• Order Messaging: Buyers and sellers can hold a direct conversation tied to a specific 
+order, to coordinate delivery and resolve issues. 
+• Support / Help Center: Users can open support threads (with image attachments) that 
+are handled by administrators through a built -in chat; threads can be replied to and 
+closed. 
+• Notifications: An in-app notification bell (with best -effort email) alerts users to bidding 
+outcomes, Q&A replies, order/refund updates, and account decisions. 
+• Recommendations: The home page surfaces personalised  recommendations for 
+signed-in buyers (item-based collaborative filtering) and trending auctions for new visi-
+tors. 
+• Watchlist: Users can save auctions they are interested in for quick access and tracking. 
+• Questions & Answers: Buyers can ask the seller questions on an auction; sellers can 
+answer publicly. 
+• Ratings & Reviews:  After a completed sale, buyers and sellers can rate each other, 
+building a public reputation shown on the seller profile. 
+• Seller Analytics: Sellers get a performance overview (sales, bids, listing activity) on 
+their dashboard and can email the report; admins can also email seller analytics. 
+• Search & Filtering: Users can search and filter auctions by keyword, category, condition, 
+price, and sort order. 
+• Secure Accounts: Salted SHA-256 password hashing, AES-GCM encryption of sensi-
+tive profile data (e.g. phone, address), email OTP verification, and optional TOTP-based 
+two-factor authentication. 
+• Admin Tools: Approve new accounts; moderate users, listings and categories; review 
+and reply to reports; manage all orders; download analytics reports; and back up or re-
+store the database. 
+• Different User Roles: 
+• Unregistered (guest) visitors 
+
+--- PAGE 8 ---
+Preliminary User Manual 26-S2-24 
+Page 8 of 24 
+ 
+ 
+• Registered Buyers 
+• Sellers 
+• System Admin 
+4. Initial GUIs1 of Our Project 
+4.1 Landing Page 
+This is the first page users see when visiting AuctionHub. The top navigation bar lets visitors 
+browse the site and reach login / register. Guests can search and view auctions; signing in 
+unlocks bidding, watchlist, and profile features. The home page also shows a 
+Recommendations section — personalised suggestions for signed -in buyers, or trending 
+active auctions for new visitors. 
+ 
+4.2 Sign-up Page 
+On the registration page, the user fills in their account details (e.g. username, email, 
+password) and chooses whether they are signing up to buy or to sell. An email verification 
+OTP is sent to the address provided; the user enters the code to confirm own ership and 
+complete sign-up. Passwords are stored as salted SHA-256 hashes and never in plain text. 
+Depending on configuration, a newly registered account may need admin approval before it 
+can be used. 
+
+
+--- PAGE 9 ---
+Preliminary User Manual 26-S2-24 
+Page 9 of 24 
+ 
+ 
+ 
+4.3 Log-in Page 
+This is the log -in page for all users. Users enter their registered email/username and 
+password. On success they are routed to their role -appropriate area ( buyer pages, seller 
+dashboard, or admin dashboard). 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 10 ---
+Preliminary User Manual 26-S2-24 
+Page 10 of 24 
+ 
+ 
+4.4 Log-in Page – Wrong Details 
+If a user enters an incorrect username or password, the page displays an error message 
+and the login is rejected. No indication is given as to which field was wrong, to avoid leaking 
+account information. 
+ 
+4.5 Two-Factor Authentication (2FA) 
+If a user has enabled two -factor authentication, after a correct password they are taken to 
+the 2FA verification screen and must enter the time-based one-time code (TOTP) from their 
+authenticator app. Users enable or disable 2FA from profile two-factor authentication, where 
+a QR code is shown for enrolment. 
+ 
+
+
+--- PAGE 11 ---
+Preliminary User Manual 26-S2-24 
+Page 11 of 24 
+ 
+ 
+4.6 Forgot / Reset Password 
+If users forget their password, they can recover the account from the Reset Password page: 
+Step 1 – enter the registered email address; the system emails a reset OTP/token.  
+Step 2 – enter the code and choose a new password. 
+ 
+4.7 Notifications 
+A notification bell in the top navigation bar shows signed-in users a live unread count and a 
+dropdown of recent notifications — for example when they are outbid or win an auction, 
+when a seller answers their question, when an order or refund is updated, or when an admin 
+makes an account decision. Notifications can be marked as read individually or all at once, 
+and important events are also emailed when SMTP is configured. 
+ 
+
+
+--- PAGE 12 ---
+Preliminary User Manual 26-S2-24 
+Page 12 of 24 
+ 
+ 
+4.8 Search & Browse Auctions 
+The search page lets any visitor browse active auctions. Enter a keyword to search by 
+title/description; filter by category, item condition, and price range; choose a sort order (e.g. 
+ending soonest, newest, price); click any result to open its Auction Detail page. 
+ 
+4.9 Auction Detail Page 
+The auction detail page shows everything about a single auction: item title, images, 
+description, category, and condition; current price, starting price, bid increment, and time 
+remaining; the seller name (links to their public profile) and rating; the bid panel, watch list 
+button, and Questions & Answers section. 
+This page updates in real time: the current price, bid count, and status change live as other 
+users bid, without refreshing the page (delivered over a Server-Sent Events stream). 
+ 
+
+
+--- PAGE 13 ---
+Preliminary User Manual 26-S2-24 
+Page 13 of 24 
+ 
+ 
+4.10 Auction Types & Placing a Bid 
+AuctionHub supports three auction formats, and the bid panel adapts to the type: 
+English (ascending): the default format — buyers raise the price and the highest bid at close 
+wins. Buyers can also set an auto -bid (proxy bid) by entering a maximum amount; the 
+system then automatically raises their bid by the minimum increment whenever t hey are 
+outbid, up to that maximum. 
+Dutch auction: the price starts high and falls on a clock over time; the first buyer to accept 
+the current price wins immediately. 
+Blind (sealed-bid): each buyer submits one hidden bid; bids are not shown to others, and 
+the result is revealed only when the auction ends. 
+In every format, bids are validated against the current price, the bid increment, and any 
+maximum-price ceiling set by the seller. 
+ 
+ 
+
+
+--- PAGE 14 ---
+Preliminary User Manual 26-S2-24 
+Page 14 of 24 
+ 
+ 
+4.11 Watchlist 
+Signed-in users can click add to watchlist on any auction to save it. The Watchlist page lists 
+all saved auctions for quick access and tracking; items can be removed at any time. 
+ 
+4.12 Questions & Answers (Q&A) 
+On an auction, buyers can post public questions to the seller. The seller can reply, and the 
+question/answer pairs are shown on the Auction Detail page for all viewers. 
+ 
+4.13 Bidding History 
+The bidding history page shows a signed -in buyer all the auctions they have bid on, the 
+amounts, and the outcome (winning, outbid, won, lost). The per -auction bid history is also 
+viewable from the auction page. 
+ 
+
+
+--- PAGE 15 ---
+Preliminary User Manual 26-S2-24 
+Page 15 of 24 
+ 
+ 
+4.14 Orders, Checkout, Tracking & Refunds 
+When an auction ends with a winner, an order is created for that sale (a simulated funds -
+for-goods exchange). The workflow is: 
+• The seller declares the winner to open the order (and may close an auction early). 
+• The buyer pays for the order using one of their saved payment methods. 
+• The seller advances the order through shipping/fulfilment stages and marks it 
+completed; the buyer can follow progress in an order-tracking view. 
+• If something goes wrong, the buyer can request a refund with a reason, and the 
+request is approved or rejected. 
+• Both parties can see the orders where they are the buyer or the seller, along with the 
+current status. 
+ 
+ 
+
+
+--- PAGE 16 ---
+Preliminary User Manual 26-S2-24 
+Page 16 of 24 
+ 
+ 
+4.15 Order Messages 
+From the Messages page, a buyer and seller can hold a direct conversation tied to a specific 
+order — for example to arrange delivery details or discuss a problem. Each conversation is 
+keyed to the order it belongs to. 
+ 
+4.16 Support / Help Center 
+Signed-in users can reach Support to open a help thread: they enter a subject and message 
+(optionally attaching an image) and exchange messages with an administrator in a chat -
+style view. Threads can be marked as read and closed once the issue is resolved. 
+ 
+
+
+--- PAGE 17 ---
+Preliminary User Manual 26-S2-24 
+Page 17 of 24 
+ 
+ 
+4.17 Rate Seller / Rate Buyer 
+After an auction completes, the participants can rate each other: the winning buyer can rate 
+the seller with a star rating and a written review, and the seller can rate the buyer for the 
+transaction. These ratings feed into each user public reputation. 
+ 
+4.18 Public Seller Profile 
+Anyone can view a seller public profile, which shows the seller display name, overall rating 
+summary, recent reviews, and their active listings. 
+ 
+4.19 User Profile & Account Settings 
+The signed -in user profile area lets them manage their account  such as view personal 
+information, reputation, transaction history, and orders; edit profile, update full name, email, 
+phone, address, and profile photo (sensitive fields stored encrypted with AES-GCM); change 
+password; two-factor authentication, and account settings, including managing saved 
+payment methods (add a card, set a default, or remove one) and the option to delete 
+(deactivate) the account. 
+
+
+--- PAGE 18 ---
+Preliminary User Manual 26-S2-24 
+Page 18 of 24 
+ 
+ 
+ 
+4.20 Seller – Dashboard 
+When a user signed in as a seller opens their dashboard, they see an overview of their own 
+listings: each auction title, status (Pending, Active, Finished, Cancelled), current price, bid 
+count, and quick actions. The dashboard is paginated and can be filtered by status. It also 
+shows a performance analytics summary (sales, bids, and listing activity), which the seller 
+can email to themselves. 
+
+
+--- PAGE 19 ---
+Preliminary User Manual 26-S2-24 
+Page 19 of 24 
+ 
+ 
+ 
+
+
+--- PAGE 20 ---
+Preliminary User Manual 26-S2-24 
+Page 20 of 24 
+ 
+ 
+4.20.1 Seller – Create Auction 
+From create auction, the seller fills in the listing details: 
+• Title, description, category, and item condition. 
+• Images of the item. 
+• Auction type: English (ascending), Dutch (declining price clock), or Blind (sealed-bid). 
+• Starting price, bid increment, and an optional maximum price (hard ceiling). For a Dutch 
+auction, the price-decline settings determine how the clock falls. 
+• Auction start time and end time. 
+Submitting publishes the auction (it becomes pending until its start time, then Active). 
+ 
+
+
+--- PAGE 21 ---
+Preliminary User Manual 26-S2-24 
+Page 21 of 24 
+ 
+ 
+4.20.2 Seller – Edit / Cancel Auction 
+• Edit auction: a seller can edit their own auction only while it has received no bids and is 
+still Active or Pending. This guard protects bidders from changes after they have com-
+mitted. 
+• Cancel auction: a seller can cancel their own Active or Pending auction; any recorded 
+bids are preserved, and an optional cancellation reason can be noted. 
+ 
+4.21 System Admin – Dashboard 
+When signed in as a system admin, the user lands on the admin area with its own sidebar 
+layout. The Admin Dashboard shows key platform metrics (e.g. total users, active listings, 
+recent activity) at a glance. 
+ 
+
+
+--- PAGE 22 ---
+Preliminary User Manual 26-S2-24 
+Page 22 of 24 
+ 
+ 
+4.21.1 Admin – User Accounts 
+The users page lists all registered users with their details and status. Admins can approve 
+newly registered accounts that are awaiting approval, and can suspend/ban or unban 
+existing accounts as needed. 
+ 
+4.21.2 Admin – Listings 
+The listings page lets admins review all auctions and flag, remove, or restore a listing for 
+moderation purposes. 
+ 
+4.21.3 Admin – Categories 
+The categories page lets admins create, edit, delete, and restore the auction categories that 
+sellers choose from. 
+ 
+
+
+--- PAGE 23 ---
+Preliminary User Manual 26-S2-24 
+Page 23 of 24 
+ 
+ 
+4.21.4 Admin – Reports 
+The reports page collects user -submitted reports about accounts and listings. Admins can 
+resolve, dismiss, or reply to each report. 
+ 
+4.21.5 Admin – Orders 
+The orders page gives admins a view of all orders across the platform for oversight and 
+dispute handling. 
+ 
+4.21.6 Admin – Analytics 
+The analytics page presents platform statistics and trends to help admins monitor the health 
+of the platform; reports can be downloaded, and seller analytics can be emailed to individual 
+sellers or to all of them. 
+ 
+4.21.7 Admin – Database 
+The Database page (/admin/database) lets admins view database status, download a SQL 
+backup of the database, and restore the database from an uploaded SQL backup. 
+
+
+--- PAGE 24 ---
+Preliminary User Manual 26-S2-24 
+Page 24 of 24 
+ 
+ 
+ 
+4.21.8 Admin – Support Chat 
+The Support Chat page (/admin/chat) is where admins handle user support threads reading 
+incoming help requests, replying in a chat view, and closing resolved threads. 
+ 
