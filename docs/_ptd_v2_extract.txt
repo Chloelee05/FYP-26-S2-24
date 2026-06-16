@@ -1,0 +1,3708 @@
+--- PAGE 1 ---
+ 
+ 
+                                                                                  
+University of Wollongong 
+Bachelor of Computer Science 
+CSIT321 - Final Year Project 
+ 
+Implementation of Online Auction Platform 
+ 
+Supervisor: Mr. Tian Sion Hui 
+Assessor: Mr. Premarajan 
+Group Number: FYP 26-S2-24 
+Group Members: 
+ 
+Name UOW ID SIM ID SIM Email 
+Lee Hae Eun 9096966 10256491 lee170@mymail.sim.edu.sg 
+Firnando Lie 9181933 10251606 fl001@mymail.sim.edu.sg 
+Bryan Soh Yong Qi 8550803 10256342 brqsoh001@mymail.sim.edu.sg 
+Chung Kun Hong 6742117 10212181 khchung001@mymail.sim.edu.sg 
+Aye Chan Maung 8877671 10250114 ayecm003@mymail.sim.edu.sg 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 2 ---
+ 
+ 
+Table of Contents 
+1. Introduction .......................................................................................................................................... 5 
+1.1 Problem Statement ................................ ................................ ................................ ................................ ......5 
+1.2 Purpose ................................ ................................ ................................ ................................ ......................... 5 
+1.3 Objectives ................................ ................................ ................................ ................................ ......................5 
+2. Overview ............................................................................................................................................... 6 
+2.0 Critical Requirement Deltas Since Last Submission ................................ ................................ ...............6 
+2.0.1 Baseline ................................................................................................................................................................................. 6 
+2.0.2 Summary of Major Changes ............................................................................................................................................... 6 
+2.0.3 Overall Delta Table ............................................................................................................................................................... 6 
+2.0.4 Technology Stack Deltas (PRD -> Current)...................................................................................................................... 8 
+2.0.5 Non-Functional Requirement Deltas ............................................................................................................................... 10 
+2.0.6 Requirements Unchanged in Intent (No Material Delta) ............................................................................................... 10 
+2.0.7 Deferred / Not Yet Implemented (Explicit Gap List) ...................................................................................................... 10 
+2.1 Market Comparison ................................ ................................ ................................ ................................ ... 11 
+2.2 Unique Selling Point ................................ ................................ ................................ ................................ .. 14 
+2.2.1 Multiple Auction Formats ................................................................................................................................................... 14 
+2.2.2 Proxy / Automatic Bidding ................................................................................................................................................. 14 
+2.2.3 Privacy by Design ............................................................................................................................................................... 14 
+2.2.4 Transparency and Trust .................................................................................................................................................... 14 
+2.3 Target Users ................................ ................................ ................................ ................................ ............... 15 
+2.3.1 Guest / Unregistered User ................................................................................................................................................ 15 
+2.3.2 Buyer .................................................................................................................................................................................... 15 
+2.3.3 Seller .................................................................................................................................................................................... 15 
+2.3.4 System Admin ..................................................................................................................................................................... 15 
+2.4 Business Model ................................ ................................ ................................ ................................ .......... 15 
+2.4.1 Key Partners ........................................................................................................................................................................ 15 
+2.4.2 Key Activities ....................................................................................................................................................................... 16 
+2.4.3 Key Resources .................................................................................................................................................................... 16 
+2.4.4 Value Propositions.............................................................................................................................................................. 16 
+2.4.5 Customer Segments .......................................................................................................................................................... 17 
+2.4.6 Revenue Streams ............................................................................................................................................................... 17 
+3. Project Timeline ................................................................................................................................. 18 
+3.1 Project Milestones ................................ ................................ ................................ ................................ ..... 18 
+3.2 Gantt Chart ................................ ................................ ................................ ................................ .................. 18 
+3.3 Work Breakdown Structure (WBS) ................................ ................................ ................................ .......... 21 
+3.4 Project Charter ................................ ................................ ................................ ................................ ........... 22 
+3.5 Communication Management Plan ................................ ................................ ................................ .......... 24 
+3.6 Scope Statement ................................ ................................ ................................ ................................ ........ 25 
+4. Requirement Definition ..................................................................................................................... 25 
+4.1 Stakeholder Identification ................................ ................................ ................................ .........................  25 
+4.2 Requirement Gathering Methods ................................ ................................ ................................ ............. 25 
+
+--- PAGE 3 ---
+ 
+ 
+4.3 Requirement Analysis Approach ................................ ................................ ................................ ............. 25 
+4.4 Summary of User and System Needs ................................ ................................ ................................ ...... 26 
+4.5 Use of Tools ................................ ................................ ................................ ................................ ................ 26 
+5. Functional Requirements ................................................................................................................. 26 
+5.1 Functional Hierarchy ................................ ................................ ................................ ................................ . 26 
+5.2 Basic Feature Access Levels ................................ ................................ ................................ ................... 27 
+5.3 Dependencies ................................ ................................ ................................ ................................ ............. 28 
+5.4 Inputs and Outputs ................................ ................................ ................................ ................................ .... 29 
+6 Non-Functional Requirements ......................................................................................................... 30 
+6.1 Performance Requirements ................................ ................................ ................................ ...................... 30 
+6.2 Security Requirements ................................ ................................ ................................ ..............................  30 
+6.3 Interface and Usability Requirements ................................ ................................ ................................ ..... 30 
+6.4 Portability and Scalability Requirements ................................ ................................ ................................  30 
+7. Risk Analysis ..................................................................................................................................... 31 
+8. Software Methodology ...................................................................................................................... 33 
+9. Technical stack .................................................................................................................................. 34 
+9.1 Frontend ................................ ................................ ................................ ................................ ...................... 34 
+9.2 Backend ................................ ................................ ................................ ................................ ...................... 35 
+9.3 Database ................................ ................................ ................................ ................................ ..................... 35 
+9.4 Key Libraries & Tools ................................ ................................ ................................ ................................  35 
+9.5 APIs ................................ ................................ ................................ ................................ ..............................  36 
+9.6 Hosting ................................ ................................ ................................ ................................ ........................  36 
+9.7 Server ................................ ................................ ................................ ................................ ..........................  37 
+9.8 Deployment ................................ ................................ ................................ ................................ ................. 37 
+10. User stories ...................................................................................................................................... 37 
+10.1 User................................ ................................ ................................ ................................ ............................  37 
+10.2 Admin ................................ ................................ ................................ ................................ ........................  38 
+10.3 Buyer ................................ ................................ ................................ ................................ .........................  39 
+10.4 Seller ................................ ................................ ................................ ................................ ..........................  41 
+11. Preliminary Use Case Diagram ..................................................................................................... 42 
+12. Preliminary Use Case Description ................................................................................................ 45 
+13. System Design ................................................................................................................................120 
+13.1 Data Flow Diagram ................................ ................................ ................................ ................................ . 120 
+13.2 System Architecture Design ................................ ................................ ................................ ................. 121 
+13.2.1 Architectural overview (one-liner + 3-tier) ................................................................................................................... 121 
+
+--- PAGE 4 ---
+ 
+ 
+13.2.2 Logical architecture: UML Component diagram ........................................................................................................ 123 
+13.2.3 Application layering: MVC, DAO, and Filter chain ..................................................................................................... 124 
+13.2.4 Real-time architecture:  Observer pattern and SSE .................................................................................................. 125 
+13.2.5 Deployment architecture: Render, Docker, PostgreSQL, persistent disk  .............................................................. 126 
+13.2.6 Request lifecycle (typical bid flow) :  optional sequence diagram reference  ......................................................... 127 
+13.3 Database Design ................................ ................................ ................................ ................................ .... 129 
+13.3.2 Schema evolution since PRD ....................................................................................................................................... 129 
+13.3.3 Key relationships ............................................................................................................................................................ 129 
+13.4 Wireframes Design ................................ ................................ ................................ ................................  130 
+13.5 UML Sequence Diagrams ................................ ................................ ................................ ...................... 137 
+13.6 UML Class Diagram ................................ ................................ ................................ ...............................  142 
+14. System Testing ...............................................................................................................................143 
+14.1 Test Plan and Schedule................................ ................................ ................................ .........................  143 
+14.2 Test Strategy ................................ ................................ ................................ ................................ .......... 144 
+14.2.1 White-box unit testing (primary) ................................................................................................................................... 144 
+14.2.2 Black-box manual testing (secondary) ........................................................................................................................ 144 
+14.2.3 Boundary Value Analysis (BVA) and Equivalence Partitioning (EP)  ...................................................................... 145 
+14.2.4 Security-oriented testing ................................................................................................................................................ 145 
+14.3 Test Categories and Coverage ................................ ................................ ................................ ............. 145 
+14.4 Database, Concurrency, and Security Testing ................................ ................................ ................... 146 
+14.5 Test Results Summary ................................ ................................ ................................ ..........................  147 
+14.6 Representative Test Cases ................................ ................................ ................................ ................... 148 
+15. Conclusion ......................................................................................................................................149 
+16. Glossary ..........................................................................................................................................149 
+References .............................................................................................................................................150 
+
+--- PAGE 5 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 5 of 154 
+ 
+ 
+1. Introduction 
+1.1 Problem Statement 
+Buying and selling second-hand, surplus, and collectible goods online is dominated by fixed-price 
+marketplaces, where the seller alone sets the price and market demand is not allowed to discover 
+a fair value. Where auction mechanisms do exist, they are oft en mixed into big, convoluted 
+platforms, they might not show a clear bidding timeline, or provide weak trust and safety features 
+such as user ratings, reporting, and moderation. Many tools also handle personal data carelessly, 
+which is a growing concern under data-protection regulation. There is a need for a focused, secure, 
+and easy-to-use web platform on which sellers can list items and buyers can compete through 
+real-time bidding, supported by reputation, moderation, and privacy-aware data handling. 
+1.2 Purpose 
+We aim to deliver a trustworthy and accessible online auction platform where anyone can buy 
+and sell goods through fair, transparent, real-time bidding. By combining multiple auction formats, 
+proxy bidding, reputation and reporting features, and strong, pr ivacy-by-design security, the 
+platform helps buyers and sellers transact with confidence. 
+1.3 Objectives 
+• To provide secure authentication and account management, including two -factor 
+authentication (TOTP) and OTP-based password reset. 
+• To support multiple auction formats — standard price-up (English), Dutch, and blind/sealed 
+auctions. 
+• To enable real-time competitive bidding with transactional integrity and automated proxy 
+(auto-) bidding. 
+• To make discovery easy through keyword search, multi -attribute filtering, sorting, and 
+personalised recommendations. 
+• To build trust through public bid histories, seller profiles, bi -directional ratings, an auction 
+Q&A, and abuse reporting. 
+• To give administrators tools to moderate users, listings, and categories, and to view 
+platform analytics and reports. 
+• To protect personal data in line with Singapore's PDPA through encryption at rest, masking, 
+minimal collection, and account-deletion anonymisation. 
+• To deliver a responsive, browser-based interface and a tested, maintainable MVC + DAO 
+codebase. 
+ 
+ 
+
+--- PAGE 6 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 6 of 154 
+ 
+ 
+2. Overview 
+2.0 Critical Requirement Deltas Since Last Submission 
+2.0.1 Baseline 
+Field Detail 
+Previous submission Project Requirements Documentation (PRD), Assessment 1 – 
+Submission 1 
+PRD version 1.0 (5 May 2026) 
+Current document Preliminary Technical Documentation (PTD), Assessment 1 – 
+Submission 2 
+Current product 
+baseline 
+AuctionHub prototype deployed at https://fyp-26-S2-
+24.onrender.com/online-auction/ (as of June 2026) 
+This section records material changes to requirements, architecture, and implementation since 
+the PRD. Items marked Implemented are present in the current codebase and deployment. 
+Items marked Revised – planned or Deferred remain in scope discussion but are not yet 
+delivered. 
+ 
+2.0.2 Summary of Major Changes 
+Since the PRD, the team moved from a JSP/MySQL/AJAX-polling plan to a React + 
+PostgreSQL + SSE implementation, while retaining the Jakarta Servlet MVC + DAO backend. 
+Several PRD features were extended (multi-format auctions, user-based collaborative filtering 
+with browse history, platform revenue model) and a small number of PRD items were deferred 
+(anti-sniping, email verification on registration). 
+ 
+2.0.3 Overall Delta Table 
+ID Area PRD 
+(Submission 1) 
+Current System / 
+PTD) 
+Rationale Status 
+D-01 Present
+ation 
+Tier 
+JSP, 
+HTML/CSS, 
+JavaScript; 
+Bootstrap 5 as 
+primary UI 
+React 19 SPA (Vite, 
+Tailwind CSS, React 
+Router) as primary 
+UI; legacy JSP 
+views retained for 
+some flows 
+Richer UX for live 
+bidding, search, and 
+dashboards; 
+component-based 
+development 
+Implemented 
+D-02 Databas
+e 
+MySQL PostgreSQL Stronger 
+transactional 
+integrity for 
+concurrent bidding; 
+team tooling and 
+hosting alignment 
+Implemente
+d 
+D-03 Real-
+time 
+AJAX polling 
+(FR2.3, NFR5) 
+Server-Sent Events 
+(SSE) via 
+Lower latency and 
+simpler client logic 
+Implemented 
+(requirement 
+
+--- PAGE 7 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 7 of 154 
+ 
+ 
+updates /api/auction-
+events/{auctionId} 
+and EventSource on 
+the auction detail 
+page 
+than polling; meets 
+“live bid updates” 
+intent 
+wording 
+updated) 
+D-04 Auction 
+formats 
+English auction; 
+three strategies: 
+Price Up, Low 
+Start High, 
+Public Bidding 
+(FR2.1–FR2.2) 
+Price Up (English), 
+Dutch (declining 
+price), and Blind 
+(sealed bid) 
+Clearer mapping to 
+implemented auction 
+types; Low Start 
+High / Public Bidding 
+folded into 
+supported formats 
+Implemente
+d 
+D-05 Recomm
+endation 
+engine 
+User-Based 
+Collaborative 
+Filtering with 
+cosine similarity 
+(FR4.1–FR4.2) 
+User-based CF 
+(UserBasedCollabor
+ativeFilter) with 
+cosine similarity; 
+trending fallback for 
+cold start 
+Aligns with PRD 
+intent; documented 
+algorithm matches 
+implementation 
+Implemente
+d 
+D-06 Behavio
+ur 
+tracking 
+Browsing, bids, 
+watchlist 
+(FR4.3) 
+Above plus 
+dedicated browse_hi
+story table and 
+tracking on auction 
+detail views 
+Mitigates data 
+sparsity; improves 
+personalisation 
+Implemente
+d 
+D-07 Platform 
+revenue 
+Commission 5–
+8% on 
+successful 
+sales; 
+featured/promot
+ed listings 
+(Business 
+Model) 
+6% commission on 
+completed orders; 
+featured listing fee 
+($9.99); 
+platform_revenue 
+reporting in admin 
+Concrete business 
+rules for prototype; 
+admin revenue 
+reports 
+Implemente
+d 
+D-08 Deploym
+ent 
+Generic Tomcat 
+/ local hosting 
+Render.com web 
+service; multi-stage 
+Docker build (Node 
+20 → Maven 11 → 
+Tomcat 10.1); 
+production URL 
+above 
+Cloud hosting for 
+demo and assessor 
+access 
+Implemente
+d 
+D-09 Operatio
+ns / 
+scalabilit
+y 
+Connection 
+pooling; future 
+WebSocket 
+(NFR11) 
+GET 
+/api/health health 
+check for load 
+balancer; persistent 
+disk for uploads 
+Render health 
+routing; survive 
+redeploy without 
+losing images 
+Implemente
+d 
+D-10 Support Not in PRD User–admin support 
+chat (threads, 
+messages, admin 
+inbox) 
+Operational need for 
+user assistance and 
+moderation 
+Implemente
+d (New 
+Feature) 
+D-11 Authenti
+cation 
+extras 
+Register with 
+email 
+verification 
+Salted SHA-256 
+password hashing; 
+TOTP 2FA; OTP 
+Security prioritised; 
+registration 
+verification deferred 
+Partial 
+
+--- PAGE 8 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 8 of 154 
+ 
+ 
+(FR1.1); SHA-
+256 passwords 
+(FR1.2) 
+password reset via 
+email; email 
+verification on 
+registration not 
+implemented 
+D-12 Anti-
+sniping 
+Extend timer 
+when bid placed 
+near deadline 
+(FR2.5) 
+Not implemented Complexity vs. 
+prototype scope; 
+may be added in a 
+later sprint 
+Deferred 
+D-13 Payment 
+integratio
+n 
+Simulated 
+escrow (FR5.1–
+FR5.3) 
+Simulated order flow 
+(declare → pay → 
+complete → refund); 
+no real payment 
+gateway 
+Unchanged from 
+PRD out-of-scope 
+stance 
+Implemented 
+(simulated) 
+D-14 Admin 
+analytics 
+FR7.3 
+references seller 
+analytics; admin 
+dashboard in 
+FR7 
+Admin dashboard 
+(metrics, reports, 
+PDF export); seller 
+analytics 
+(dashboard, email 
+reports) 
+Expanded beyond 
+PRD admin-only 
+wording 
+Implemented 
+D-15 Third-
+party 
+login / 
+SMS 
+Not in PRD 
+functional list; 
+appeared in 
+draft user 
+stories 
+Not implemented Out of scope for 
+current build 
+Out of scope 
+D-16 Telegra
+m bot for 
+real-
+time 
+notificat
+ion 
+Not in PRD Discussed in 
+roadmap only 
+Future enhancement 
+ 
+Revised – 
+planned 
+ 
+2.0.4 Technology Stack Deltas (PRD -> Current) 
+Layer PRD Current 
+Implementation 
+Justification 
+Frontend JSP, 
+Bootstrap 5 
+React 19.2, Vite 8, 
+Tailwind CSS 3.4, 
+Axios, React Router 
+7 
+Auction pages need frequent UI updates (live 
+bids, filters, dashboards) without full page 
+reloads. A React SPA separates the UI from 
+the servlet API, improves maintainability, and 
+matches common industry practice. Vite 
+gives fast local development; Tailwind 
+supports a consistent responsive layout. JSP 
+remains only for legacy or server-rendered 
+flows. 
+Backend Java Servlet, 
+JavaBean, 
+MVC 
+Java 11, Jakarta 
+Servlet 6, Filters, 
+JSON API under 
+/api/*, MVC + DAO 
+Servlets still provide routing, auth, and 
+business logic as in the PRD MVC plan. 
+JavaBeans were replaced by explicit DAOs 
+and API servlets for clearer layering and 
+
+--- PAGE 9 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 9 of 154 
+ 
+ 
+testability. A JSON API under /api/* lets the 
+React frontend and future clients use the 
+same backend without duplicating logic in 
+JSP. 
+Database MySQL, 
+MySQL 
+Workbench 
+PostgreSQL, JDBC, 
+HikariCP 7.x 
+PostgreSQL offers strong ACID transactions 
+and row-level locking (FOR UPDATE), which 
+matters for concurrent bidding. It fits 
+relational auction/bid/order data and is well 
+supported on Render. HikariCP pools 
+connections for performance under load. 
+Schema design tools (e.g. DBeaver, 
+pgAdmin) replaced MySQL Workbench. 
+App server Apache 
+Tomcat 
+Apache Tomcat 10.1 
+(Jakarta EE / Servlet 
+6) 
+Tomcat remains the deployment target from 
+the PRD. Version 10.1 supports Jakarta 
+Servlet 6 and Java 11, matching our 
+dependencies. No application-server change 
+was required, only an upgrade to the Jakarta 
+namespace. 
+Build Maven WAR Maven WAR + 
+Docker multi-stage 
+image 
+mvn package still produces online-
+auction.war for local Tomcat. Docker adds a 
+reproducible build: Node builds the React 
+app, Maven builds the WAR, and both are 
+packaged into one Tomcat image. This 
+reduces “works on my machine” issues and 
+matches Render’s container deployment. 
+Hosting Generic / 
+local 
+Render.com (Docker 
+web service + 
+managed 
+PostgreSQL) 
+A public HTTPS URL is required for 
+supervisor/assessor demos. Render provides 
+managed hosting, PostgreSQL, health 
+checks, and optional persistent disk for 
+uploads without maintaining our own VM. 
+Docker on Render matches our multi-stage 
+Dockerfile. 
+Real-time AJAX polling SSE (Server-Sent 
+Events) 
+Polling adds latency and unnecessary 
+requests. SSE pushes bid snapshots when 
+AuctionEventPublisher publishes, giving 
+near–real-time updates with simpler client 
+code (EventSource) and less server load 
+than polling every few seconds. This still 
+meets the PRD goal of live bid updates 
+(FR2.3). 
+Testing Unit and 
+integration 
+testing 
+(planned) 
+JUnit 5 + Mockito; 
+40+ test classes; full 
+mvn test in CI/local 
+workflow 
+Automated tests were planned in the PRD 
+but not specified in detail. JUnit 5 and 
+Mockito allow white-box tests of servlets and 
+DAOs with mocked dependencies, supporting 
+regression checks each sprint. Running mvn 
+test before merge keeps the suite green as 
+features grow. 
+Project tools Jira, GitHub Jira, GitHub, 
+Telegram (team 
+Jira and GitHub unchanged: backlog/sprints 
+and version control. Telegram was added for 
+
+--- PAGE 10 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 10 of 154 
+ 
+ 
+coordination) quick stand-ups and blockers between formal 
+Jira updates—communication only; not part 
+of the runtime stack. 
+ 
+2.0.5 Non-Functional Requirement Deltas 
+NFR PRD Current treatment 
+NFR5 (Performance – bid 
+updates) 
+Delivered within 3 seconds via 
+AJAX polling 
+Delivered via SSE push on bid 
+events; typically sub-second on 
+deployed instance 
+NFR7 (Concurrency) Database-level locking SELECT … FOR UPDATE on 
+auction row in BidDAO.placeBid; 
+auto-bid in same transaction 
+NFR8 (Usability) Responsive UI with Bootstrap 5 Responsive React + Tailwind UI; 
+Bootstrap retained only on legacy 
+JSP pages 
+NFR11 (Scalability) Future migration to WebSocket SSE adopted for real-time layer; 
+health endpoint supports horizontal 
+scaling on Render 
+ 
+2.0.6 Requirements Unchanged in Intent (No Material Delta) 
+The following PRD areas are implemented substantially as specified and require no 
+requirement change, only implementation evidence in the PTD: 
+- RBAC for Buyer, Seller, and Admin (FR1.3) 
+- Bid validation and winner determination (FR2.4, FR2.6) 
+- Item listing, search, filter, and category browse (FR3.1, FR3.3, FR3.4) 
+- Simulated escrow and transaction history (FR5.1–FR5.3) 
+- Buyer/seller ratings after completed transactions (FR6.1–FR6.3) 
+- Admin user moderation and listing moderation (FR7.1–FR7.2) 
+- In-app notifications for outbid, auction end, and payment events (FR8.1–FR8.3) 
+- Security: salted password hashing, AES encryption for sensitive fields, prepared 
+statements, RBAC filters (NFR1–NFR3) 
+- PDPA-oriented masking and account-deletion anonymisation (NFR4) 
+ 
+2.0.7 Deferred / Known Limitations  
+PRD reference Description Planned action 
+FR1.1 Email verification on registration Deferred to post-prototype; 
+OTP used for password reset 
+only 
+FR2.5 Anti-sniping (timer extension) Deferred; documented as 
+future enhancement 
+FR7.4 Rule-based suspicious bidding 
+detection 
+Partially addressed via 
+moderation and reporting; 
+automated pattern detection 
+deferred 
+FR5.1~FR5.3 (escrow flow) Payment deadline for winning buyers; Deferred to final release; 
+
+--- PAGE 11 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 11 of 154 
+ 
+ 
+orders may remain 
+PENDING_PAYMENT indefinitely; no 
+auto-cancel, second-chance winner, or 
+buyer penalty 
+admin can track unpaid 
+orders manually; automated 
+enforcement planned 
+FR7.4 (related) Bid-rate limiting / anti-spam; concurrent 
+bid integrity is enforced, but there is no 
+per-user API rate limit on repeated bid 
+attempts 
+Deferred; reporting + admin 
+moderation used in prototype 
+FR7.4 (related) Automated shill / suspicious-bidding 
+detection; no pattern-based flagging 
+beyond manual reports and admin 
+review 
+Partially addressed via 
+reporting and moderation; 
+automated detection deferred 
+(see FR7.4 row above) 
+FR1.3 / security (edge 
+case) 
+Suspended-user bid guard at bid time; 
+banned/suspended accounts are 
+blocked at login; bid placement does 
+not always re-check account status on 
+an existing session 
+Known limitation; status re-
+check at bid time planned as 
+a small hardening fix 
+NFR / operations Load and scale testing; concurrency is 
+handled with SELECT … FOR 
+UPDATE; no multi-threaded load test or 
+horizontal SSE fan-out (single Render 
+instance) 
+Documented limitation; load 
+test and Redis-backed SSE 
+considered for post-prototype 
+scaling 
+ Seller in-app wallet, self-service 
+featured purchase, withdrawal requests 
+Deferred; platform revenue 
+recorded in platform_revenue; 
+seller-facing wallet UI planned 
+for final release 
+Out of scope (PRD) Real payment gateway, native mobile 
+app 
+Remains out of scope 
+ 
+2.1 Market Comparison 
+Feature eBay Carous
+ell 
+FB 
+Marketpla
+ce 
+Whatn
+ot 
+Shope
+e 
+Lazad
+a 
+Yahoo 
+Auctio
+ns 
+Our 
+Platform 
+(Target) 
+English 
+Auction 
+(Price Up) 
+Yes No No Yes 
+(live) 
+No No Yes Yes 
+
+--- PAGE 12 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 12 of 154 
+ 
+ 
+Low Start 
+High 
+Strategy 
+Yes No No Yes 
+(live) 
+No No Yes Yes 
+Public 
+Bidding 
+Yes No No Yes 
+(live) 
+No No Yes Yes 
+Collaborati
+ve Filtering 
+Recs 
+Limite
+d 
+No AI-based No Basic Yes Limited Yes 
+(UBCF) 
+Seller 
+Analytics 
+Dashboard 
+Basic Minimal Minimal Basic Basic Yes Basic Yes 
+(advance
+d) 
+Multi-
+Auction 
+Strategy 
+Limite
+d 
+No No No No No Yes Yes 
+Real-time 
+Notification
+s 
+Yes Yes Yes Yes Yes Yes Yes Yes 
+SEA 
+Market 
+Presence 
+Limite
+d 
+Strong Moderate No Strong Strong Limited Targeted 
+Buyer and 
+Seller 
+Rating 
+System 
+Yes Yes Limited Yes Yes Yes Yes Yes 
+
+--- PAGE 13 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 13 of 154 
+ 
+ 
+Secure 
+Online 
+Payment 
+Integration 
+Yes Yes Limited Yes Yes Yes Yes Yes 
+Mobile 
+Application 
+Support 
+Yes Yes Yes Yes Yes Yes Yes Yes 
+Auction 
+Countdow
+n Timer 
+Yes No No Yes Selecte
+d sales 
+Selecte
+d sales 
+Yes Yes 
+Product 
+Search 
+and 
+Filtering 
+Yes Yes Yes Yes Yes Yes Yes Yes 
+Watchlist / 
+Wishlist 
+Yes Yes Limited Yes Yes Yes Yes Yes 
+Automated 
+Bid 
+Increment 
+Yes No No Yes No No Yes Yes 
+Fraud 
+Protection 
+and 
+Dispute 
+Resolution 
+Yes Limited Limited Yes Yes Yes Yes Yes 
+Multi-
+Category 
+Yes Yes Yes Yes Yes Yes Yes Yes 
+
+--- PAGE 14 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 14 of 154 
+ 
+ 
+Product 
+Listings 
+Admin 
+Manageme
+nt 
+Dashboard 
+Yes Basic Basic Yes Yes Yes Yes Yes 
+Promotion
+al and 
+Sponsored 
+Listings 
+Yes Yes Yes Yes Yes Yes Yes Yes 
+ 
+2.2 Unique Selling Point 
+AuctionHub differentiates itself by combining transparent, multi -format real -time auctions with 
+strong, built-in privacy and trust features. 
+2.2.1 Multiple Auction Formats 
+Sellers can run standard price -up (English), Dutch (declining -price), or blind (sealed -bid) 
+auctions, choosing the format that best suits the item. 
+2.2.2 Proxy / Automatic Bidding 
+Buyers can set a maximum bid, and the system bids on their behalf up to that ceiling. The 
+ceiling and any note are encrypted at rest, and proxy counter -bids are resolved atomically 
+within the same transaction as the triggering bid. 
+2.2.3 Privacy by Design 
+Personal data (phone, address), the 2FA secret, and auto-bid ceilings are encrypted with AES-
+256-GCM; passwords are salted -hashed; public displays use masking; and account deletion 
+anonymises personal data in line with PDPA. 
+2.2.4 Transparency and Trust 
+Public bid histories, public seller profiles, bi -directional ratings, an auction Q&A, and admin 
+moderation of users, listings, and categories give participants the information and safeguards 
+they need to transact with confidence. 
+
+--- PAGE 15 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 15 of 154 
+ 
+ 
+2.3 Target Users 
+The platform supports distinct user categories, each with its own access level. A registered 
+account holds a single role (Buyer, Seller, or Admin). 
+2.3.1 Guest / Unregistered User 
+• Browses the landing page, searches and filters listings, and views auction details, bid 
+history, and public seller profiles. 
+• Cannot bid, list items, or use account features; is prompted to register to unlock them. 
+2.3.2 Buyer 
+• Searches, watches, and bids on auctions, including setting auto-bids. 
+• Asks questions, rates sellers, reports abuse, and manages their own account. 
+2.3.3 Seller 
+• Creates, edits, and cancels auction listings and manages them from a dashboard. 
+• Replies to buyer questions, rates buyers, maintains a public profile, and manages their 
+account. 
+2.3.4 System Admin 
+• Moderates users (ban / unban), listings (flag / remove / restore), and categories (CRUD). 
+• Views platform metrics, analytics, and generated reports. 
+2.4 Business Model 
+AuctionHub operates as a C2C online auction marketplace focused on second-
+hand and collectible goods in Singapore and Southeast Asia. The prototype implements core m
+arketplace flows (listing, bidding, simulated escrow, ratings, moderation) and two concrete reven
+ue mechanisms recorded in the platform_revenue table. Payment gateways and logistics integr
+ations described below are planned partners for a production launch; the current system uses si
+mulated escrow and does not process real payments. 
+ 
+2.4.1 Key Partners 
+Partner type Examples (planned) Role in the platform 
+Payment 
+gateways 
+PayPal, PayNow, 
+GrabPay 
+Future real-money checkout and payout (out of 
+scope for prototype) 
+
+--- PAGE 16 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 16 of 154 
+ 
+ 
+Logistics SingPost, Ninja Van, 
+J&T Express 
+Future shipping labels and delivery tracking 
+Identity 
+verification 
+Singpass Future verified seller/buyer onboarding 
+Cloud hosting Render.com, managed 
+PostgreSQL 
+Production deployment, database, and health 
+monitoring (implemented) 
+For the prototype, trust and operations rely on in-platform features: admin moderation, user 
+reporting, ratings, simulated escrow, and user–admin support chat, not on external payment 
+or logistics APIs. 
+2.4.2 Key Activities 
+• Platform development and operations: Maintain the React SPA, Jakarta Servlet JSON API, 
+PostgreSQL schema, and Docker deployment on Render. 
+• Auction execution: Support multiple auction formats (ascending, Dutch, blind), proxy/auto-bid, 
+and real-time bid updates via Server-Sent Events (SSE). 
+• Transaction facilitation: Simulated escrow: payment is held until the buyer confirms receipt; 
+order status and history are tracked in the database. 
+• Discovery and engagement: Search, filters, watchlist, browse history, and personalised 
+recommendations (user-based collaborative filtering). 
+• Trust and safety: Admin moderation (ban/unban, listing flag/remove), user reports, post-
+transaction ratings, and PDPA-oriented data handling. 
+• Monetisation (prototype): Record sale commission and featured-listing fees 
+in platform_revenue; expose totals in the admin analytics dashboard. 
+ 
+2.4.3 Key Resources 
+• Development team: Five-member FYP-26-S2-24 team (design, implementation, testing, 
+documentation). 
+• Software platform: Java 11 / Jakarta Servlets WAR, React 19 frontend, PostgreSQL, multi-
+stage Docker build, GitHub repository. 
+• Data assets: User accounts, auctions, bids, orders, ratings, browse history, platform revenue, 
+and support-chat records. 
+• Algorithms and services: Recommendation engine (UserBasedCollaborativeFilter), 
+notification service, auction finalisation and expiry listener. 
+• Trust infrastructure: RBAC (Buyer / Seller / Admin), encryption for sensitive fields, admin 
+moderation tools, and support chat. 
+• Brand and community: Positioning as a transparent, auction-first alternative to fixed-price 
+C2C apps in the region. 
+ 
+2.4.4 Value Propositions 
+Stakeholder Value delivered 
+Buyers Fair, transparent bidding with live price updates; watchlist and personalised 
+
+--- PAGE 17 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 17 of 154 
+ 
+ 
+recommendations; buyer protection via simulated escrow; ratings and 
+public seller profiles for trust. 
+Sellers Competitive price discovery across auction formats; seller dashboard and 
+analytics; optional featured listing for higher visibility; proxy bidding 
+increases participation without manual rebidding. 
+Platform Revenue tied to successful sales (commission only on completed orders) 
+plus optional promotion fees; moderation and reporting reduce fraud and 
+disputes. 
+The platform addresses a gap in the Singapore and Southeast Asian C2C market, where 
+major apps (e.g. Carousell) emphasise fixed-price or chat-based negotiation rather than 
+dedicated multi-format auctions with built-in escrow simulation and real-time bidding. 
+ 
+2.4.5 Customer Segments 
+Individual users (primary) : Digitally active consumers in Singapore, bargain hunters, 
+collectors, casual declutterers, and hobbyist seller, who want competitive pricing for second-
+hand, vintage, or rare items via transparent auctions rather than opaque negotiation. 
+Business users (secondary) : Small retailers clearing overstock, antique and collectibles 
+dealers, and future advertisers or sponsors who benefit from featured placement and 
+category-focused traffic. Logistics and payment providers become active partners when real 
+settlement and shipping are integrated post-prototype. 
+ 
+ 
+ 
+2.4.6 Revenue Streams 
+Revenue rules are implemented in the prototype and aligned with Requirements Delta D-07. 
+Stream Rule When charged Implementation 
+Sale 
+commissi
+on 
+6% of 
+the 
+complete
+d order 
+amount 
+Seller, on 
+successful order 
+completion (won 
+auction + escrow 
+flow completed) 
+PlatformRevenueDAO records 
+type COMMISSION; admin reports show “Sale 
+commissions (6%)” 
+Featured 
+listing fee 
+USD 
+9.99 per 
+promotio
+n period 
+Seller, when 
+admin features a 
+listing for a 
+defined number 
+of days 
+FeaturedListingDAO sets is_featured / featured
+_until; revenue type FEATURED_LISTING 
+Unsold 
+auctions 
+No fee - Commission applies only to completed orders 
+There is no listing fee and no charge on failed or cancelled auctions, so platform income 
+aligns with successful transactions. Featured listings appear prominently on the home page 
+and in search results for the paid period. 
+Future revenue (not implemented in prototype): payment-processing margin from gateway 
+
+--- PAGE 18 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 18 of 154 
+ 
+ 
+partners, premium seller subscriptions, and sponsored category placements. 
+ 
+3. Project Timeline 
+3.1 Project Milestones 
+Assessment Item Responsible Due Date 
+Project Requirements Documentation Group 9 May 2026 
+Preliminary Technical Documentation & User 
+Manual 
+Group 13 June 2026 
+Prototype Demo / Progress Presentation Group 20 June 2026 
+Final Product & Documentation Group 15 August 2026 
+Final Presentation Group 22 August 2026 
+ 
+3.2 Gantt Chart 
+
+--- PAGE 19 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 19 of 154 
+ 
+ 
+
+
+--- PAGE 20 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 20 of 154 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 21 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 21 of 154 
+ 
+ 
+ 
+ 
+3.3 Work Breakdown Structure (WBS) 
+ 
+WBS Work Package Key Deliverables / Tasks 
+1 Project Management Project charter, sprint planning & tracking (Jira), 
+stand-ups, risk register 
+2 Requirements & 
+Analysis 
+User stories, feature prioritisation, scope statement 
+3 System Design ERD, MVC class diagram, sequence diagrams, UI 
+wireframes 
+4 Implementation Account, Buyer, Seller and Admin modules; security 
+& search; DB schema + migrations; React/JSP 
+
+
+--- PAGE 22 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 22 of 154 
+ 
+ 
+frontend 
+5 Testing JUnit/Mockito unit tests, security/RBAC tests, 
+manual deployment testing 
+6 Documentation README, technical document, user manual, 
+diagrams 
+7 Deployment Maven WAR / Docker build, Tomcat deployment, 
+environment configuration 
+ 
+Module Must-have (M) Nice-to-have (N) 
+Account & 
+Authentication 
+Register, Login, Logout, Reset 
+Password (OTP), View/Edit 
+Profile, Change Password, 
+Delete Account (PDPA) 
+Two-Factor Auth (2FA), 
+Manage Notifications, Contact 
+Support 
+Guest / 
+Unregistered 
+View Landing Page, Search & 
+Browse, Filter & Sort, View 
+Auction Detail, View Bid History, 
+Register Prompt 
+View Seller Profile 
+Buyer Place Bid, Bidding History, Pay 
+for Order 
+Auto-Bid (Proxy), Watchlist, 
+Ask Question, Rate Seller, 
+Report User, 
+Recommendations, 
+Confirm/Refund Order 
+Seller Create Auction, Choose Auction 
+Type, Edit Auction, Cancel 
+Auction, Seller Dashboard, 
+Finalise Order 
+Seller Analytics, Reply to 
+Questions, Resolve Refunds, 
+Rate Buyer, Public Seller 
+Profile 
+Admin Admin Dashboard, View User 
+Accounts, Ban/Suspend User, 
+Unban User, Moderate Listings, 
+Category CRUD, Review 
+Reports 
+Analytics, Generate PDF 
+Reports 
+ 
+3.4 Project Charter 
+
+--- PAGE 23 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 23 of 154 
+ 
+ 
+Field Detail 
+Project Title Online Auction Platform (AuctionHub) 
+Start / Finish 4 April 2026 / 29 August 2026 
+Project 
+Manager 
+Lee Haeeun 
+Objective Deliver a secure, transparent online auction web platform with multi -format 
+bidding, trust features, and PDPA-aligned privacy. 
+Success 
+Criteria 
+Adherence to scope, schedule, and quality; passing test suite; successful 
+supervisor review and demo. 
+  Approach Agile-Scrum with sprint planning, reviews, and a consistent Definition of 
+Done per user story.  Where every sprint will begin with a planning session 
+where we will establish specific objectives. It will then end with a review to 
+reflect on the work that has been done and identify areas that require 
+improvement. Frequent stand-up meetings will also be held to keep everyone 
+informed about the project and possible roadblocks in order to maintain 
+alignment. 
+ 
+Role Member Responsibilities 
+Team Leader / 
+Hybrid 
+Developer 
+Lee Haeeun (Chloe) Led end -to-end project delivery across frontend, 
+backend, database, and deployment. Owned 
+system architecture, core feature implementation, 
+PostgreSQL schema and migrations, 
+Docker/Render deployment, and integration of 
+React. 
+
+--- PAGE 24 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 24 of 154 
+ 
+ 
+Frontend 
+Developer 
+Aye Chan Maung Frontend wireframes and UI layout design for key 
+user journeys. 
+Frontend 
+Developer 
+Bryan Soh Yong Qi Frontend wireframe design and UI structure for 
+consistent user experience. 
+Backend 
+Developer 
+Chung Kun Hong Developed and maintained backend components, 
+including servlet APIs, data access logic, and 
+server-side business rules for auction and user 
+management features. 
+Frontend and 
+backend 
+Developer 
+Firnando Lie Contributed across frontend and backend as a full -
+stack developer. Implemented application features 
+in React and Java servlets, and supported technical 
+documentation including requirements and design 
+artifacts. 
+ 
+3.5 Communication Management Plan 
+Channel Use 
+Jira Product backlog, sprint planning, user-story and 
+subtask tracking 
+Telegram  Day-to-day coordination and stand-ups 
+GitHub Source control, branching, and code review 
+ 
+
+--- PAGE 25 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 25 of 154 
+ 
+ 
+3.6 Scope Statement 
+In scope 
+• Authentication & account management (register, login/logout, 2FA, OTP reset, profile, 
+delete). 
+• Auctions: create/edit/cancel; price-up, Dutch, and blind formats; images and tags. 
+• Bidding: place bid (transactional), auto-bid (proxy), public bid history. 
+• Discovery: keyword search, filters, sorting, recommendations, watchlist. 
+• Trust & engagement: ratings, Q&A, seller profiles, abuse reporting, notifications. 
+• Admin moderation: users, listings, categories; dashboard, analytics, and reports. 
+• Simulated post-auction order flow (declare → pay → complete → refund). 
+Out of scope (current build) 
+• Real payment-gateway / escrow integration (payment is simulated). 
+• Native mobile applications. 
+• Any machine-learning / data-science pipeline. 
+ 
+4. Requirement Definition 
+4.1 Stakeholder Identification 
+Primary stakeholders 
+• Buyers: need reliable discovery and fair, transparent bidding. 
+• Sellers: need simple listing tools and reach to interested buyers. 
+• System Admins: need moderation and oversight tools. 
+Secondary stakeholders 
+• Assessor and Supervisor: evaluate and guide the project. 
+• Hosting / infrastructure providers: host the deployed application and database. 
+4.2 Requirement Gathering Methods 
+• Competitor analysis of marketplaces (eBay, Carousell) to identify gaps and benchmarks. 
+• User-story development per role, tracked in Jira with SCRUM-xx identifiers for traceability. 
+• Regulatory research to ensure PDPA compliance for personal-data handling. 
+4.3 Requirement Analysis Approach 
+
+--- PAGE 26 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 26 of 154 
+ 
+ 
+Priority Features 
+Must-have Register/login, search, place bid, bid history, auction CRUD, admin 
+moderation, privacy/security 
+Should-have Auto-bid, watchlist, ratings, Q&A, seller profiles, notifications 
+Could-have Recommendations, reports/analytics export, referral/business 
+features 
+4.4 Summary of User and System Needs 
+User needs 
+• Fair, transparent, real-time bidding with clear feedback. 
+• Easy discovery (search, filter, sort) and the ability to track items. 
+• Trustworthy counterparties (ratings, profiles, moderation). 
+• Secure accounts and protection of personal data. 
+System requirements 
+• Role-based access control across Guest / Buyer / Seller / Admin tiers. 
+• Transactional integrity for bidding and order flows. 
+• Encryption and masking of personal data; Bearer-token API authentication. 
+• Maintainable, testable layered architecture (MVC + DAO). 
+4.5 Use of Tools 
+• Jira: backlog, sprint and task tracking. 
+• PlantUML: class, ER, and sequence diagrams (docs/). 
+• JUnit 5 + Mockito: automated testing. 
+• GitHub version control and collaboration. 
+5. Functional Requirements 
+5.1 Functional Hierarchy 
+
+--- PAGE 27 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 27 of 154 
+ 
+ 
+  
+5.2 Basic Feature Access Levels 
+Feature Guest Buyer Seller Admin 
+Browse / search / view listings ✓ ✓ ✓ ✓ 
+View bid history & seller profile ✓ ✓ ✓ ✓ 
+Register ✓    
+Login / Logout  ✓ ✓ ✓ 
+Place bid / Auto-bid  ✓   
+
+
+--- PAGE 28 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 28 of 154 
+ 
+ 
+Watchlist  ✓   
+Ask question  ✓   
+Create / edit / cancel auction   ✓  
+Reply to questions   ✓  
+Rate counterparty  ✓ ✓  
+Report user  ✓ ✓  
+Manage own profile / 2FA  ✓ ✓ ✓ 
+Ban / unban users    ✓ 
+Moderate listings / categories    ✓ 
+View analytics & reports    ✓ 
+5.3 Dependencies 
+Dependency 
+Type 
+Components Critical Impact 
+Backend 
+framework 
+Java 11, Jakarta Servlets/Filters, 
+JSP/JSTL, Tomcat 10.1+ 
+Routing, security, 
+business logic 
+Data layer PostgreSQL, HikariCP, JDBC DAOs Persistence, integrity, 
+performance 
+
+--- PAGE 29 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 29 of 154 
+ 
+ 
+Frontend React 19 + Vite + Tailwind (SPA) 
+consuming the JSON API; Bootstrap 5.3 
+JSP views 
+User experience and 
+presentation 
+Libraries / tools JUnit 5, Mockito, iText (PDF reports), 
+PlantUML 
+Testing, reporting, 
+documentation 
+External services SMTP server (optional) for OTP email Password-reset 
+delivery 
+5.4 Inputs and Outputs 
+Inputs 
+• User: email, password, profile details, listing details, bid amounts, questions, reviews, 
+reports. 
+• Admin: moderation actions, category data, content updates. 
+• Auction info: title, type, condition, prices, images, tags, duration. 
+Outputs 
+• Rendered pages (listings, auction detail, dashboards) and success/error messages. 
+• Bid confirmations, notifications, and OTP emails. 
+• Admin analytics and downloadable PDF reports. 
+Input Category Required Fields Validation Rules 
+Bid auctionId, amount Numeric; > current bid; ≤ max price; 
+not self-bid; auction active 
+Listing title, description, type, price, 
+condition 
+Non-empty; price ≥ 0; valid enum 
+values 
+Account email, username, password Valid format; unique; password 
+strength rules 
+
+--- PAGE 30 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 30 of 154 
+ 
+ 
+Review auctionId, rating, comment Rating 1–5; one review per auction 
+per reviewer 
+6 Non-Functional Requirements 
+6.1 Performance Requirements 
+Operation Target Response Time 
+Page load (static/server-rendered) < 2 seconds 
+Search / listing query < 2 seconds 
+Place bid (transactional) < 3 seconds 
+Authentication < 1 second 
+6.2 Security Requirements 
+• Role-Based Access Control (RBAC) enforced by SecurityFilter, AuthFilter, and AdminFilter, 
+plus RbacUtil. 
+• Encryption at rest (AES-256-GCM) for PII, 2FA secret, and auto-bid ceilings; salted SHA-256 
+password hashing. 
+• Parameterised SQL (PreparedStatement) throughout the DAO layer to prevent SQL injection. 
+• IDOR protection - sensitive identifiers are taken from the session, not from request 
+parameters. 
+• Security response headers on every response: X-Content-Type-Options, X-Frame-Options, 
+X-XSS-Protection, and a Content-Security-Policy. 
+• PDPA-aligned consent, masking, and account-deletion anonymisation. 
+6.3 Interface and Usability Requirements 
+• Responsive interface that adapts to desktop, tablet, and mobile screens. 
+• Cross-browser support for modern browsers (Chrome, Edge, Safari, Firefox). 
+• Clear success/error React UI feedback and consistent navigation. 
+6.4 Portability and Scalability Requirements 
+
+--- PAGE 31 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 31 of 154 
+ 
+ 
+• Packaged as a portable WAR (and a Docker image) deployable to any Jakarta Servlet 6 
+container. 
+• GitHub version control with consistent build via Maven for environment reproducibility. 
+• Modular MVC + DAO design allows features and tables to grow independently. 
+• Connection pooling and a stateless request model support horizontal scaling behind a load 
+balancer. 
+7. Risk Analysis 
+Risks Risk 
+description 
+Impact Probability  Consequences Mitigation Plans 
+Security 
+Breaches 
+Unauthorized 
+access, data 
+theft of 
+consumer 
+accounts 
+Very 
+High 
+High Consumers will 
+lose trust in our 
+platform. 
+2FA, strong 
+password 
+encryption, HTTPs, 
+secured backend 
+system 
+SQL Injection 
+and 
+Cyberattacks  
+Vulnerabilities 
+in the 
+application 
+may allow 
+attackers to 
+manipulate 
+the database 
+or system.  
+High High Data can be 
+stolen or 
+manipulated by 
+attackers 
+Use input 
+validation, prepared 
+statements, and 
+other security 
+measures 
+System 
+downtime 
+Server 
+overload due 
+to high traffic 
+or due to 
+regular 
+maintenance  
+High Medium Platform will be 
+seen as 
+unreliable as 
+time is very 
+important for 
+auctions 
+Use reliable hosting 
+services, load 
+balancing  
+Payment 
+Fraud 
+Fraudulent 
+transactions 
+or fake 
+payments 
+may occur 
+High Medium Platform will be 
+seen as 
+unreliable 
+Integrate secure 
+payment gateways 
+and transaction 
+verification systems 
+
+--- PAGE 32 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 32 of 154 
+ 
+ 
+during 
+auctions.  
+Bid 
+Manipulation  
+Fake bids or 
+spam bids 
+Medium Medium Affects 
+legitimate 
+consumers 
+using the 
+platform 
+Implement 
+monitoring and anti 
+spam rules and 
+anomaly detection  
+Poor User 
+Experience  
+Complicated 
+UI or slow 
+webpages 
+Medium Medium Lowers user 
+satisfaction and 
+discourages 
+consumers 
+from using the 
+platform 
+Regular system 
+testing 
+Scalability 
+Issues  
+High users or 
+number of 
+auctions can 
+affect 
+platform 
+Medium Medium Slow loading of 
+platform can 
+affect 
+consumers 
+ability to bid 
+Scalable 
+architecture and 
+optimized database 
+queries 
+Legal and 
+Compliance 
+Issues  
+Regulations 
+related to 
+online 
+transactions 
+or data 
+privacy 
+Medium Low  Leads to legal 
+consequences.  
+Proper research 
+and Follow data 
+protection 
+regulations and 
+implement clear 
+terms and policies.  
+Inaccurate 
+Auction 
+Information  
+Sellers may 
+provide 
+misleading 
+product 
+descriptions 
+or images.  
+Medium Medium Buyers will see 
+the platform as 
+unreliable  
+Implement reporting 
+system and other 
+verification features 
+Dispute 
+Between 
+Users  
+Buyers and 
+sellers may 
+disagree on 
+payments, 
+Medium Medium Unsatisfactory 
+resolution or 
+unresolved 
+dispute will 
+Provide dispute 
+resolution 
+mechanisms and 
+
+--- PAGE 33 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 33 of 154 
+ 
+ 
+delivery, or 
+product 
+conditions.  
+result in 
+consumers 
+having an 
+upsetting 
+experience and 
+consumers will 
+leave the 
+platform 
+clear platform 
+policies.  
+ 
+8. Software Methodology 
+ 
+Source: https://www.scrum.org/resources/scrum-framework-poster 
+We are using Scrum as our development methodology, supported by Jira as our project 
+management tool. This project requires multiple features to be developed and will undergo some 
+changes based on supervisor feedback, which makes an iterative approach more appropriate than 
+trying to plan everything upfront. Jira lets us manage this iterative workflow in one place, giving 
+the whole team visibility into what is being worked on and what is coming next. 
+1. Our team utilizes the Scrum framework to help us develop and deliver the product efficiently 
+and on time. Scrum provides a structured and iterative approach that enables the team to 
+manage tasks effectively, adapt to changes, and continuously improve throu ghout the 
+project lifecycle. We use Jira to operationalise this framework, maintaining our backlog, 
+boards, and sprints in a single shared workspace. 
+
+
+--- PAGE 34 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 34 of 154 
+ 
+ 
+2. We conduct biweekly sprint planning sessions where the team defines sprint goals, 
+identifies priorities, and determines realistic, achievable objectives for the upcoming sprint. 
+During planning, we create a Jira sprint and pull the highest -priority user stories from the 
+product backlog into the sprint backlog, assigning owners and estimates so that the 
+committed scope is clear and trackable. 
+3. We conduct a sprint review at the end to evaluate the work completed and identify any 
+obstacles or challenges encountered during development. This provides an opportunity for 
+the team to discuss areas for improvement and reflect on the effectiveness of the  sprint 
+process. Jira's board and sprint reports (such as the burndown chart and completed-versus-
+committed view) give us an objective basis for this discussion by showing exactly what was 
+delivered and what carried over. 
+4. We refine the backlog with feedback from the sprint review and update it accordingly in Jira. 
+This helps the team re -prioritise issues more effectively, address blockers promptly, and 
+ensure that future sprints are aligned with the overall project goals an d stakeholder 
+expectations. Carried-over and newly raised issues are re-ranked in the backlog so the next 
+sprint planning session starts from an accurate, ordered list. 
+Key artefacts we maintain: 
+• Product Backlog: the full, prioritised list of everything we need to build, maintained as the 
+backlog in Jira. 
+• Sprint Backlog: the specific issues and sub-tasks we've committed to for the current sprint, 
+tracked on the Jira board. 
+• Increment: the working software we deliver at the end of each sprint, corresponding to the 
+issues marked Done in the sprint. 
+The reason Scrum works well with this project is that building an auction platform involves a lot of 
+interconnected features such as the auction engine, the recommendation system, payment flow, 
+and admin tools. We also need the flexibility to adjust priori ties as we go. Two-week sprints give 
+us enough time to build something meaningful while still receiving feedback from the supervisor, 
+and Jira keeps these moving parts organised by linking related issues, tracking progress in real 
+time, and making dependencies between features visible to the whole team. 
+9. Technical stack 
+9.1 Frontend 
+The primary user interface is a React 19 single-page application (SPA) in FYP/Frontend, built with 
+Vite 8, styled with Tailwind CSS 3, and routed with React Router 7. The client calls the backend 
+through Axios against /api/*, sending a per -tab Bearer token  from sessionStorage in the 
+Authorization header (withCredentials is enabled for cookie -backed flows where needed). 
+Production builds use VITE_BASE=/online -auction/ so static assets resolve under the Tomcat 
+
+--- PAGE 35 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 35 of 154 
+ 
+ 
+context path. Key UI libraries include lucide -react (icons) and qrcode.react (2FA setup). In local 
+development, the Vite dev server runs on port 3000 and proxies /api and /uploads to Tomcat at 
+http://localhost:8080/online-auction. React was chosen for comp onent reuse, fast iteration, and 
+interactive screens such as live bidding (SSE-driven price updates), seller dashboards, and admin 
+tools. A smaller set of legacy JSP/JSTL pages styled with Bootstrap 5.3 remains for backward 
+compatibility; all new features are implemented in React. 
+9.2 Backend 
+The server is Java 11, packaged as a WAR (online-auction.war) and deployed on Apache Tomcat 
+10.1+ (Jakarta Servlet 6.0). The application follows MVC + DAO: *ApiServlet classes under 
+com.auction.servlet.api extend ApiBase, handle HTTP routing and validation , authenticate via 
+TokenStore / AuthSession (Bearer tokens for the React client), and return JSON serialised with 
+Jackson 2.17. Persistence is isolated in com.auction.dao using JDBC and PreparedStatement 
+only; servlets do not embed SQL. Cross-cutting Filters run before servlets: SecurityFilter (security 
+headers on all requests), CorsFilter (cross-origin API access in development), SpaFallbackFilter 
+(serves the React index.html for client -side routes), plus AuthFilter and AdminFilter on legacy 
+/protected/* a nd /admin/* paths. Real -time bid updates use Server -Sent Events (SSE) via 
+AuctionEventServlet at GET /api/auction -events/{auctionId}, triggered after successful bids by 
+AuctionEventPublisher. Legacy servlet + JSP controllers under com.auction.servlet are r etained 
+for regression coverage; the React SPA is the primary presentation path. Jakarta Servlets were 
+chosen as a lightweight, well -understood server model that fits transactional auction logic and 
+integrates cleanly with PostgreSQL through JDBC. 
+9.3 Database 
+PostgreSQL is the relational database, accessed via the PostgreSQL JDBC driver 42.7.7 and 
+HikariCP 7.0.2 connection pooling (DBUtil). Schema and migrations live under 
+FYP/src/main/resources/ (e.g. auction_db.sql, migrate_all.sql). PostgreSQL was selected f or 
+ACID transactions (essential for row -locked bidding), referential integrity, indexing, and mature 
+tooling. MySQL was the PRD baseline but was replaced for stronger concurrency semantics and 
+consistency with the Render managed PostgreSQL offering. SQLite was rejected because it does 
+not suit concurrent multi-user web workloads. MongoDB was rejected because auction, bid, and 
+order data are highly relational and benefit from SQL joins and SELECT … FOR UPDATE locking 
+in BidDAO.placeBid. 
+9.4 Key Libraries & Tools 
+This project uses no machine -learning libraries — that architectural style is Not Applicable. 
+Personalised recommendations use user -based collaborative filtering with cosine similarity, 
+implemented in plain Java (UserBasedCollaborativeFilter) and SQL (RecommendationDAO), with 
+interaction weights for bids, watchlist, and browse history. Other libraries and tools: 
+• HikariCP 7.0.2: JDBC connection pooling 
+• Jackson 2.17: JSON request/response binding for /api/* 
+
+--- PAGE 36 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 36 of 154 
+ 
+ 
+• Angus Mail 2.0.5: optional SMTP for password-reset OTP (MailConfig) 
+• iText 5.5.13: server-side PDF generation for admin reports 
+• JUnit 5.10.2 + Mockito 5.23: automated unit tests (~74 test classes, ~700 @Test methods 
+under FYP/src/test/java/) 
+• Tailwind CSS 3: React UI styling; Bootstrap 5.3: legacy JSP pages only 
+• PlantUML: class, ER, and sequence diagrams in docs/ 
+• Jira + GitHub: sprint backlog and version control 
+• Maven 3.9: build, packaging, and test execution (cd FYP then mvn clean package / mvn 
+test) 
+• Passwords at rest use salted SHA-256 (SecurityUtil); sensitive profile fields and auto-bid 
+ceilings use AES-256-GCM encryption. 
+9.5 APIs 
+• Internal JSON API: all primary React flows use REST-style endpoints under /api/*, 
+including auth and session (AuthApiServlet, SessionApiServlet, TwoFactorApiServlet), 
+auctions and search (AuctionApiServlet, SearchApiServlet), bidding and auto-bid 
+(BidApiServlet, AutoBidApiServlet), watchlist, orders and escrow, order messages, 
+questions, ratings, reports, notifications, recommendations, categories, seller tools, 
+featured listings, support chat (SupportApiServlet), file uploads (UploadedFileServlet, 
+ProfilePhotoApiServlet), and admin operations (AdminApiServlet). Real-time — GET 
+/api/auction-events/{auctionId} (SSE, text/event-stream). Operations — GET /api/health 
+for load-balancer and Render health checks. 
+ 
+• External services: optional SMTP email for password-reset OTP delivery; no live 
+payment gateway or logistics API is integrated in the prototype (escrow and 
+commission are simulated in-application). 
+ 
+9.6 Hosting 
+Production runs on Render.com as a Docker web service at https://fyp -26-s2-
+24.onrender.com/online-auction/, with a managed PostgreSQL instance connected via 
+environment variables AUCTION_DB_URL, AUCTION_DB_USER, and 
+AUCTION_DB_PASSWORD. Render’s health che ck targets GET /api/health. Uploaded images 
+and profile photos persist across redeploys when AUCTION_UPLOAD_DIR is set (e.g. 
+/data/auction-uploads on a Render persistent disk); docker-entrypoint.sh creates auction/, profile/, 
+and support/ subdirectories on startup. The same Docker image can be run on any container host; 
+
+--- PAGE 37 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 37 of 154 
+ 
+ 
+local development uses Tomcat (Cargo Maven plugin or Docker) plus optional Vite on port 3000. 
+9.7 Server 
+Apache Tomcat 10.1 (Jakarta Servlet 6, JDK 11) is the application server. The WAR is exploded 
+under webapps/online-auction/ with the React production build copied into the WAR root during 
+the Docker assembly stage. In development, Tomcat is started via the Cargo Maven plugin or the 
+root Dockerfile; docker -entrypoint.sh maps Render’s PORT environment variable into Tomcat’s 
+HTTP connector before catalina.sh run. 
+9.8 Deployment 
+• Build: from FYP/, mvn clean package produces target/online-auction.war; mvn test runs 
+the full automated suite before merge and milestone submissions. 
+• Frontend build: npm ci and npm run build in FYP/Frontend (Node 20 in Docker). 
+• Container image: multi-stage Dockerfile at the repository root: Stage 1 React build 
+(Node 20 Alpine) → Stage 2 Maven WAR build (Maven 3.9, Eclipse Temurin 11) → 
+Stage 3 WAR explode + merge React dist/ → Stage 4 runtime (tomcat:10.1-jdk11-
+temurin). 
+• Version control: GitHub repository FYP-26-S2-24; production deploys are triggered 
+from the main branch on Render (no separate GitHub Actions CI pipeline — quality 
+gate is local/team mvn test plus manual smoke tests on the deployed URL). 
+• Context path: /online-auction (all API and SPA routes are served under this prefix in 
+production). 
+ 
+10. User stories 
+Stories include PRD backlog; implemented subset traced in 2.0.3 and 14. 
+10.1 User 
+• As a User, I want to create a new account for the site, so that I can access the platform 
+and its features. 
+• As a User, I want to login securely, so that only I can access my account. 
+• As a User, I want to logout securely, so that my account is protected when I am not using 
+it. 
+• As a User, I want to manage my own account, so that I can manage my account information 
+up to date. 
+
+--- PAGE 38 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 38 of 154 
+ 
+ 
+• As a User, I want to delete my account, so that I can remove my personal data from the 
+system. 
+• As a User, I want to reset my password via email or phone 
+number, so that I can recover my account if I forget my credentials. 
+• As a User, I want to update my profile information (display name, profile picture, contact 
+info), so that my account stays up to date. 
+• As a User, I want to change my password, so that I can keep my account secure. 
+• As a User, I want to receive email notifications for important events (outbid, auction won, 
+auction ending soon), so that I don't miss critical updates. 
+• As a User, I want to view my notification history, so that I can review past alerts. 
+• As a User, I want to set my notification preferences (email, in-
+app, SMS), so that I only receive alerts I care about. 
+• As a User, I want to enable two -factor authentication (2FA), so that my account has an 
+extra layer of security. 
+• As a User, I want to link or unlink third party login(google, Facebook, twitter), so that I can 
+sign in to my preferred method. 
+• As a User, I want to be able to edit or delete my review within a limited time period, so that 
+I can correct mistakes. 
+10.2 Admin 
+• As an Admin, I want to ban users, so that no bad actors can negatively affect the business. 
+• As an Admin, I want to generate reports on the auction, so that I know the stats and can 
+monitor ongoing auctions and respond quickly to issues. 
+• As an Admin, I want to view and manage all user accounts, so that I can oversee platform 
+activity. 
+• As an Admin, I want to  unban previously banned users, so that I can reinstate accounts 
+after review. 
+• As an Admin, I want to review and resolve user reports, so that disputes are handled fairly. 
+• As an Admin, I want to  manage auction categories  (create, edit, delete), so that the 
+category system stays organized. 
+
+--- PAGE 39 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 39 of 154 
+ 
+ 
+• As an Admin, I want to  remove or hide inappropriate auction listings, so that the platform 
+remains safe and compliant. 
+• As an Admin, I want to view a dashboard with platform statistics (total users, active auctions, 
+revenue, top sellers), so that I can monitor overall platform health. 
+• As an Admin, I want to generate reports filtered by date range, category, or seller, so that I 
+can perform targeted analysis. 
+• As an Admin, I want to set platform-wide auction rules (minimum bid increment, maximum 
+auction duration), so that auctions are consistent. 
+• As an Admin, I want to send system -wide announcements or notifications to all users, so 
+that I can sent maintenance or policy updates. 
+• As an Admin, I want to manage disputes and refund requests, so that transaction conflicts 
+are resolved fairly. 
+• As an Admin, I want to  view all transactions, so that I can monitor financial activity on the 
+platform. 
+• As an Admin, I want to be able to view recommendation system performance metrics (click-
+through rate, conversion rate), so that I can evaluate the algorithm's effectiveness. 
+• As an Admin, I want to be able to configure recommendation parameters (number of items 
+shown, similarity threshold), so that I can tune the system. 
+• As an Admin, I want to be able to remove inappropriate reviews, so that the review system 
+remains trustworthy. 
+10.3 Buyer 
+• As a Buyer, I want to search for items via categories, so that I can look at auctions I’m 
+interested in 
+• As a Buyer, I want to search for items via name, so that I can find the items I want with ease 
+• As a Buyer, I want to rate sellers, so that I know which seller are trustworthy 
+• As a Buyer, I want to report sellers, so that any malicious sellers can be removed. 
+• As a Buyer, I want to place a bid on an auction, so that I can compete for items I want. 
+• As a Buyer, I want to  set a maximum auto -bid amount, so that the system automatically 
+bids on my behalf up to my limit. 
+
+--- PAGE 40 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 40 of 154 
+ 
+ 
+• As a Buyer, I want to  view my bidding history, so that I can track which auctions I've 
+participated in. 
+• As a Buyer, I want to add items to a watchlist, so that I can monitor auctions I'm interested 
+in without bidding yet. 
+• As a Buyer, I want to receive a notification when I am outbid, so that I can decide whether 
+to bid again. 
+• As a Buyer, I want to receive a notification when an auction on my watchlist is ending soon, 
+so that I can place a last-minute bid. 
+• As a Buyer, I want to receive a notification when I win an auction, so that I can proceed with 
+payment. 
+• As a Buyer, I want to view the full bid history of an auction, so that I can gauge competition 
+before bidding. 
+• As a Buyer, I want to filter search results by price range, condition, location, and end time, 
+so that I can narrow down relevant items. 
+• As a Buyer, I want to sort search results by ending soonest, newly listed, price low-to-high, 
+and price high-to-low, so that I can find what I need quickly. 
+• As a Buyer, I want to  receive personalized product recommendations  based on my 
+browsing and bidding history, so that I can discover items I might like. 
+• As a Buyer, I want to  ask questions on an auction listing, so that I can clarify item details 
+before bidding. 
+• As a Buyer, I want to view a seller's profile, ratings, and review history, so that I can assess 
+their trustworthiness. 
+• As a Buyer, I want to request a refund if an item doesn't match its listing description, so that 
+I'm protected from mismatched item. 
+• As a Buyer, I want to make a payment after winning an auction, so that I can complete the 
+purchase. 
+• As a Buyer, I want to  choose from multiple payment methods  (credit card, PayPal, bank 
+transfer), so that I can pay conveniently. 
+• As a Buyer, I want to  receive a payment confirmation and receipt via email, so that I have 
+proof of my transaction. 
+
+--- PAGE 41 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 41 of 154 
+ 
+ 
+• As a Buyer, I want to  see "Recommended for You" items on the homepage, based on my 
+past bidding and browsing behaviour, so that I can discover relevant auctions. 
+• As a Buyer, I want to  see "Buyers who bid on this also bid on..." suggestions  on auction 
+detail pages, so that I can explore similar items. 
+• As a Buyer, I want to be able to dismiss or hide recommendations I'm not interested in, so 
+that future suggestions are more relevant. 
+• As a Buyer, I want to be able to leave a rating (1-5 stars) and written review for a seller after 
+a completed transaction, so that other buyers can benefit from my experience. 
+10.4 Seller 
+• As a Seller, I want to start a new auction for my item, so that I can list it on the platform and 
+attract potential buyers. 
+• As a Seller, I want to tag my items under categories, so that potential buyers can find it 
+easier. 
+• As a Seller, I want to upload pictures for my item, so that buyers can see what they are 
+bidding on. 
+• As a Seller, I want to set a minimum starting price for my auction, so that I’m not selling my 
+item below its acceptable price. 
+• As a seller, I want to set a maximum selling price for my auction, so that I can have a 
+maximum cap on the final selling price. 
+• As a Seller, I want to cancel an on -going auction if necessary, so that I can withdraw my 
+item from bidding if circumstances change. 
+• As a Seller, I want to report others/buyer, so that any malicious users/buyer can be removed 
+• As a Seller, I want to  set an auction duration  (start and end time), so that I have control 
+over when my auction runs. 
+• As a Seller, I want to edit my auction details (title, description, images) before any bids are 
+placed, so that I can correct mistakes. 
+• As a Seller, I want to view all my active, completed, and cancelled auctions in a dashboard, 
+so that I can track my selling activity. 
+• As a Seller, I want to view the bid history on my auction, so that I can monitor buyer interest. 
+
+--- PAGE 42 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 42 of 154 
+ 
+ 
+• As a Seller, I want to set a "Buy It Now" price, so that buyers can purchase the item instantly 
+without waiting for the auction to end. 
+• As a Seller, I want to receive a notification when a new bid is placed on my auction, so that 
+I can stay informed. 
+• As a Seller, I want to  receive a notification when my auction has ended, so that I can 
+proceed with the sale. 
+• As a Seller, I want to  view ratings and reviews left by buyers, so that I can improve my 
+service. 
+• As a Seller, I want to relist an unsold item, so that I can try selling it again without re-entering 
+all the details. 
+• As a Seller, I want to  respond to buyer questions  on my auction listing, so that potential 
+buyers have the information they need. 
+• As a Seller, I want to see a preview of my auction listing before publishing it, so that I can 
+verify how it appears to buyers. 
+• As a Seller, I want to  receive payment after the buyer completes the transaction, so that I 
+get paid for my item. 
+• As a Seller, I want to  view my earnings and transaction history, so that I can track my 
+revenue. 
+• As a Seller, I want to be able to leave a rating for a buyer after a completed transaction, so 
+that other sellers know who is reliable. 
+11. Preliminary Use Case Diagram 
+
+--- PAGE 43 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 43 of 154 
+ 
+ 
+
+
+--- PAGE 44 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 44 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 45 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 45 of 154 
+ 
+ 
+12. Preliminary Use Case Description 
+
+--- PAGE 46 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 46 of 154 
+ 
+ 
+
+
+--- PAGE 47 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 47 of 154 
+ 
+ 
+
+
+--- PAGE 48 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 48 of 154 
+ 
+ 
+
+
+--- PAGE 49 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 49 of 154 
+ 
+ 
+
+
+--- PAGE 50 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 50 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 51 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 51 of 154 
+ 
+ 
+
+
+--- PAGE 52 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 52 of 154 
+ 
+ 
+
+
+--- PAGE 53 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 53 of 154 
+ 
+ 
+
+
+--- PAGE 54 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 54 of 154 
+ 
+ 
+
+
+--- PAGE 55 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 55 of 154 
+ 
+ 
+
+
+--- PAGE 56 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 56 of 154 
+ 
+ 
+
+
+--- PAGE 57 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 57 of 154 
+ 
+ 
+
+
+--- PAGE 58 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 58 of 154 
+ 
+ 
+
+
+--- PAGE 59 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 59 of 154 
+ 
+ 
+
+
+--- PAGE 60 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 60 of 154 
+ 
+ 
+
+
+--- PAGE 61 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 61 of 154 
+ 
+ 
+
+
+--- PAGE 62 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 62 of 154 
+ 
+ 
+
+
+--- PAGE 63 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 63 of 154 
+ 
+ 
+
+
+--- PAGE 64 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 64 of 154 
+ 
+ 
+
+
+--- PAGE 65 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 65 of 154 
+ 
+ 
+ 4 
+
+--- PAGE 66 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 66 of 154 
+ 
+ 
+
+
+--- PAGE 67 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 67 of 154 
+ 
+ 
+
+
+--- PAGE 68 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 68 of 154 
+ 
+ 
+
+
+--- PAGE 69 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 69 of 154 
+ 
+ 
+
+
+--- PAGE 70 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 70 of 154 
+ 
+ 
+
+
+--- PAGE 71 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 71 of 154 
+ 
+ 
+
+
+--- PAGE 72 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 72 of 154 
+ 
+ 
+
+
+--- PAGE 73 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 73 of 154 
+ 
+ 
+
+
+--- PAGE 74 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 74 of 154 
+ 
+ 
+
+
+--- PAGE 75 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 75 of 154 
+ 
+ 
+
+
+--- PAGE 76 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 76 of 154 
+ 
+ 
+
+
+--- PAGE 77 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 77 of 154 
+ 
+ 
+
+
+--- PAGE 78 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 78 of 154 
+ 
+ 
+
+
+--- PAGE 79 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 79 of 154 
+ 
+ 
+
+
+--- PAGE 80 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 80 of 154 
+ 
+ 
+
+
+--- PAGE 81 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 81 of 154 
+ 
+ 
+
+
+--- PAGE 82 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 82 of 154 
+ 
+ 
+
+
+--- PAGE 83 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 83 of 154 
+ 
+ 
+
+
+--- PAGE 84 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 84 of 154 
+ 
+ 
+
+
+--- PAGE 85 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 85 of 154 
+ 
+ 
+
+
+--- PAGE 86 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 86 of 154 
+ 
+ 
+
+
+--- PAGE 87 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 87 of 154 
+ 
+ 
+
+
+--- PAGE 88 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 88 of 154 
+ 
+ 
+
+
+--- PAGE 89 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 89 of 154 
+ 
+ 
+
+
+--- PAGE 90 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 90 of 154 
+ 
+ 
+
+
+--- PAGE 91 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 91 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 92 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 92 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 93 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 93 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 94 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 94 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 95 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 95 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 96 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 96 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 97 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 97 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 98 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 98 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 99 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 99 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 100 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 100 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 101 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 101 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 102 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 102 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 103 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 103 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 104 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 104 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 105 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 105 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 106 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 106 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 107 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 107 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 108 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 108 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 109 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 109 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 110 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 110 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 111 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 111 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 112 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 112 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 113 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 113 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 114 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 114 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 115 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 115 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 116 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 116 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 117 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 117 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 118 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 118 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 119 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 119 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 120 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 120 of 154 
+ 
+ 
+13. System Design 
+13.1 Data Flow Diagram 
+ 
+ 
+
+
+--- PAGE 121 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 121 of 154 
+ 
+ 
+   
+13.2 System Architecture Design 
+AuctionHub is deployed as a single web application (online-auction) on Apache Tomcat inside a 
+Docker container on Render.com. The architecture separates concerns into three tiers 
+(presentation, application, data), uses MVC + DAO inside the application tier, pushes live 
+auction updates through Server-Sent Events (SSE), and persists data in PostgreSQL with 
+optional persistent disk for user-uploaded files. 
+ 
+ 13.2.1 Architectural overview (one-liner + 3-tier)  
+One-line summary 
+React SPA → Jakarta Servlet JSON API (/api/*) → DAO layer → PostgreSQL; live bid updates 
+via SSE (/api/auction-events/{id}); React build artefacts and WAR deployed together on Tomcat 
+10.1 in a multi-stage Docker image on Render. 
+ 
+Three-tier decomposition 
+Tier Responsibility Technologies in AuctionHub 
+Presentation (client) Render UI, collect input, client-side 
+routing, subscribe to live updates 
+Web browser; React 19 SPA (Vite, 
+Tailwind CSS, React Router, Axios); 
+legacy JSP/JSTL views for a small set 
+of server-rendered flows 
+Application (server) HTTP routing, 
+authentication/authorisation, 
+business rules, JSON API, SSE 
+broadcast, notifications 
+Java 11; Jakarta Servlet 6; Filters; 
+*ApiServlet controllers under /api/*; 
+MVC + DAO; AuctionEventPublisher / 
+AuctionEventBus; NotificationService 
+Data Persistent storage, transactions, 
+relational integrity 
+PostgreSQL via JDBC; HikariCP 
+connection pool (DBUtil); DAO 
+classes in com.auction.dao 
+ 
+One-line summary Typical synchronous request path 
+Browser → Filter chain → API Servlet (controller) → DAO → PostgreSQL → DAO → Servlet → 
+JSON response → Browser. 
+Servlets do not embed SQL; all database access goes through DAOs using PreparedStatement 
+for parameter binding. 
+ 
+Change since PRD 
+The PRD assumed JSP + Bootstrap 5 with AJAX polling. The current build uses a React-
+primary presentation tier and SSE instead of polling, while keeping the servlet + DAO 
+application core described in the original MVC plan. 
+ 
+ 
+ 
+ 
+ 
+ 
+
+--- PAGE 122 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 122 of 154 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 13-1: Three-tier overview (conceptual) 
+ 
+  
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 123 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 123 of 154 
+ 
+ 
+ 
+ 
+13.2.2 Logical architecture: UML Component diagram 
+ 
+  
+ Narrative: 
+ 
+- React SPA is the primary user interface. It calls REST-style JSON endpoints under /api/* 
+with bearer token (credentials: include). 
+- API servlets (BidApiServlet, AuctionApiServlet, AuthApiServlet, etc.) extend ApiBase, 
+which centralises JSON serialisation (Jackson), authentication checks (AuthSession), 
+and error responses. 
+- DAO layer encapsulates all SQL and transaction boundaries (e.g. BidDAO.placeBid with 
+FOR UPDATE row locking). 
+- AuctionEventPublisher rebuilds a public auction snapshot and publishes it to 
+AuctionEventBus, which fans out to all AuctionEventServlet SSE subscribers for that 
+auction. 
+- UploadedFileServlet serves listing/profile/support images from AUCTION_UPLOAD_DIR 
+on Render persistent disk when configured. 
+
+
+--- PAGE 124 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 124 of 154 
+ 
+ 
+- HealthApiServlet (GET /api/health) supports Render health checks and future load-
+balancer routing. 
+ 
+13.2.3 Application layering: MVC, DAO, and Filter chain 
+MVC mapping 
+Layer 
+(MVC) 
+AuctionHub implementation Examples 
+View React pages and components; 
+legacy JSP where retained 
+AuctionDetail.jsx, Search.jsx, AdminDashboard.jsx 
+Controller Jakarta servlets and filters BidApiServlet, AuctionApiServlet, AuthFilter, AdminFilter 
+Model Domain models + DAOs + 
+database tables 
+Auction, Bid, User; BidDAO, AuctionDAO, UserDAO 
+ 
+The team uses the term controller for servlets that parse HTTP input, enforce session/role 
+rules, invoke DAOs, and write JSON or forward to a view. Business rules that span multiple 
+DAOs (e.g. auction expiry) live in dedicated classes such 
+as AuctionFinalizer and NotificationService. 
+ 
+DAO pattern 
+Every DAO class is responsible for one aggregate or feature area (bids, auctions, orders, 
+recommendations). Benefits for this project: 
+• Testability: servlets unit-tested with mocked DAOs (JUnit 5 + Mockito). 
+• Transaction control: e.g. manual bid + proxy auto-bid in one JDBC transaction 
+inside BidDAO.placeBid. 
+• Security:  only DAOs execute SQL; servlets never concatenate user input into queries. 
+ 
+BCE (Boundary–Control–Entity) view 
+BCE role Role in AuctionHub Examples 
+Boundary Interfaces between 
+actors and the 
+system 
+React UI; HTTP request/response; JSP (legacy) 
+Control Application logic and 
+coordination 
+BidApiServlet, AuctionApiServlet, 
+Filters, AuctionFinalizer, AuctionEventPublisher, NotificationService 
+Entity Persistent domain 
+state 
+Model classes (com.auction.model.*); DAOs; PostgreSQL tables 
+(auction, bids, users, orders, …) 
+BCE aligns with MVC: Boundary ≈ View, Control ≈ Controller, Entity ≈ Model/DAO. 
+ 
+Filter chain 
+Filters run before servlets. Important filters: 
+Filter URL pattern Purpose 
+SecurityFilter /* Sets security headers (CSP, X-Frame-Options, X-Content-
+Type-Options, X-XSS-Protection) on every response 
+CorsFilter /api/* CORS for React dev server (localhost:3000); production same-
+origin 
+SpaFallbackFilter /* Serves React index.html for client-side routes in production; 
+skips /api/*, uploads, and static assets 
+
+--- PAGE 125 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 125 of 154 
+ 
+ 
+AuthFilter /protected/* Redirects unauthenticated users to login (legacy 
+JSP/protected paths) 
+AdminFilter /admin, /admin/* Restricts legacy admin JSP routes to ADMIN role 
+API authentication (/api/*) is enforced inside ApiBase subclasses 
+via AuthSession.requireAuth() and role helpers, not only by AuthFilter (which 
+targets /protected/*). 
+ 
+Typical API request order (conceptual) 
+HTTP Request 
+  → SecurityFilter (headers) 
+  → CorsFilter (if /api/*) 
+  → SpaFallbackFilter (pass-through for /api/*) 
+  → *ApiServlet (auth + validation + DAO) 
+  → JSON Response 
+Admin JSON API (/api/admin/*) uses ApiBase.requireAdmin(); legacy JSP admin UI additionally 
+uses AdminFilter. 
+ 
+ 13.2.4 Real-time architecture:  Observer pattern and SSE 
+ 
+Requirement context 
+FR2.3 (PRD) required live bid updates without a full page refresh. The PRD specified AJAX polling; the 
+implemented system uses Server-Sent Events (SSE) for lower latency and fewer redundant requests 
+(see Requirements Delta D-03). 
+ 
+Observer-style design 
+Concept Implementation 
+Subject AuctionEventPublisher — builds a strategy-aware public snapshot (price, bid count, 
+Dutch clock, blind status) after state changes 
+Event bus AuctionEventBus (singleton) — registers AsyncContext subscribers per auctionId 
+Observers Browser tabs connected via EventSource to GET /api/auction-
+events/{auctionId} (AuctionEventServlet) 
+Trigger Successful bid, Dutch accept, sealed bid, auction state change 
+→ AuctionEventPublisher.publishSnapshot(auctionId) 
+After BidApiServlet commits a successful bid, it 
+calls publishSnapshot and NotificationService.notifyOutbid(...). All open auction-detail pages receive the 
+new price over SSE without polling. 
+ 
+SSE endpoint 
+• URL: GET /api/auction-events/{auctionId} 
+• Content-Type: text/event-stream 
+• Auth: Not required (public auction data only, consistent with public auction detail) 
+• Servlet: AuctionEventServlet (asyncSupported = true) registers the connection 
+with AuctionEventBus 
+•  
+Client (React) 
+On AuctionDetail.jsx, the page opens new EventSource(\${base}/api/auction-events/${id}`)` 
+and updates local state when a bid event arrives. A local 1-second timer animates the Dutch descending 
+
+--- PAGE 126 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 126 of 154 
+ 
+ 
+clock between SSE frames. 
+ 
+ 13.2.5 Deployment architecture: Render, Docker, PostgreSQL, persistent disk 
+ 
+Production topology 
+Figure 13-4: Deployment on Render 
+ 
+ 
+Multi-stage Docker build (repository root Dockerfile) 
+Stage Base image Output 
+1: Frontend node:20-alpine npm ci + npm run build → 
+React dist/ (VITE_BASE=/online-auction/) 
+2: Backend maven:3.9-eclipse-
+temurin-11 
+mvn package → online-auction.war 
+3: Assembly eclipse-temurin:11-jre Explode WAR; copy React dist/ into WAR root 
+4: Runtime tomcat:10.1-jdk11-
+temurin 
+Deploy exploded app to webapps/online-
+auction; docker-entrypoint.sh 
+ 
+Runtime configuration 
+Item Value 
+Production 
+URL 
+https://fyp-26-s2-24.onrender.com/online-auction/ 
+Context path /online-auction 
+Port 8080 (overridden by Render PORT in entrypoint) 
+
+
+--- PAGE 127 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 127 of 154 
+ 
+ 
+Database env AUCTION_DB_URL, AUCTION_DB_USER, AUCTION_DB_PASSWO
+RD 
+Upload 
+storage 
+AUCTION_UPLOAD_DIR (e.g. /data/auction-uploads) 
+Health check GET /api/health — Render Health Check Path 
+Version control GitHub repository FYP-26-S2-24; deploy triggered from main branch 
+ 
+Persistent disk 
+Without persistent storage, uploaded auction images are lost on container redeploy. 
+When AUCTION_UPLOAD_DIR is set, docker-entrypoint.sh creates auction/, profile/, 
+and support/ subdirectories. UploadedFileServlet reads files from this path so listings and 
+profiles survive redeployments. 
+ 
+Local development 
+• Backend: Tomcat via Maven Cargo plugin or Docker; PostgreSQL locally or remote. 
+• Frontend: Vite dev server (localhost:3000 or configured port) 
+with CorsFilter allowing localhost:3000 API calls with credentials. 
+ 
+13.2.6 Request lifecycle (typical bid flow) 
+This subsection describes the ascending auction (Price Up) place-bid flow as implemented in 
+the React + JSON API stack. A full sequence diagram is provided in the project repository 
+at docs/sequence-diagrams/ (updated mentally below to match the API path). 
+ 
+Steps 
+1. Browse: User opens /auction/{id} in the React SPA. The page loads auction detail 
+via GET /api/auction/{id} (or equivalent detail endpoint) and opens an SSE connection 
+to /api/auction-events/{id}. 
+2. Submit bid: User enters amount; React posts POST 
+/api/bid with auctionId and bidAmount (form or application/x-www-form-urlencoded), 
+including Bearer token. 
+3. Filter chain: SecurityFilter adds headers; CorsFilter applies if cross-origin; request 
+reaches BidApiServlet. 
+4. Controller:  BidApiServlet validates session (buyer role), parses amounts, rejects self-
+bids and invalid input. 
+5. DAO transaction: BidDAO.placeBid: 
+• SELECT … FOR UPDATE on auction row 
+• Validates active status, end time, moderation state, floor price, max price 
+• INSERT bid 
+• AutoBidDAO.processAutoBids(conn, auctionId) in the same transaction 
+• COMMIT 
+6. Post-commit: On success: 
+• AuctionEventPublisher.publishSnapshot(auctionId) → SSE clients update 
+• NotificationService.notifyOutbid(...) → in-app notification for previous high bidder 
+• 200 OK JSON message to the bidder’s browser 
+
+--- PAGE 128 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 128 of 154 
+ 
+ 
+7. UI update: React shows success; SSE may refresh price before or in addition to the 
+POST response handler. 
+ 
+Failure paths 
+• Bid too low, auction closed, self-bid, exceeds max price → transaction rolled back 
+→ 400 JSON error (no SSE broadcast). 
+• Unauthenticated or wrong role → 401 / 403 from ApiBase. 
+ 
+Figure 13-5: Place bid sequence (PlantUML) 
+ 
+  
+Related endpoints (same architecture pattern) 
+Flow Servlet DAO / service 
+Search SearchApiServlet / search 
+in AuctionApiServlet 
+SearchDAO 
+Login AuthApiServlet UserDAO 
+Recommendations RecommendationApiServlet RecommendationDAO, UserBasedCollab
+orativeFilter 
+Admin ban AdminApiServlet UserDAO 
+Order / escrow OrderApiServlet OrderDAO, PlatformRevenueDAO 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 129 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 129 of 154 
+ 
+ 
+ 
+13.3 Database Design 
+13.3.1 Schema evolution since PRD 
+• Database changed from MySQL (PRD) to PostgreSQL with JDBC/HikariCP. 
+• Post-PRD additions: browse_history (FR4.3), platform_revenue (commission/featured 
+fees), auction.is_featured / featured_until, and support chat tables 
+(support_threads, support_messages, support_thread_reads). 
+13.3.2 Key relationships 
+• users is the hub: sellers own auction rows; buyers place bids and auto_bids. 
+• Each auction has one auction_details row and many bids, images, and 
+optional orders (one order per auction). 
+• browse_history links users to viewed auctions for recommendations. 
+• platform_revenue records commission and featured-listing income tied 
+to orders / auction / users (seller). 
+ 
+Figure 13-2a: Core, Auction & Bidding 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 130 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 130 of 154 
+ 
+ 
+ 
+ 
+ 
+Figure 13-2b — Trust, Commerce, Support & Revenue 
+ 
+ 
+13.4 Wireframes Design 
+• Home Page 
+
+
+--- PAGE 131 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 131 of 154 
+ 
+ 
+ 
+• Login / Register / Forgot Password 
+ 
+
+
+--- PAGE 132 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 132 of 154 
+ 
+ 
+ 
+• Auction detail 
+
+
+--- PAGE 133 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 133 of 154 
+ 
+ 
+ 
+• Watchlist 
+ 
+• Bidding history 
+
+
+--- PAGE 134 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 134 of 154 
+ 
+ 
+ 
+• Rate seller/buyer 
+ 
+ 
+• Account Dashboard 
+
+
+--- PAGE 135 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 135 of 154 
+ 
+ 
+ 
+• Seller Dashboard 
+ 
+• Admin Dashboard 
+
+
+--- PAGE 136 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 136 of 154 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 137 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 137 of 154 
+ 
+ 
+ 
+13.5 UML Sequence Diagrams 
+ 
+
+
+--- PAGE 138 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 138 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 139 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 139 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 140 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 140 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 141 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 141 of 154 
+ 
+ 
+ 
+
+
+--- PAGE 142 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 142 of 154 
+ 
+ 
+ 
+13.6 UML Class Diagram 
+ 
+The diagram below summarises the Model–View–Controller structure of AuctionHub as 
+implemented for the prototype demo. 
+- View (presentation tier): The primary view is the React 19 SPA (FYP/Frontend), which 
+renders pages and components and calls the backend through JSON over HTTP. A 
+small set of legacy JSP views remains for backward compatibility; new features are 
+implemented in React. 
+- Controller (application tier): ApiBase is the abstract parent of all *ApiServlet classes 
+under com.auction.servlet.api. Each API servlet handles routing, bearer-token 
+authentication (TokenStore / AuthSession), input validation, and JSON 
+responses. Filters (SecurityFilter, CorsFilter, SpaFallbackFilter) run before 
+servlets. Realtime and notification components 
+(AuctionEventPublisher, AuctionEventBus, AuctionEventServlet, NotificationService) act 
+as controller-side coordinators after state-changing operations such as a successful bid. 
+- Model (domain and data tier): Entity classes in com.auction.model represent users, 
+auctions, bids, orders, and related domain concepts. DAO 
+classes in com.auction.dao encapsulate all JDBC access to PostgreSQL 
+using PreparedStatement and HikariCP (DBUtil). Utilities (SecurityUtil, InputValidator, 
+etc.) provide cross-cutting encryption, validation, and masking. 
+The controller never embeds SQL; it delegates persistence to DAOs and returns DTO-style 
+model objects (e.g. AuctionDetail, SearchResultItem) to the view as JSON. 
+
+
+--- PAGE 143 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 143 of 154 
+ 
+ 
+ 
+ 
+14. System Testing 
+This section describes how AuctionHub is tested for the Preliminary Technical Documentation 
+(PTD) submission. Testing is aligned with the functional and non-functional requirements in the 
+PRD and with the implemented React + JSON API + servlet + DAO stack. Automated tests live 
+under FYP/src/test/java/; they are run with Maven before merge and before milestone 
+submissions. 
+ 
+14.1 Test Plan and Schedule 
+Testing is integrated into each Scrum sprint rather than deferred to a single phase at the end of 
+the project. 
+
+
+--- PAGE 144 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 144 of 154 
+ 
+ 
+Phase When Activity Responsible Evidence 
+Per user 
+story 
+During 
+sprint 
+Add or extend JUnit tests for the 
+servlet/API and DAO touched by 
+the story; run affected tests locally 
+Story owner Test class 
+in src/test/java, Jira 
+SCRUM-xx link 
+Per sprint 
+end 
+Every 2 
+weeks 
+Full regression: mvn test in FYP/; 
+fix failures before merging to main 
+Whole team Green Maven build 
+Pre-
+submission 
+Before 
+PTD / 
+demo 
+Full automated suite + manual 
+smoke test on deployed Render 
+instance 
+Team lead + 
+dev team 
+Test log; manual 
+checklist on 
+production URL 
+Ad-hoc 
+manual 
+After 
+deploy 
+UI walkthrough in Chrome/Edge: 
+login, search, bid, watchlist, seller 
+dashboard, admin moderation 
+Dev team Demo rehearsal 
+notes 
+ 
+Stakeholders involved in testing 
+Stakeholder Role in testing 
+Development team Write and run unit tests; manual UI smoke tests 
+Team leader Coordinates pre-submission full suite and deployment verification 
+Supervisor / assessor Observes prototype demo; evaluates test evidence in PTD 
+ 
+ 
+Test environment 
+Environment Purpose 
+Local mvn test; optional Tomcat + local PostgreSQL 
+Production 
+(Render) 
+Manual end-to-end smoke: https://fyp-26-S2-24.onrender.com/online-
+auction/ 
+ 
+14.2 Test Strategy 
+The team uses a combined strategy appropriate for a servlet-based web application with a 
+separate React client. 
+ 
+14.2.1 White-box unit testing (primary) 
+• Framework: JUnit 5 (Jupiter 5.10.2) + Mockito. 
+• Scope: API servlets (*ApiServlet), legacy servlets (/protected/*, /admin/*), filters, DAO 
+orchestration, and pure utility/algorithm code. 
+• Technique: Servlets are tested through a thin Wrapper subclass that 
+exposes doGet / doPost. DAOs are mocked with Mockito so tests run without a live 
+database. JSON API tests use ApiTestSupport for session/bearer binding and response 
+capture. 
+• Rationale: Fast feedback on business rules, RBAC, validation, and error paths; supports 
+regression when migrating from JSP servlets to /api/*. 
+ 
+14.2.2 Black-box manual testing (secondary) 
+• Deployed WAR + React bundle on Tomcat (local or Render). 
+• Manual scripts cover navigation, forms, flash/JSON messages, live bidding (SSE price 
+update), and admin flows not worth automating in Selenium for this FYP scope. 
+
+--- PAGE 145 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 145 of 154 
+ 
+ 
+ 
+14.2.3 Boundary Value Analysis (BVA) and Equivalence Partitioning (EP) 
+Applied to high-risk inputs: 
+Domain Boundary / partition examples 
+Bidding Zero/negative amount; equal to current highest; one cent above; 
+above max_price; self-bid; closed auction 
+Ratings Score outside 1–5; duplicate review 
+Search Empty keyword; overlong query; invalid minPrice/maxPrice; invalid condition; 
+non-whitelist sortBy 
+Pagination Page 0, page beyond last page, invalid size 
+Auth Missing session; wrong role; suspended account 
+ 
+14.2.4 Security-oriented testing 
+• RBAC: Buyer / seller / admin / guest access matrices on servlets and filters 
+(TestAdminFilter, TestBidApiServlet, etc.). 
+• IDOR prevention: User and role identifiers taken from server session (AuthSession), not 
+trusted from client parameters. 
+• Injection: SQL injection strings in search filters treated as invalid input or bound 
+parameters (no string concatenation in DAOs). 
+• Privacy: Email/username masking and AES-256-GCM encryption assertions 
+in SecurityUtilTest, profile, bid-history, and 2FA tests. 
+• HTTP headers: SecurityFilter CSP and anti-clickjacking headers (TestSecurityFilter). 
+Out of scope for this submission: formal penetration testing or third-party white-hat audit. 
+Security confidence is from design (prepared statements, filters, encryption) plus unit-level 
+tests. 
+ 
+14.3 Test Categories and Coverage 
+Category Purpose Representative test classes Automated Status (Jun 
+2026) 
+User functional : 
+API (React path) 
+JSON 
+endpoints 
+used by SPA 
+TestBidApiServlet, 
+TestAuthApiServlet, 
+TestSearchApiServlet, 
+TestWatchlistApiServlet, 
+TestOrderApiServlet, 
+TestRecommendationApiServlet, 
+TestQuestionApiServlet 
+Yes Pass 
+User functional : 
+legacy servlet 
+JSP/protecte
+d paths 
+(regression) 
+TestPlaceBidServlet, 
+TestSearchServlet, 
+TestWatchlistServlet, 
+TestAuctionQuestionServlet, 
+TestCreateAuctionServlet 
+Yes Pass 
+Admin Moderation, 
+categories, 
+reports 
+TestAdminManageUserServlet, 
+TestAdminCategoriesServlet, 
+TestAdminDashboardServlet, 
+TestAdminGenReportServlet 
+Yes Pass 
+Security / RBAC Filters and TestAdminFilter, Yes Pass 
+
+--- PAGE 146 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 146 of 154 
+ 
+ 
+role gates TestLogoutServlet, 
+TestCorsFilter, 
+TestSpaFallbackFilter 
+Input validation / 
+BVA 
+Malformed 
+and 
+boundary 
+input 
+TestSearchServletFilters, 
+TestSearchServletSort, 
+TestRateSellerServlet, 
+InputValidatorProfileFieldsTest 
+Yes Pass 
+DAO / database 
+logic 
+Transactions
+, rollback, 
+mapping 
+TestAuctionDAO, 
+TestSellerAuctionDAO, 
+TestUserDAO, 
+UserDAODeleteAccountTest, 
+UserDAOMappingTest 
+Yes Pass 
+Bidding / auto-
+bid algorithm 
+Proxy bid 
+resolution 
+TestSetAutoBidServlet, 
+TestAutoBidApiServlet, 
+TestBidApiServlet 
+Yes Pass 
+Auction types Dutch clock, 
+type enums 
+DutchClockTest, 
+AuctionTypeTest, 
+TestAuctionStateUtil 
+Yes Pass 
+Privacy / 
+encryption 
+Masking, 
+2FA, deletion 
+SecurityUtilTest, 
+TestAuctionBidHistory, 
+TestTwoFactorServlet, 
+TestTwoFactorApiServlet 
+Yes Pass 
+Infrastructure Backup util, 
+tokens, OTP 
+DatabaseBackupUtilTest, 
+TokenStoreTest, OtpStoreTest 
+Yes Pass 
+Deployment / 
+E2E 
+Full stack on 
+Render 
+Manual smoke checklist Manual Performed at 
+milestones 
+ 
+Suite size (repository snapshot, June 2026) 
+Metric Value 
+Test source files 74 
+Individual test methods 
+(@Test) 
+~700 
+Framework JUnit 5.10.2 
+Mocking Mockito (majority of servlet tests) 
+Run command cd FYP then mvn test 
+Both legacy servlet and *ApiServlet tests are maintained so refactors toward the React API do 
+not silently break older paths. 
+ 
+14.4 Database, Concurrency, and Security Testing 
+Database accuracy and transactions 
+• TestAuctionDAO: createAuction rolls back entirely on partial failure (auction + details + 
+images + tags). 
+• UserDAOMappingTest: ResultSet → User mapping including encrypted PII columns. 
+• UserDAODeleteAccountTest: Account deletion anonymises PII per PDPA-oriented 
+design. 
+• TestOrderDAOLabels: Order status labelling for buyer/seller views. 
+ 
+
+--- PAGE 147 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 147 of 154 
+ 
+ 
+Concurrency and bid integrity (NFR7) 
+• Design: BidDAO.placeBid uses SELECT … FOR UPDATE on the auction row within a 
+single JDBC transaction; AutoBidDAO.processAutoBids runs on the same connection 
+before COMMIT. 
+• Testing: Unit tests assert BidResult outcomes 
+(success, BID_TOO_LOW, AUCTION_CLOSED, etc.) and auto-bid algorithm cases 
+in TestSetAutoBidServlet / TestAutoBidApiServlet. There is no multi-threaded load 
+harness in the repo; concurrency assurance is design-level plus outcome tests. 
+•  
+Network security and privacy (NFR1–NFR4) 
+Concern How tested 
+Password 
+storage 
+Salted SHA-256 via SecurityUtil (TestChangePasswordServlet, 
+TestPasswordResetServlet, SecurityUtilTest) 
+AES-256-
+GCM at 
+rest 
+PII, 2FA secret, auto-bid ceiling encryption in profile and 2FA tests 
+Public 
+masking 
+Bid history leader vs non-leader masking (TestAuctionBidHistory) 
+Response 
+headers 
+TestSecurityFilter 
+Prepared 
+statements 
+DAO layer convention; injection strings in search tests do not cause SQL errors 
+Backup and recovery (admin) 
+• DatabaseBackupUtilTest verifies backup helper behaviour used by admin database 
+tools. 
+ 
+14.5 Test Results Summary 
+Latest automated run 
+cd FYP 
+mvn test 
+ 
+outcome: BUILD SUCCESS, all tests in FYP/src/test/java pass. 
+ 
+Subset examples 
+mvn test -Dtest=TestBidApiServlet,TestPlaceBidServlet,TestSetAutoBidServlet 
+mvn test -Dtest=TestSearchServletFilters,TestSearchApiServlet,TestAuctionBidHistory 
+mvn test -Dtest=TestAdminFilter,TestAdminManageUserServlet,SecurityUtilTest 
+ 
+Manual smoke test (Render deployment), performed after major releases: 
+# Check Expected 
+M-01 Open home page Landing loads; featured/trending sections 
+M-02 Register / login Session established; role-appropriate menu 
+M-03 Search / Explore Keyword search returns results; filters apply 
+M-04 Auction detail + 
+SSE 
+Price updates without full page reload when another session 
+bids 
+
+--- PAGE 148 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 148 of 154 
+ 
+ 
+M-05 Place bid Success message; bid appears in history 
+M-06 Seller create listing Listing visible in search 
+M-07 Admin dashboard Metrics load; ban/moderation actions work 
+M-08 Health probe GET /api/health returns OK 
+Code coverage: JaCoCo is not configured in the current pom.xml. Quality is demonstrated by 
+the size and pass rate of the unit suite rather than a coverage percentage. 
+ 
+14.6 Representative Test Cases 
+Detailed traceability to SCRUM / user-story IDs where applicable. 
+ID Category Description Input / action Expected result Result Trace 
+TC-01 RBAC Non-buyer 
+cannot bid 
+via API 
+Seller session 
+→ POST /api/bid 
+HTTP 403 Pass SCRUM-266 
+TC-02 Functional Valid 
+ascending 
+bid via API 
+Buyer, 
+valid auctionId, b
+idAmount 
+HTTP 
+200; BidDAO.pla
+ceBid success 
+Pass SCRUM-51 
+TC-03 BVA Bid equal to 
+current max 
+rejected 
+bidAmount == 
+floor 
+BID_TOO_LOW Pass SCRUM-267 
+TC-04 BVA Bid over max 
+price rejected 
+bidAmount > 
+max_price 
+EXCEEDS_MAX
+_PRICE 
+Pass SCRUM-267 
+TC-05 Security Non-
+numeric aucti
+onId 
+' OR 1=1 -- HTTP 400 Pass SCRUM-295 
+TC-06 Algorithm Higher auto-
+bid ceiling 
+wins 
+Two proxy bids Optimal winning 
+amount 
+Pass SCRUM-270 
+TC-07 Algorithm Equal 
+ceilings — 
+FIFO 
+Same max, 
+different created
+_at 
+Earlier 
+registration wins 
+Pass SCRUM-270 
+TC-08 Validation Negative 
+price filter 
+ignored 
+minPrice=-5 Filter dropped; 
+safe query 
+Pass SCRUM-345 
+TC-09 Security SQL injection 
+in condition 
+'; DROP TABLE 
+… 
+Filter dropped; 
+no error 
+Pass SCRUM-345 
+TC-10 Security Sort whitelist 
+enforced 
+sortBy='; DROP SearchSort.DEF
+AULT 
+Pass SCRUM-349 
+TC-11 Privacy Bid history 
+masking 
+Leader vs other 
+bidders 
+Partial vs full 
+mask 
+Pass SCRUM-58 
+TC-12 Functional Unknown 
+auction bid 
+history 
+auctionId=99999 HTTP 404 Pass SCRUM-362 
+TC-13 Pagination Page beyond 
+total clamped 
+page=99 Clamped to last 
+page 
+Pass SCRUM-361 
+TC-14 Admin Ban already-
+suspended 
+user 
+Suspend on 
+suspended 
+account 
+Error response Pass SCRUM-212 
+
+--- PAGE 149 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 149 of 154 
+ 
+ 
+TC-15 Admin Cannot 
+unban 
+admin/self 
+Unban on admin 
+or self 
+Rejected Pass SCRUM-279 
+TC-16 Auth Suspended 
+user login 
+blocked 
+Suspended 
+credentials 
+Login denied Pass — 
+TC-17 Privacy Login stores 
+masked 
+username 
+Successful login Masked 
+username in 
+session 
+Pass — 
+TC-18 DAO/TX Create 
+auction 
+rollback 
+Simulated insert 
+failure 
+Full transaction 
+rollback 
+Pass — 
+TC-19 Privacy Account 
+deletion 
+Delete account 
+request 
+PII anonymised; 
+status DELETED 
+Pass SCRUM-9 
+TC-20 Q&A Wrong seller 
+reply 
+Seller B on 
+Seller A’s 
+auction 
+NOT_SELLER / 
+403 
+Pass SCRUM-62 
+TC-21 API Search 
+JSON API 
+GET 
+/api/search?q=… 
+JSON results 
+array 
+Pass SCRUM-48 
+TC-22 API Recommend
+ations require 
+auth 
+Guest vs logged-
+in buyer 
+Personalised 
+only when 
+authenticated 
+Pass FR4 
+TC-23 Filter SPA fallback 
+serves React 
+routes 
+GET 
+/search (client 
+route) 
+index.html for 
+non-API paths 
+Pass — 
+TC-24 Health Load 
+balancer 
+probe 
+GET /api/health HTTP 200 when 
+DB pool healthy 
+Pass Ops 
+ 
+15. Conclusion 
+AuctionHub delivers a focused, transparent online auction platform for second -hand and 
+collectible goods. By combining multiple auction formats, real-time and proxy bidding, and strong 
+trust and privacy features on a tested MVC + DAO architecture, it offers buyers and sellers a fair 
+and secure way to transact. The conventional, well-understood technology stack (Jakarta Servlets, 
+PostgreSQL, React) keeps the system maintainable and lower -risk, while the modular design 
+leaves clear room for future growth such as real payment integration and a mobile application. 
+16. Glossary 
+Term Meaning 
+Buyer Registered user who searches and bids on auctions 
+Seller Registered user who lists auctions 
+
+--- PAGE 150 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 150 of 154 
+ 
+ 
+Admin Privileged user who moderates users, listings, and categories 
+Auto-bid / proxy bid Automated bidding up to a hidden (encrypted) ceiling 
+Current leader The highest bidder at a point in time 
+Dutch auction Declining-price auction format 
+Blind auction Sealed-bid auction where bids are not public 
+Moderation state active / flagged / removed status on an auction 
+Masking Partial hiding of personal data for public display 
+RBAC Role-Based Access Control 
+IDOR Insecure Direct Object Reference (guarded by using session 
+IDs) 
+TOTP / OTP Time-based one -time password (2FA) / one -time password 
+(reset) 
+MVC / DAO Model-View-Controller / Data Access Object design patterns 
+WAR Web Application Archive — the deployable Java web artifact 
+AES-GCM Authenticated symmetric encryption used for data at rest 
+CSP Content-Security-Policy HTTP response header 
+PDPA Singapore's Personal Data Protection Act 
+ 
+References 
+[1] ForInsightReport. (2026). "C2C E -Commerce Market 2026 Trends, Platforms & Future 
+Forecast." Digital Press Blog.  https://forinsightreport.digitalpress.blog/the-rise-of-c2c-e-
+commerce-market-size-trends-opportunities/ 
+[2] Strategic Revenue Insights. (2025). "Online Auction Market Size, Future Growth and Forecast 
+2033." https://www.strategicrevenueinsights.com/industry/online-auction-market 
+[3] Future Market Report. (2025). "Online Auction Market Size, Share, Growth | CAGR Forecast 
+2032." https://www.futuremarketreport.com/industry-report/online-auction-market 
+
+--- PAGE 151 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 151 of 154 
+ 
+ 
+[4] Advance Market Analytics. (2026). "C2C E -Commerce Comprehensive Study."  
+https://www.advancemarketanalytics.com/reports/168215-global-c2c-e-commerce-market  
+[5] OpenPR. (2025). "C2C E -Commerce Market SWOT Analysis with Leading Key Players."  
+https://www.openpr.com/news/3918064/c2c-e-commerce-market-swot-analysis-with-leading-
+key-players 
+[6] WeltPixel. (2025). "Best eBay Alternatives (2025-2026): Fees, Pros & Niche Picks Compared." 
+https://weltpixel.com/blogs/news/top-10-ebay-alternatives-2024-upgrade-your-online-selling-
+strategy 
+[7] Underpriced. (2026). "Whatnot vs eBay: Which Platform Should Resellers Use in 2026?"  
+https://www.underpriced.app/blog/whatnot-vs-ebay-comparison-2026 
+[8] LitCommerce. (2026). "Mercari vs eBay: A Complete Comparison [2026 Updated]."  
+https://litcommerce.com/blog/mercari-vs-ebay/ 
+[9] Meta. (2026). "Facebook Marketplace's New Meta AI Tools Make Selling Faster and Easier."  
+https://about.fb.com/news/2026/03/facebook-marketplace-new-meta-ai-tools-make-selling-
+faster-and-easier/ 
+[10] Nifty. (2026). "Facebook Marketplace vs. eBay: Which wins for sellers?"  
+https://nifty.ai/post/facebook-marketplace-vs-ebay 
+[11] JSAI Journal. (2024). "Development of Online Auction System Using Greedy Algorithm 
+Method Based on MVC." https://jurnal.umb.ac.id/index.php/JSAI/article/view/7561 
+[12] IEEE Xplore. (2023). "Analysis, Design and Implementation of a Web-Based Online Auction 
+System." https://ieeexplore.ieee.org/document/10150810 
+[13] IJARCCE. (2025). "Secure Online Auction System."  https://ijarcce.com/wp-
+content/uploads/2025/04/IJARCCE.2025.14434.pdf 
+[14] Ahmed et al. (2020). "MultiRec: A Multi -Relational Model for Recommendation in Auction 
+Systems." RecSys 2020. https://www.ismll.uni-hildesheim.de/pub/pdfs/Ahmed_RecSys20.pdf 
+[15] SSRN. (2025). "DFMRA: Deep Factorization Machine with Multi -Relational Approach for 
+Auction Recommender Systems."  
+https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5104497 
+[16] Amazon Patent US6266649B1. (2001). "Collaborative Recommendations Using Item-to-Item 
+Similarity Mappings." https://patents.google.com/patent/US6266649 
+
+--- PAGE 152 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 152 of 154 
+ 
+ 
+[17] EuroSaleOnline. (2026). "Auction Types Explained: English, Dutch & Sealed -Bid Formats." 
+https://eurosaleonline.com/products/auction-types-formats 
+[18] Corporate Finance Institute. "English Auction -- Learn About English Auction Bidding 
+Strategies." https://corporatefinanceinstitute.com/resources/economics/english-auction/ 
+[19] FasterCapital. "Auction Fraud Prevention: Securing Online Auctions."  
+https://fastercapital.com/content/Auction-fraud-prevention--Securing-Online-Auctions--A-Guide-
+to-Fraud-Prevention.html 
+[20] Syndell Technologies. "Best Practices for Securing Auction Site Transactions."  
+https://syndelltech.com/practices-in-safeguarding-transactions-on-your-auction-website/ 
+[21] Real Python. "Build a Recommendation Engine with Collaborative Filtering."  
+https://realpython.com/build-recommendation-engine-collaborative-filtering/ 
+[22] FasterCapital. "Auction Web Design: Navigating Auction Website UX."  
+https://fastercapital.com/content/Auction-web-design--Navigating-Auction-Website-UX--A-
+Designer-s-Guide.html 
+[23] Nic Bertino. "Bidding Modality Case Study."  https://www.nicbertino.com/case-
+studies/bidding-modality/ 
+[24] Business Model Hub. "Whatnot Business Model Explained."  
+https://businessmodelhub.in/whatnot-business-model/ 
+[25] Contrary Research. "WhatNot Business Breakdown & Founding Story."  
+https://research.contrary.com/reports/whatnot 
+[26] Shopfront Blog. (2025). "Depop vs Mercari for Fashion Sellers: Complete Comparison 2025." 
+https://shopfront.app/blog/depop-vs-mercari-for-fashion-sellers-complete-comparison-2025 
+[27] Journal of Economic Surveys. (2025). "A Systematic Literature Review on Auction 
+Mechanisms: Insights From the Last Decade and Future Directions."  
+https://ideas.repec.org/a/bla/jecsur/v39y2025i5p1971-1998.html 
+[28] IJARIIT. (2024). "Review Paper: Online Auction System."  
+https://www.ijariit.com/manuscript/online-auction-system/ 
+[29] Arxiv. (2025). "Shill Bidding Prevention in Decentralized Auctions Using Smart Contracts."  
+https://arxiv.org/html/2506.00282v1 
+
+--- PAGE 153 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 153 of 154 
+ 
+ 
+[30] DEV Community. "Building a Real -Time Auction Platform: Behind the Scenes."  
+https://dev.to/saif_jlassi_95b0a6417bffe/building-a-real-time-auction-platform-behind-the-
+scenes-5hl6 
+[31] EIN Presswire. (2026). "C2C E -commerce Market 2026 enabling peer -driven digital 
+marketplaces at a CAGR of 24.4%."  https://www.einpresswire.com/article/901595694/c2c-e-
+commerce-market-2026-enabling-peer-driven-digital-marketplaces-at-a-cagr-of-24-4 
+[32] Time News. (2025). "Singapore E-Commerce Market Grows 21% to US$5.9 Billion in 2025." 
+https://time.news/singapore-e-commerce-market-grows-21-to-us5-9-billion-in-2025/ 
+[33] Singlife. (2025). "Thematic Report Edition 05." https://grow.singlife.com/content/dam/singlife-
+elevate/insights/thematic-report/edition-05/thematic_report_edition_05_20250502.pdf 
+[34] GitNux. (2026). "E Commerce Singapore Statistics: Market Data Report 2026."  
+https://gitnux.org/e-commerce-singapore-statistics/ 
+[35] Carousell. (2025). "Carousell: Singapore's Leading Second -Hand Marketplace 2025."  
+https://carousell.site/ 
+[36] PDPC Singapore. "Data Protection Obligations."  https://www.pdpc.gov.sg/overview-of-
+pdpa/the-legislation/personal-data-protection-act/data-protection-obligations 
+[37] Medium. (2026). "Servlets vs JSP: Understanding the Backbone of Java Web Development." 
+https://medium.com/@devyanshsingh06/servlets-vs-jsp-understanding-the-backbone-of-java-
+web-development-db28684d9c06 
+[38] Zoho Books. "Streamline payment collections in Singapore with PayNow and GrabPay."  
+https://zoho.com/blog/books/streamline-payment-collections-singapore-paynow-grabpay.html 
+[39] Fintech News Singapore. (2026). "Everything You Need to Know About Southeast Asia 
+Payment Methods in 2026."  https://fintechnews.sg/128337/e-commerce/southeast-asia-
+payment-methods-2026-global-payments-report/ 
+[40] Marketplace Analytics. "Product Tracker for Amazon Sellers." https://marketplaceanalytics.io/ 
+[41] Branch8. (2026). "Shopee vs Lazada: Which Marketplace Should Sellers Choose in 2026?"  
+https://branch8.com/posts/shopee-vs-lazada-seller-operations-comparison-2026 
+[42] Carousell Press. (2024). "Carousell rolls out several platform and logistics enhancements."  
+https://press.carousell.com/2024/04/23/carousell-rolls-out-several-platform-and-logistics-
+enhancements-bringing-the-best-of-ecommerce-to-recommerce/ 
+
+--- PAGE 154 ---
+Preliminary Technical Documentation 26-S2-24 
+Page 154 of 154 
+ 
+ 
+[43] Straits Times. (2026). "Singapore taps digital payments everywhere, but cash still lingers."  
+https://www.straitstimes.com/multimedia/graphics/2026/04/payment-methods/index.html 
+[44] ResGuard. "Data Privacy Compliance for E -Commerce Businesses in Singapore."  
+https://resguard-solutions.com/blog/en/singapore-ecommerce-data-privacy/ 
+ 
+ 
