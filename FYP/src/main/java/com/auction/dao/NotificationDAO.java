@@ -134,5 +134,4 @@ public class NotificationDAO {
         }
         return result;
     }
-    }
 }

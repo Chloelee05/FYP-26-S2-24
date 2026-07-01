@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.Notification;
 import com.auction.model.profile.WatchlistRow;
 import com.auction.util.DBUtil;
 
@@ -209,6 +210,45 @@ public class WatchlistDAO {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    public List<WatchlistRow> getEndingSoonWatchlistItems() throws Exception {
+        String sql = "SELECT w.user_id, w.auction_id, ad.title, a.date_end " +
+                "FROM watchlist w " +
+                "JOIN auction a ON w.auction_id = a.auction_id " +
+                "JOIN auction_details ad ON a.auction_id = ad.id " +
+                "WHERE a.date_end BETWEEN NOW() AND NOW() + INTERVAL '2 hours' " +
+                "AND a.moderation_state = 'active'";
+
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            List<WatchlistRow> result = new ArrayList<>();
+            while (rs.next()) {
+                WatchlistRow alert = new WatchlistRow();
+                alert.setUserId(rs.getInt("user_id"));
+                alert.setAuctionId(rs.getLong("auction_id"));
+                alert.setTitle(rs.getString("title"));
+                alert.setEndDate(rs.getTimestamp("date_end").toInstant());
+                result.add(alert);
+            }
+            return result;
+        } catch (Exception e) {
+            throw new Exception("Failed to retrieve ending soon watchlist items", e);
+        }
+    }
+
+    private void sendNotification(List<WatchlistRow> endingSoon) throws Exception
+    {
+        try {
+            NotificationDAO notificationDAO = new NotificationDAO();
+            for (WatchlistRow each : endingSoon) {
+                notificationDAO.create(each.getUserId(), each.getTitle(), String.valueOf(each.getAuctionId()),
+                        "/auction/" + each.getAuctionId());
+            }
+        } catch (Exception e) {
+            throw new Exception("Error creating notifications", e);
         }
     }
 }
