@@ -15,6 +15,7 @@ COMMENT ON DATABASE auction_db
 -- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS notification_preference;
 DROP TABLE IF EXISTS payment_methods;
 DROP TABLE IF EXISTS account_reports;
 DROP TABLE IF EXISTS auction_tag_info;
@@ -234,6 +235,15 @@ CREATE TABLE account_reports (
     CONSTRAINT user_id_reporter FOREIGN KEY (reporter_id) REFERENCES users (id),
     CONSTRAINT user_id_target   FOREIGN KEY (target_id)   REFERENCES users (id),
     CONSTRAINT one_per_reporter_target UNIQUE (reporter_id, target_id)
+);
+
+CREATE TABLE notification_preference(
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    out_bided BOOLEAN NOT NULL DEFAULT TRUE,
+    ending_soon BOOLEAN NOT NULL DEFAULT TRUE,
+    won_auction BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT user_id_preference FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- Payment methods (credit cards). Full PAN AES-GCM encrypted; only brand + last4 in clear.
