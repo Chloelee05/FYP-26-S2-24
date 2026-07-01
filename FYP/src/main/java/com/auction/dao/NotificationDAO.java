@@ -109,4 +109,30 @@ public class NotificationDAO {
             throw new RuntimeException(e);
         }
     }
+
+    public List<Notification> notificationHistory(int userId){
+        String sql = "SELECT id, type, message, link, is_read, created_at "
+                + "FROM notifications WHERE user_id = ? ORDER BY created_at DESC ?";
+        List<Notification> result = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Timestamp ts = rs.getTimestamp("created_at");
+                    result.add(new Notification(
+                            rs.getLong("id"),
+                            rs.getString("type"),
+                            rs.getString("message"),
+                            rs.getString("link"),
+                            rs.getBoolean("is_read"),
+                            ts != null ? ts.toInstant() : null));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return result;
+    }
+    }
 }
