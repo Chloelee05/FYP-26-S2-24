@@ -134,4 +134,23 @@ public class NotificationDAO {
         }
         return result;
     }
+
+    public boolean saveUserPreferences(int userId, boolean out_bided, boolean ending_soon, boolean won_auction) throws Exception {
+        String sql = "INSERT INTO notification_preference (user_id, out_bided, ending_soon, won_auction) " +
+                "VALUES (?, ?, ?, ?) " +
+                "ON CONFLICT (user_id) DO UPDATE " +
+                "SET out_bided = EXCLUDED.out_bided, " +
+                "ending_soon = EXCLUDED.ending_soon, " +
+                "won_auction = EXCLUDED.won_auction";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setBoolean(2, out_bided);
+            ps.setBoolean(3, ending_soon);
+            ps.setBoolean(4, won_auction);
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            throw new Exception("Failed to save user preferences", e);
+        }
+    }
 }
