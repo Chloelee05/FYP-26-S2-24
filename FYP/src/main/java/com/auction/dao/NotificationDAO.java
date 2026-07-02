@@ -110,7 +110,7 @@ public class NotificationDAO {
         }
     }
 
-    public List<Notification> notificationHistory(int userId){
+    public List<Notification> notificationHistory(int userId) throws Exception{
         String sql = "SELECT id, type, message, link, is_read, created_at "
                 + "FROM notifications WHERE user_id = ? ORDER BY created_at DESC ?";
         List<Notification> result = new ArrayList<>();
