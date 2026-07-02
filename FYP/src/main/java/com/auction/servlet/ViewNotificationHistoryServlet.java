@@ -41,14 +41,8 @@ public class ViewNotificationHistoryServlet extends HttpServlet {
 
         int user_id = user.getId();
         try{
-            List<Notification> result = new ArrayList<>();
-            result = notificationDAO.notificationHistory(user_id);
-            for(Notification each: result)
-            {
-                req.setAttribute("id", each.getId());
-                req.setAttribute("message", each.getMessage());
-                req.setAttribute("link", each.getLink());
-            }
+            List<Notification> result = notificationDAO.notificationHistory(user_id);
+            req.setAttribute("notifications", result);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
