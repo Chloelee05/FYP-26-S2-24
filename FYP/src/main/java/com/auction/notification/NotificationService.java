@@ -130,6 +130,38 @@ public final class NotificationService {
         });
     }
 
+    /**
+     * Sends the buyer a payment confirmation and itemised receipt (in-app + email) after
+     * a successful order payment. {@code paymentLabel} describes the method used
+     * (e.g. "Visa ****4242", "PayPal (a@b.com)"); pass null when unknown.
+     */
+    public static void notifyBuyerPaymentReceipt(long orderId, int buyerId, String paymentLabel) {
+        safe(() -> {
+            OrderReceipt r = orderReceipt(orderId);
+            String title = r != null ? r.title : "your order";
+            String amount = r != null && r.amount != null ? formatMoney(r.amount) : "";
+            String method = (paymentLabel == null || paymentLabel.isBlank()) ? "your payment method" : paymentLabel;
+
+            String inApp = "Payment confirmed for \"" + title + "\""
+                    + (amount.isEmpty() ? "" : " (" + amount + ")") + ". A receipt has been emailed to you.";
+
+            StringBuilder body = new StringBuilder();
+            body.append("Thank you for your payment on AuctionHub.\n\n");
+            body.append("Payment confirmation / receipt\n");
+            body.append("------------------------------\n");
+            body.append("Order #: ").append(orderId).append('\n');
+            body.append("Item: ").append(title).append('\n');
+            if (!amount.isEmpty()) body.append("Amount paid: ").append(amount).append('\n');
+            body.append("Payment method: ").append(method).append('\n');
+            body.append("Status: PAID\n\n");
+            body.append("Keep this email as proof of your transaction. "
+                    + "You can track delivery and confirm receipt from your Orders page.");
+
+            create(buyerId, "PAYMENT_RECEIPT", inApp, "/profile",
+                    "Your AuctionHub payment receipt (Order #" + orderId + ")", body.toString());
+        });
+    }
+
     /** Notifies the buyer that the package was marked delivered — confirm receipt when ready. */
     public static void notifyOrderDelivered(long auctionId, int buyerId) {
         safe(() -> {
@@ -278,6 +310,32 @@ public final class NotificationService {
             LOG.fine("auctionTitle lookup failed: " + e.getMessage());
         }
         return "your item";
+    }
+
+    /** Lightweight order fields needed to build a payment receipt. */
+    private static final class OrderReceipt {
+        final String title;
+        final java.math.BigDecimal amount;
+        OrderReceipt(String title, java.math.BigDecimal amount) { this.title = title; this.amount = amount; }
+    }
+
+    private static OrderReceipt orderReceipt(long orderId) {
+        String sql = "SELECT d.title, o.amount FROM orders o "
+                + "JOIN auction_details d ON d.id = o.auction_id WHERE o.id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return new OrderReceipt(rs.getString("title"), rs.getBigDecimal("amount"));
+            }
+        } catch (Exception e) {
+            LOG.fine("orderReceipt lookup failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private static String formatMoney(java.math.BigDecimal amount) {
+        return "$" + amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     private static Integer sellerOf(long auctionId) {
