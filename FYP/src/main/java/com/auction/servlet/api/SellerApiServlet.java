@@ -260,6 +260,7 @@ public class SellerApiServlet extends ApiBase {
         String quantityStr    = param(req, "quantity");
         String costPriceStr   = param(req, "costPrice");
         String dutchFloorStr  = param(req, "dutchFloorPrice");
+        String buyItNowStr    = param(req, "buyItNowPrice");
         String auctionTypeStr = param(req, "auctionType");
         String itemCondStr    = param(req, "itemCondition");
         String[] tagIdsArr    = req.getParameterValues("tags");
@@ -350,6 +351,20 @@ public class SellerApiServlet extends ApiBase {
             }
         }
 
+        // Buy It Now is optional and only valid for standard ascending auctions.
+        BigDecimal buyItNow = null;
+        if (buyItNowStr != null && !buyItNowStr.isBlank()) {
+            if (auctionType != AuctionType.PRICE_UP) {
+                badRequest(resp, "Buy It Now is only available for standard ascending auctions."); return;
+            }
+            try {
+                buyItNow = new BigDecimal(buyItNowStr);
+                if (buyItNow.compareTo(BigDecimal.ZERO) <= 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid Buy It Now price."); return;
+            }
+        }
+
         ItemCondition itemCondition;
         try {
             itemCondition = ItemCondition.getItemCondition(Integer.parseInt(itemCondStr));
@@ -377,6 +392,7 @@ public class SellerApiServlet extends ApiBase {
         auction.setQuantity(quantity);
         auction.setCostPrice(costPrice);
         auction.setDutchFloorPrice(dutchFloor);
+        auction.setBuyItNowPrice(buyItNow);
         auction.setCategory(category != null ? category : "");
 
         try {

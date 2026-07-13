@@ -39,6 +39,7 @@ public final class AuctionDetail {
     private Instant dateCreated;        // auction open time (for Dutch clock)
     private int quantity = 1;
     private BigDecimal costPrice;       // seller-private; never exposed to buyers
+    private BigDecimal buyItNowPrice;   // optional fixed purchase price (SCRUM-40)
 
     public AuctionDetail(long auctionId, String title, String description, String category,
                          String condition, BigDecimal startingPrice, BigDecimal currentBid,
@@ -85,4 +86,6 @@ public final class AuctionDetail {
     public void setQuantity(int q)             { this.quantity = q; }
     public BigDecimal getCostPrice()           { return costPrice; }
     public void setCostPrice(BigDecimal c)     { this.costPrice = c; }
+    public BigDecimal getBuyItNowPrice()       { return buyItNowPrice; }
+    public void setBuyItNowPrice(BigDecimal p) { this.buyItNowPrice = p; }
 }
