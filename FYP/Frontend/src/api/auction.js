@@ -29,6 +29,10 @@ export const placeBid = (auctionId, bidAmount) =>
 export const acceptDutchPrice = (auctionId) =>
   api.post('/bid', form({ auctionId }), F);
 
+// Buy It Now (standard ascending auctions with a BIN price)
+export const buyItNow = (auctionId) =>
+  api.post('/bid', form({ auctionId, action: 'BUY_NOW' }), F);
+
 export const setAutoBid = (auctionId, maxAmount, note, bidIncrement) =>
   api.post('/auto-bid', form({ auctionId, action: 'SET', maxAmount, note, bidIncrement }), F);
 

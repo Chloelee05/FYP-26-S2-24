@@ -70,4 +70,7 @@
 \echo '== payment method types (card / PayPal / bank transfer) =='
 \ir migration_payment_methods_types.sql
 
+\echo '== buy it now price =='
+\ir migration_buy_it_now.sql
+
 \echo 'All migrations applied.'

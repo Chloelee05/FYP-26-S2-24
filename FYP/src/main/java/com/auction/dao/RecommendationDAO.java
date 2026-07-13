@@ -18,12 +18,16 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Personalised auction recommendations via item-based collaborative filtering.
+ * Personalised auction recommendations via a hybrid pipeline.
  *
- * <p>Signal = a buyer's interactions (bids + watchlist). We find "peer" buyers who
- * interacted with the same auctions, then score the <em>other</em> auctions those
- * peers interacted with by co-occurrence frequency ("buyers like you also bid on…").
- * Cold-start / sparse results are topped up with trending active auctions.</p>
+ * <p><b>Pipeline (SCRUM-400):</b></p>
+ * <ol>
+ *   <li>Item-based collaborative filtering — peer co-occurrence on bids/watchlist</li>
+ *   <li>User-based CF with cosine similarity — bids, watchlist, and browse history</li>
+ *   <li>Content-based boost — active auctions sharing category or tags with the user's
+ *       recent bids / watchlist / browse history (excludes already recommended ids)</li>
+ *   <li>Trending filler — bid-count / soonest-ending for cold-start and remaining slots</li>
+ * </ol>
  *
  * <p>Pure SQL over existing tables — no external ML dependency — which keeps the
  * approach explainable and defensible for the project's scope.</p>
@@ -32,7 +36,7 @@ public class RecommendationDAO {
 
     /**
      * Returns up to {@code limit} active, open auctions recommended for {@code userId},
-     * ranked by collaborative-filtering score and topped up with trending auctions.
+     * ranked by CF score, then content similarity, topped up with trending auctions.
      */
     public List<SearchResultItem> recommendForUser(int userId, int limit) {
         List<SearchResultItem> cf = collaborativeFiltering(userId, limit);
@@ -45,6 +49,14 @@ public class RecommendationDAO {
         if (combined.size() < limit) {
             List<SearchResultItem> ubcf = userBasedCosineRecommendations(userId, limit - combined.size(), exclude);
             for (SearchResultItem item : ubcf) {
+                combined.add(item);
+                exclude.add(item.getAuctionId());
+            }
+        }
+
+        if (combined.size() < limit) {
+            List<SearchResultItem> content = contentBased(userId, limit - combined.size(), exclude);
+            for (SearchResultItem item : content) {
                 combined.add(item);
                 exclude.add(item.getAuctionId());
             }
@@ -196,6 +208,70 @@ public class RecommendationDAO {
             ps.setInt(4, userId);
             ps.setInt(5, userId);
             ps.setInt(6, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                return mapRows(rs);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Content-based recommendations: active auctions that share a category or tag with
+     * auctions the user recently bid on, watched, or browsed.
+     */
+    private List<SearchResultItem> contentBased(int userId, int limit, Set<Long> excludeIds) {
+        if (limit <= 0) return List.of();
+
+        StringBuilder sql = new StringBuilder(
+            "WITH my_signals AS ( "
+          + "  SELECT auction_id FROM bids WHERE user_id = ? "
+          + "  UNION SELECT auction_id FROM watchlist WHERE user_id = ? "
+          + "  UNION SELECT auction_id FROM browse_history WHERE user_id = ? "
+          + "), my_cats AS ( "
+          + "  SELECT DISTINCT d.category FROM auction_details d "
+          + "  WHERE d.id IN (SELECT auction_id FROM my_signals) "
+          + "    AND d.category IS NOT NULL AND TRIM(d.category) <> '' "
+          + "), my_tags AS ( "
+          + "  SELECT DISTINCT t.tag_id FROM auction_tag_info t "
+          + "  WHERE t.auction_id IN (SELECT auction_id FROM my_signals) "
+          + ") "
+          + "SELECT a.auction_id, d.title, d.category, "
+          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+          + "  a.date_end, u.username, "
+          + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
+          + "FROM auction a "
+          + "JOIN auction_details d ON d.id = a.auction_id "
+          + "JOIN users u ON u.id = a.seller_id "
+          + "WHERE a.status_id = 1 AND a.moderation_state = 'active' AND a.date_end > now() "
+          + "  AND a.seller_id <> ? "
+          + "  AND a.auction_id NOT IN (SELECT auction_id FROM my_signals) "
+          + "  AND ( "
+          + "    d.category IN (SELECT category FROM my_cats) "
+          + "    OR EXISTS ( "
+          + "      SELECT 1 FROM auction_tag_info ati "
+          + "      WHERE ati.auction_id = a.auction_id "
+          + "        AND ati.tag_id IN (SELECT tag_id FROM my_tags) "
+          + "    ) "
+          + "  ) ");
+
+        List<Long> excl = (excludeIds == null) ? new ArrayList<>() : new ArrayList<>(excludeIds);
+        if (!excl.isEmpty()) {
+            sql.append("AND a.auction_id NOT IN (");
+            for (int i = 0; i < excl.size(); i++) sql.append(i == 0 ? "?" : ",?");
+            sql.append(") ");
+        }
+        sql.append("ORDER BY a.date_end ASC LIMIT ?");
+
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int idx = 1;
+            ps.setInt(idx++, userId);
+            ps.setInt(idx++, userId);
+            ps.setInt(idx++, userId);
+            ps.setInt(idx++, userId);
+            for (Long id : excl) ps.setLong(idx++, id);
+            ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
                 return mapRows(rs);
             }

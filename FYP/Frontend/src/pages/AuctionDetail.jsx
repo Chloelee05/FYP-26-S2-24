@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
-import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
+import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
 import AuctionSellerCard from '../components/AuctionSellerCard';
 import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
@@ -200,6 +200,21 @@ export default function AuctionDetail() {
       getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     } catch (err) {
       setError(apiError(err, 'Could not accept the current price.'));
+    }
+  };
+
+  const handleBuyItNow = async () => {
+    if (!user) { setError('Please log in to Buy It Now.'); return; }
+    if (user.role !== 'BUYER') { setError('Only buyers can use Buy It Now.'); return; }
+    if (!window.confirm(`Buy this item now for ${formatCurrency(auction.buyItNowPrice)}?`)) return;
+    setError(''); setMessage('');
+    try {
+      await buyItNow(id);
+      setMessage('Buy It Now successful — you won this auction!');
+      getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
+      getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
+    } catch (err) {
+      setError(apiError(err, 'Could not complete Buy It Now.'));
     }
   };
 
@@ -583,6 +598,22 @@ export default function AuctionDetail() {
                   Place Bid
                 </button>
               </div>
+
+              {auction.buyItNowPrice != null && Number(auction.buyItNowPrice) > 0 && user?.role === 'BUYER' && (
+                <div className="card p-5 border-green-200 bg-green-50">
+                  <h3 className="font-bold text-gray-900 mb-1">Buy It Now</h3>
+                  <p className="text-2xl font-bold text-green-600 mb-2">{formatCurrency(auction.buyItNowPrice)}</p>
+                  <p className="text-xs text-gray-500 mb-3">Purchase immediately at this price and win the auction.</p>
+                  {message && <div className="text-green-600 text-xs mb-2">{message}</div>}
+                  {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
+                  <button
+                    onClick={handleBuyItNow}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg transition-colors"
+                  >
+                    Buy It Now
+                  </button>
+                </div>
+              )}
 
               {/* Auto-Bid */}
               <div className="card p-5 border-purple-200">

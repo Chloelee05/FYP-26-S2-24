@@ -17,6 +17,7 @@ public class Auction implements  Serializable{
     private int quantity = 1;
     private BigDecimal costPrice;       // seller's private cost; null = unset
     private BigDecimal dutchFloorPrice; // Dutch clock floor; null = unset
+    private BigDecimal buyItNowPrice;   // Buy It Now; null = unset (SCRUM-40)
     private AuctionType auctionType;
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
@@ -115,6 +116,10 @@ public class Auction implements  Serializable{
     public BigDecimal getDutchFloorPrice() { return this.dutchFloorPrice; }
 
     public void setDutchFloorPrice(BigDecimal dutchFloorPrice) { this.dutchFloorPrice = dutchFloorPrice; }
+
+    public BigDecimal getBuyItNowPrice() { return this.buyItNowPrice; }
+
+    public void setBuyItNowPrice(BigDecimal buyItNowPrice) { this.buyItNowPrice = buyItNowPrice; }
 
     public AuctionType getAuctionType() {
         return this.auctionType;

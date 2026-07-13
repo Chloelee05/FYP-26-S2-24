@@ -141,6 +141,7 @@ CREATE TABLE auction_details (
   quantity          INT            NOT NULL DEFAULT 1 CHECK (quantity >= 1),
   cost_price        NUMERIC(10,2)  DEFAULT NULL CHECK (cost_price IS NULL OR cost_price >= 0),
   dutch_floor_price NUMERIC(10,2)  DEFAULT NULL CHECK (dutch_floor_price IS NULL OR dutch_floor_price >= 0),
+  buy_it_now_price  NUMERIC(10,2)  DEFAULT NULL CHECK (buy_it_now_price IS NULL OR buy_it_now_price > 0),
   winning_bid       INTEGER        DEFAULT NULL,
   winner_id         INTEGER        DEFAULT NULL,
   CONSTRAINT auction_id_details FOREIGN KEY (id) REFERENCES auction (auction_id),
