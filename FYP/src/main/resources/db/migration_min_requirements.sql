@@ -30,15 +30,18 @@ ALTER TABLE auction_details
 CREATE TABLE IF NOT EXISTS payment_methods (
   id              BIGSERIAL   PRIMARY KEY,
   user_id         BIGINT      NOT NULL,
-  card_holder     VARCHAR(255) NOT NULL,
+  method_type     VARCHAR(20) NOT NULL DEFAULT 'CARD',
+  card_holder     VARCHAR(255),
   card_brand      VARCHAR(20),
-  card_last4      VARCHAR(4)  NOT NULL,
-  exp_month       SMALLINT    NOT NULL CHECK (exp_month BETWEEN 1 AND 12),
-  exp_year        SMALLINT    NOT NULL,
-  card_number_enc TEXT        NOT NULL,
+  card_last4      VARCHAR(4),
+  exp_month       SMALLINT    CHECK (exp_month BETWEEN 1 AND 12),
+  exp_year        SMALLINT,
+  card_number_enc TEXT,
+  account_ref     VARCHAR(255),
   is_default      BOOLEAN     NOT NULL DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT payment_methods_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
+  CONSTRAINT payment_methods_user_fk FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT payment_methods_type_check CHECK (method_type IN ('CARD','PAYPAL','BANK_TRANSFER'))
 );
 CREATE INDEX IF NOT EXISTS idx_payment_methods_user ON payment_methods (user_id);
 
