@@ -67,4 +67,7 @@
 \echo '== browse history + platform revenue =='
 \ir migration_browse_history_and_revenue.sql
 
+\echo '== payment method types (card / PayPal / bank transfer) =='
+\ir migration_payment_methods_types.sql
+
 \echo 'All migrations applied.'

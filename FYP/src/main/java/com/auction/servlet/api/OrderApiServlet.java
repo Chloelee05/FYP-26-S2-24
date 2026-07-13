@@ -97,7 +97,11 @@ public class OrderApiServlet extends ApiBase {
 
         int[] parties = orderDAO.partiesAndAuction(orderId);
         if (parties != null) NotificationService.notifyOrderPaid(parties[2], parties[1]);
-        okMsg(resp, "Payment successful. The seller has been notified.");
+
+        String paymentLabel = pmId != null ? paymentDAO.labelFor(buyerId, pmId) : null;
+        NotificationService.notifyBuyerPaymentReceipt(orderId, buyerId, paymentLabel);
+
+        okMsg(resp, "Payment successful. A receipt has been emailed to you and the seller has been notified.");
     }
 
     private void handleComplete(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {

@@ -91,12 +91,30 @@ public class AccountApiServlet extends ApiBase {
             return;
         }
 
-        // add
+        // add — dispatch on the requested method type (default: card)
+        String type = param(req, "type");
+        boolean makeDefault = "true".equalsIgnoreCase(param(req, "makeDefault"));
+
+        try {
+            if (type != null && type.equalsIgnoreCase("paypal")) {
+                addPaypal(req, resp, userId, makeDefault);
+            } else if (type != null && (type.equalsIgnoreCase("bank_transfer") || type.equalsIgnoreCase("bank"))) {
+                addBankTransfer(req, resp, userId, makeDefault);
+            } else {
+                addCard(req, resp, userId, makeDefault);
+            }
+        } catch (RuntimeException e) {
+            getServletContext().log("add payment method failed", e);
+            serverError(resp, "Could not save payment method. Run DB migrations and try again.");
+        }
+    }
+
+    private void addCard(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
+            throws IOException {
         String holder = param(req, "cardHolder");
         String number = param(req, "cardNumber");
         String monthS = param(req, "expMonth");
         String yearS  = param(req, "expYear");
-        boolean makeDefault = "true".equalsIgnoreCase(param(req, "makeDefault"));
 
         if (holder == null || number == null || monthS == null || yearS == null) {
             badRequest(resp, "cardHolder, cardNumber, expMonth and expYear are required."); return;
@@ -111,13 +129,41 @@ public class AccountApiServlet extends ApiBase {
         if (month < 1 || month > 12) { badRequest(resp, "Expiry month must be 1–12."); return; }
         if (year < 2000) { badRequest(resp, "Invalid expiry year."); return; }
 
-        try {
-            paymentDAO.add(userId, holder.trim(), digits, month, year, makeDefault);
-            okMsg(resp, "Payment method added.");
-        } catch (RuntimeException e) {
-            getServletContext().log("add payment method failed", e);
-            serverError(resp, "Could not save payment method. Run DB migrations and try again.");
+        paymentDAO.add(userId, holder.trim(), digits, month, year, makeDefault);
+        okMsg(resp, "Payment method added.");
+    }
+
+    private void addPaypal(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
+            throws IOException {
+        String email = param(req, "paypalEmail");
+        if (email == null) email = param(req, "email");
+        if (email == null || email.isBlank()) {
+            badRequest(resp, "A PayPal email is required."); return;
         }
+        email = email.trim();
+        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            badRequest(resp, "Enter a valid PayPal email."); return;
+        }
+        paymentDAO.addPaypal(userId, email, makeDefault);
+        okMsg(resp, "PayPal account linked.");
+    }
+
+    private void addBankTransfer(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
+            throws IOException {
+        String holder   = param(req, "accountHolder");
+        String account  = param(req, "accountNumber");
+        String bankName = param(req, "bankName");
+
+        if (holder == null || account == null || bankName == null
+                || holder.isBlank() || account.isBlank() || bankName.isBlank()) {
+            badRequest(resp, "accountHolder, accountNumber and bankName are required."); return;
+        }
+        String digits = account.replaceAll("\\D", "");
+        if (digits.length() < 4 || digits.length() > 20) {
+            badRequest(resp, "Enter a valid bank account number."); return;
+        }
+        paymentDAO.addBankTransfer(userId, holder.trim(), digits, bankName.trim(), makeDefault);
+        okMsg(resp, "Bank account added.");
     }
 
     private Long parseLong(String s) {
