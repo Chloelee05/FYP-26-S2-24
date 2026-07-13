@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 
 /**
  * POST /api/bid  params: auctionId, bidAmount (bidAmount optional for Dutch "accept").
+ * Optional {@code action=BUY_NOW} purchases at the seller's Buy It Now price (ascending only).
  * Dispatches by auction strategy:
  *   PRICE_UP → ascending bid + proxy auto-bids
  *   DUTCH    → accept current descending clock price (first acceptance wins)
@@ -49,6 +50,17 @@ public class BidApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
+        String action = param(req, "action");
+        if (action != null && "BUY_NOW".equalsIgnoreCase(action.trim())) {
+            try {
+                handleBuyNow(resp, auctionId, buyerId);
+            } catch (RuntimeException e) {
+                getServletContext().log("buyNow error [auctionId=" + auctionId + ", buyerId=" + buyerId + "]", e);
+                serverError(resp, "Could not complete Buy It Now. Check server logs or run DB migrations.");
+            }
+            return;
+        }
+
         int typeId = bidDAO.getAuctionTypeId(auctionId);
         if (typeId < 0) { error(resp, 404, "Auction not found."); return; }
 
@@ -70,6 +82,17 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    private void handleBuyNow(HttpServletResponse resp, long auctionId, int buyerId) throws IOException {
+        BidResult result = bidDAO.buyItNow(auctionId, buyerId);
+        if (result == BidResult.SUCCESS) {
+            AuctionEventPublisher.publishSnapshot(auctionId);
+            NotificationService.notifyAuctionWon(auctionId, buyerId);
+            okMsg(resp, "Buy It Now successful — you won this auction!");
+        } else {
+            error(resp, 400, toMessage(result));
+        }
+    }
+
     private void handleAscending(HttpServletRequest req, HttpServletResponse resp, long auctionId, int buyerId)
             throws IOException {
         BigDecimal bidAmount = parseAmount(req, resp);
@@ -79,6 +102,7 @@ public class BidApiServlet extends ApiBase {
         if (result == BidResult.SUCCESS) {
             AuctionEventPublisher.publishSnapshot(auctionId);
             NotificationService.notifyOutbid(auctionId, buyerId);
+            NotificationService.notifySellerNewBid(auctionId, bidAmount);
             okMsg(resp, "Bid of $" + bidAmount.toPlainString() + " placed successfully!");
         } else {
             error(resp, 400, toMessage(result));

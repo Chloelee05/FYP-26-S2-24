@@ -126,6 +126,7 @@ public class AuctionApiServlet extends ApiBase {
         body.put("quantity",       detail.getQuantity());
         body.put("startingPrice",  detail.getStartingPrice());
         body.put("reservePrice",   detail.getMaxPrice());
+        body.put("buyItNowPrice",  detail.getBuyItNowPrice());
         body.put("endTime",        detail.getEndDate() != null ? detail.getEndDate().toString() : null);
         body.put("startTime",      detail.getDateCreated() != null ? detail.getDateCreated().toString() : null);
         body.put("sellerId",       detail.getSellerId());
