@@ -6,7 +6,8 @@ import {
   getSellerAnalytics, emailSellerAnalytics, reduceAuctionQuantity,
 } from '../../api/seller';
 import { getOrders } from '../../api/orders';
-import { formatCurrency } from '../../utils/helpers';
+import { getMyReviews, getTransactionHistory } from '../../api/user';
+import { formatCurrency, decodeHtmlEntities } from '../../utils/helpers';
 import CountdownTimer from '../../components/CountdownTimer';
 import StarRating from '../../components/StarRating';
 
@@ -32,6 +33,8 @@ export default function SellerDashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [analyticsMsg, setAnalyticsMsg] = useState('');
   const [emailing, setEmailing] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [sales, setSales] = useState([]);
 
   useEffect(() => {
     getSellerAuctions()
@@ -47,6 +50,12 @@ export default function SellerDashboard() {
         );
         setRatedIds(rated);
       })
+      .catch(() => {});
+    getMyReviews()
+      .then(r => setReviews(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {});
+    getTransactionHistory('SALE')
+      .then(r => setSales(Array.isArray(r.data) ? r.data : []))
       .catch(() => {});
   }, []);
 
@@ -163,10 +172,10 @@ export default function SellerDashboard() {
           { label: 'Active', value: active.length, color: 'text-green-500' },
           { label: 'Ended', value: ended.length, color: 'text-blue-500' },
           { label: 'Cancelled', value: cancelled.length, color: 'text-gray-400' },
-        ].map(s => (
-          <div key={s.label} className="card p-4 text-center">
-            <span className={`text-3xl font-bold ${s.color}`}>{s.value}</span>
-            <p className="text-sm text-gray-400 mt-1">{s.label}</p>
+        ].map(stat => (
+          <div key={stat.label} className="card p-4 text-center">
+            <span className={`text-3xl font-bold ${stat.color}`}>{stat.value}</span>
+            <p className="text-sm text-gray-400 mt-1">{stat.label}</p>
           </div>
         ))}
       </div>
@@ -192,7 +201,8 @@ export default function SellerDashboard() {
             <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-100">
               <p className="text-sm font-semibold text-gray-900 mb-1">Earnings summary (simulated)</p>
               <p className="text-xs text-gray-500 mb-3">
-                Based on completed orders and platform fees. No in-app wallet or withdrawals in this prototype.
+                Based on completed orders and platform fees. Updated when buyers complete payment &amp; confirm receipt.
+                No in-app wallet or withdrawals in this prototype.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
@@ -278,6 +288,71 @@ export default function SellerDashboard() {
           )}
         </div>
       )}
+
+      {/* Sale transactions (SCRUM-69) */}
+      <div className="card p-5 mb-6">
+        <h2 className="font-bold text-gray-900 mb-3">Sale transactions</h2>
+        {sales.length === 0 ? (
+          <p className="text-sm text-gray-400">No sale transactions yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 text-xs text-left border-b border-gray-100">
+                  <th className="pb-2">Item</th>
+                  <th className="pb-2">Amount</th>
+                  <th className="pb-2">Date</th>
+                  <th className="pb-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sales.slice(0, 10).map((t, i) => (
+                  <tr key={t.displayId ?? i}>
+                    <td className="py-2.5 font-medium text-gray-800">{t.itemTitle}</td>
+                    <td className="py-2.5">{formatCurrency(t.amount)}</td>
+                    <td className="py-2.5 text-gray-500">{t.transactionDate}</td>
+                    <td className="py-2.5">
+                      <span className={`text-xs font-medium ${
+                        t.status === 'Completed' ? 'text-green-500' :
+                        t.status === 'Cancelled' ? 'text-red-400' :
+                        'text-yellow-500'
+                      }`}>
+                        {t.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Reviews from buyers (SCRUM-43) */}
+      <div className="card p-5 mb-6">
+        <h2 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <Star size={18} className="text-yellow-500" /> Reviews from buyers
+        </h2>
+        {reviews.length === 0 ? (
+          <p className="text-sm text-gray-400">No reviews from buyers yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {reviews.slice(0, 8).map((rev, i) => (
+              <div key={i} className="border-b border-gray-50 pb-3 last:border-0 last:pb-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-800">{rev.reviewerMaskedName ?? 'Buyer'}</span>
+                  <span className="text-xs text-gray-400">
+                    {rev.reviewDate ? new Date(rev.reviewDate).toLocaleDateString() : ''}
+                  </span>
+                </div>
+                <StarRating value={rev.rating ?? 0} size={14} />
+                {rev.auctionTitle && <p className="text-xs text-gray-400 mt-0.5">on {rev.auctionTitle}</p>}
+                {rev.comment && <p className="text-sm text-gray-600 mt-1">{decodeHtmlEntities(rev.comment)}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-2 mb-4">

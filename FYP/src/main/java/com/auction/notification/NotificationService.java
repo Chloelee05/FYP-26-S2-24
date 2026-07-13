@@ -43,6 +43,35 @@ public final class NotificationService {
         });
     }
 
+    /** Notifies the seller that a new ascending bid was placed on their auction. */
+    public static void notifySellerNewBid(long auctionId, java.math.BigDecimal bidAmount) {
+        safe(() -> {
+            Integer sellerId = sellerOf(auctionId);
+            if (sellerId == null) return;
+            String title = auctionTitle(auctionId);
+            String amount = bidAmount != null ? formatMoney(bidAmount) : "$?";
+            create(sellerId, "NEW_BID",
+                    "New bid of " + amount + " on \"" + title + "\".",
+                    "/auction/" + auctionId,
+                    "New bid on your auction",
+                    "Someone placed a bid of " + amount + " on \"" + title + "\" on AuctionHub.");
+        });
+    }
+
+    /** Notifies the seller that their auction ended without a winner (can relist). */
+    public static void notifyAuctionEndedUnsold(long auctionId) {
+        safe(() -> {
+            Integer sellerId = sellerOf(auctionId);
+            if (sellerId == null) return;
+            String title = auctionTitle(auctionId);
+            create(sellerId, "AUCTION_ENDED",
+                    "Your auction \"" + title + "\" ended without a sale. You can relist it from your seller dashboard.",
+                    "/seller/dashboard",
+                    "Auction ended unsold",
+                    "Your auction \"" + title + "\" ended without a winner on AuctionHub. You can relist it from your seller dashboard.");
+        });
+    }
+
     /** Notifies the winner that they won, and the seller that their item sold. */
     public static void notifyAuctionWon(long auctionId, int winnerId) {
         safe(() -> {
@@ -174,15 +203,17 @@ public final class NotificationService {
         });
     }
 
-    /** Notifies the seller that the buyer confirmed receipt. */
+    /** Notifies the seller that the buyer confirmed receipt; payment/earnings are complete. */
     public static void notifySellerReceiptConfirmed(long auctionId, int sellerId) {
         safe(() -> {
             String title = auctionTitle(auctionId);
             create(sellerId, "ORDER_COMPLETED",
-                    "The buyer confirmed receipt for \"" + title + "\".",
-                    "/profile",
-                    "Buyer confirmed receipt",
-                    "The buyer confirmed receipt for \"" + title + "\" on AuctionHub.");
+                    "The buyer confirmed receipt for \"" + title
+                            + "\". Payment is complete and funds are reflected in your earnings summary.",
+                    "/seller/dashboard",
+                    "Payment complete — receipt confirmed",
+                    "The buyer confirmed receipt for \"" + title
+                            + "\" on AuctionHub. Payment is complete and the sale is reflected in your earnings.");
         });
     }
 

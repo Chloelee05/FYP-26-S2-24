@@ -93,6 +93,8 @@ public final class AuctionFinalizer {
             FinalizeResult r = DBUtil.runInTransaction(conn -> finalizeIfEnded(conn, auctionId));
             if (r.finalized && r.winnerId > 0) {
                 NotificationService.notifyAuctionWonIfAbsent(auctionId, r.winnerId);
+            } else if (r.finalized && r.winnerId <= 0) {
+                NotificationService.notifyAuctionEndedUnsold(auctionId);
             }
         } catch (Exception ignored) {
             // best-effort
