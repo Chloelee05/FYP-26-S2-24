@@ -4,6 +4,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount } from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
+import { getNotificationPreferences, saveNotificationPreferences } from '../api/notifications';
+import { getLinkedAccounts, linkOAuthAccount, unlinkOAuthAccount } from '../api/auth';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 import { useAuth } from '../context/AuthContext';
 import { publicPath } from '../utils/appBase';
 
@@ -11,6 +14,8 @@ const TABS = [
   { key: 'profile', label: 'Edit Profile' },
   { key: 'password', label: 'Change Password' },
   { key: '2fa', label: 'Two-Factor Auth' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'linked', label: 'Linked Accounts' },
 ];
 
 // ── Edit Profile section ──────────────────────────────────────────────────────
@@ -387,6 +392,193 @@ function TwoFactorSection() {
   );
 }
 
+// ── Notification preferences section ──────────────────────────────────────────
+const PREF_ITEMS = [
+  { key: 'outbid',     label: 'Outbid alerts',        desc: 'Notify me when someone outbids me on an auction.' },
+  { key: 'endingSoon', label: 'Watchlist ending soon', desc: 'Notify me when an auction on my watchlist is ending soon.' },
+  { key: 'wonAuction', label: 'Auction won',           desc: 'Notify me when I win an auction.' },
+];
+
+function NotificationPreferencesSection() {
+  const [prefs, setPrefs] = useState({ outbid: true, endingSoon: true, wonAuction: true });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getNotificationPreferences()
+      .then(r => setPrefs({
+        outbid:     r.data.outbid     ?? true,
+        endingSoon: r.data.endingSoon ?? true,
+        wonAuction: r.data.wonAuction ?? true,
+      }))
+      .catch(() => setError('Could not load notification preferences.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggle = async (key) => {
+    const next = { ...prefs, [key]: !prefs[key] };
+    setPrefs(next);
+    setMessage(''); setError(''); setSaving(true);
+    try {
+      await saveNotificationPreferences(next);
+      setMessage('Notification preferences saved.');
+    } catch (err) {
+      setPrefs(prefs); // revert on failure
+      setError(err.response?.data?.error || 'Failed to save preferences.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="card p-8 text-gray-400 text-sm">Loading preferences…</div>;
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <p className="text-gray-500 text-sm">
+        Choose which events you want to be notified about (in-app and by email when configured).
+      </p>
+
+      {message && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">{message}</div>}
+      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
+
+      <div className="card divide-y divide-gray-100">
+        {PREF_ITEMS.map(({ key, label, desc }) => (
+          <div key={key} className="p-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-gray-900">{label}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{desc}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={prefs[key]}
+              disabled={saving}
+              onClick={() => handleToggle(key)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+                prefs[key] ? 'bg-blue-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  prefs[key] ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Linked accounts (third-party sign-in) section ─────────────────────────────
+function LinkedAccountsSection() {
+  const [linked, setLinked] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(true);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const load = () => {
+    getLinkedAccounts()
+      .then(r => setLinked(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setError('Could not load linked accounts.'))
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const google = linked.find(l => l.provider === 'google');
+
+  const handleGoogleCredential = async (credential) => {
+    setMessage(''); setError(''); setBusy(true);
+    try {
+      const r = await linkOAuthAccount('google', credential);
+      setMessage(r.data?.message ?? 'Google account linked.');
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not link the Google account.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!window.confirm('Unlink your Google account? You will still be able to sign in with your password.')) return;
+    setMessage(''); setError(''); setBusy(true);
+    try {
+      const r = await unlinkOAuthAccount('google');
+      setMessage(r.data?.message ?? 'Google account unlinked.');
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not unlink the Google account.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <div className="card p-8 text-gray-400 text-sm">Loading linked accounts…</div>;
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <p className="text-gray-500 text-sm">
+        Link a third-party account so you can sign in with your preferred method.
+        Your password keeps working either way.
+      </p>
+
+      {message && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">{message}</div>}
+      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
+
+      <div className="card p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="font-medium text-gray-900">Google</p>
+            {google ? (
+              <p className="text-sm text-gray-500 mt-0.5">
+                Linked{google.email ? ` as ${google.email}` : ''}
+                {google.linkedAt ? ` on ${new Date(google.linkedAt).toLocaleDateString()}` : ''}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mt-0.5">Not linked</p>
+            )}
+          </div>
+          {google && (
+            <button
+              type="button"
+              onClick={handleUnlink}
+              disabled={busy}
+              className="px-4 py-2 border border-red-200 text-red-500 text-sm rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              Unlink
+            </button>
+          )}
+        </div>
+        {!google && (
+          <div className="mt-4">
+            {googleAvailable ? (
+              <GoogleSignInButton
+                text="continue_with"
+                onCredential={handleGoogleCredential}
+                onAvailabilityChange={setGoogleAvailable}
+              />
+            ) : (
+              <p className="text-xs text-gray-400">
+                Google sign-in is not configured on this server (GOOGLE_CLIENT_ID missing).
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Facebook and Twitter/X sign-in are not offered yet.
+      </p>
+    </div>
+  );
+}
+
 // ── Delete Account section ────────────────────────────────────────────────────
 function DeleteAccountSection() {
   const { logout } = useAuth();
@@ -466,9 +658,11 @@ export default function AccountSettings() {
         ))}
       </div>
 
-      {tab === 'profile'  && <EditProfileSection />}
-      {tab === 'password' && <ChangePasswordSection />}
-      {tab === '2fa'      && <TwoFactorSection />}
+      {tab === 'profile'       && <EditProfileSection />}
+      {tab === 'password'      && <ChangePasswordSection />}
+      {tab === '2fa'           && <TwoFactorSection />}
+      {tab === 'notifications' && <NotificationPreferencesSection />}
+      {tab === 'linked'        && <LinkedAccountsSection />}
 
       <DeleteAccountSection />
     </div>

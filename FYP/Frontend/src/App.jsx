@@ -36,6 +36,7 @@ import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminDatabase from './pages/admin/AdminDatabase';
 import AdminCategories from './pages/admin/AdminCategories';
 import AdminReports from './pages/admin/AdminReports';
+import AdminReviews from './pages/admin/AdminReviews';
 import AdminOrders from './pages/admin/AdminOrders';
 import AdminChat from './pages/admin/AdminChat';
 import SupportChat from './pages/SupportChat';
@@ -78,6 +79,7 @@ function App() {
             <Route path="database" element={<AdminDatabase />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="reports" element={<AdminReports />} />
+            <Route path="reviews" element={<AdminReviews />} />
             <Route path="orders" element={<AdminOrders />} />
             <Route path="chat" element={<AdminChat />} />
           </Route>

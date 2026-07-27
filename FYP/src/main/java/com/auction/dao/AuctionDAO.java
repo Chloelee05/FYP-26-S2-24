@@ -321,6 +321,8 @@ public class AuctionDAO {
                 while(rs.next())
                 {
                     User temp = new User();
+                    temp.setId((int) rs.getLong("id"));
+                    temp.setUsername(rs.getString("username"));
                     TopStatistics tsTemp = new TopStatistics();
                     tsTemp.setUser(temp);
                     tsTemp.setAuction_count(rs.getInt("total_auctions"));

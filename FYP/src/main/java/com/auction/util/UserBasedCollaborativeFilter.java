@@ -26,6 +26,19 @@ public final class UserBasedCollaborativeFilter {
             Map<Integer, Map<Long, Double>> userVectors,
             int limit,
             Set<Long> exclude) {
+        return rankAuctionIds(targetUserId, userVectors, limit, exclude, 0.0);
+    }
+
+    /**
+     * Same as {@link #rankAuctionIds(int, Map, int, Set)} but ignores peers whose
+     * cosine similarity is below {@code minSimilarity} (admin-tunable threshold).
+     */
+    public static List<Long> rankAuctionIds(
+            int targetUserId,
+            Map<Integer, Map<Long, Double>> userVectors,
+            int limit,
+            Set<Long> exclude,
+            double minSimilarity) {
 
         Map<Long, Double> target = userVectors.get(targetUserId);
         if (target == null || target.isEmpty() || limit <= 0) {
@@ -40,7 +53,7 @@ public final class UserBasedCollaborativeFilter {
         for (Map.Entry<Integer, Map<Long, Double>> peer : userVectors.entrySet()) {
             if (peer.getKey() == targetUserId) continue;
             double sim = cosine(target, peer.getValue());
-            if (sim <= 0) continue;
+            if (sim <= 0 || sim < minSimilarity) continue;
             for (Map.Entry<Long, Double> item : peer.getValue().entrySet()) {
                 if (excludeAll.contains(item.getKey())) continue;
                 scores.merge(item.getKey(), sim * item.getValue(), Double::sum);
