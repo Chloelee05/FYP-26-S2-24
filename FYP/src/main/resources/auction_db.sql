@@ -243,7 +243,8 @@ CREATE TABLE notification_preference(
     out_bided BOOLEAN NOT NULL DEFAULT TRUE,
     ending_soon BOOLEAN NOT NULL DEFAULT TRUE,
     won_auction BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT user_id_preference FOREIGN KEY (user_id) REFERENCES users(id)
+    CONSTRAINT user_id_preference FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT notification_preference_user_unique UNIQUE (user_id)
 );
 
 -- Payment methods (credit cards). Full PAN AES-GCM encrypted; only brand + last4 in clear.

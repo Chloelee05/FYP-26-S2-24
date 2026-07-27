@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
-import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile } from '../api/auction';
+import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, getWatchlist, askQuestion, getSellerProfile, getSimilarAuctions } from '../api/auction';
+import AuctionCard from '../components/AuctionCard';
 import AuctionSellerCard from '../components/AuctionSellerCard';
 import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
@@ -31,6 +32,7 @@ export default function AuctionDetail() {
   const [watched, setWatched] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [sellerProfile, setSellerProfile] = useState(null);
+  const [similar, setSimilar] = useState([]);
 
   useEffect(() => {
     getAuctionDetail(id).then(r => {
@@ -47,6 +49,7 @@ export default function AuctionDetail() {
     }).catch(() => {});
     getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     getAuctionQuestions(id).then(r => setQuestions(r.data ?? [])).catch(() => {});
+    getSimilarAuctions(id, 4).then(r => setSimilar(r.data.results ?? [])).catch(() => setSimilar([]));
   }, [id]);
 
   // Local 1s tick so the Dutch descending clock animates smoothly between SSE frames.
@@ -719,6 +722,22 @@ export default function AuctionDetail() {
                 Accept {formatCurrency(displayPrice)}
               </button>
             </div>
+          ) : auction.mySealedBid ? (
+            /* Blind: sealed bid already submitted */
+            <div className="card p-5">
+              <h3 className="font-bold text-gray-900 mb-2">Sealed Bid Submitted</h3>
+              <div className="bg-purple-50 border border-purple-100 rounded-lg px-4 py-3 mb-2">
+                <p className="text-sm text-purple-800 font-medium">✓ Your sealed bid is in.</p>
+                {auction.mySealedBidAmount != null && (
+                  <p className="text-xs text-purple-600 mt-0.5">
+                    Your bid: {formatCurrency(auction.mySealedBidAmount)}
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">
+                One hidden bid per buyer. All bids stay secret until the auction closes, when the winner is revealed.
+              </p>
+            </div>
           ) : (
             /* Blind: submit one sealed bid */
             <div className="card p-5">
@@ -748,6 +767,17 @@ export default function AuctionDetail() {
           )}
         </div>
       </div>
+
+      {/* Buyers who bid on this also bid on… (collaborative similarity) */}
+      {similar.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 pb-10">
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Bidders Also Bid On</h2>
+          <p className="text-sm text-gray-500 mb-6">Live auctions popular with buyers interested in this item.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {similar.map(a => <AuctionCard key={`sim-${a.auctionId}`} auction={a} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

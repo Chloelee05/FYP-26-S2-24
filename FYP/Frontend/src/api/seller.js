@@ -37,6 +37,10 @@ export const cancelAuction = (auctionId, reason) =>
 export const relistAuction = (auctionId) =>
   api.post('/seller/relist', form({ auctionId }), F);
 
+// Feature own listing (flat fee, simulated billing)
+export const featureOwnAuction = (auctionId, days) =>
+  api.post('/seller/feature', form({ auctionId, days }), F);
+
 // Edit auction (deleteImageIds and newImageUrls are optional arrays)
 export const editAuction = (data) => api.post('/seller/edit', form(data), F);
 

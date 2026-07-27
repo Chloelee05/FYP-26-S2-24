@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   getAdminAnalytics, downloadAdminReport,
   getAdminUsers, emailSellerAnalytics, emailAllSellerAnalytics,
+  getRecommendationConfig, saveRecommendationConfig,
 } from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
 
@@ -27,13 +28,35 @@ export default function AdminAnalytics() {
   const [msg, setMsg] = useState('');
   const [reportBusy, setReportBusy] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
+  const [recMetrics, setRecMetrics] = useState(null);
+  const [recForm, setRecForm] = useState({ itemsShown: 8, similarityThreshold: 0.1 });
+  const [recSaving, setRecSaving] = useState(false);
 
   useEffect(() => {
     getAdminAnalytics().then(r => setData(r.data)).catch(() => {});
     getAdminUsers()
       .then(r => setSellers((r.data ?? []).filter(u => u.role === 'SELLER' && u.statusId === 1)))
       .catch(() => {});
+    getRecommendationConfig()
+      .then(r => {
+        setRecMetrics(r.data?.metrics ?? null);
+        if (r.data?.settings) setRecForm(r.data.settings);
+      })
+      .catch(() => {});
   }, []);
+
+  const handleSaveRecSettings = async () => {
+    setRecSaving(true);
+    setMsg('');
+    try {
+      const r = await saveRecommendationConfig(recForm.itemsShown, recForm.similarityThreshold);
+      setMsg(r.data?.message ?? 'Recommendation settings saved.');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not save recommendation settings.'));
+    } finally {
+      setRecSaving(false);
+    }
+  };
 
   const stats = data ? [
     { label: 'Total Users', value: data.totalUsers ?? '—', color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -42,6 +65,8 @@ export default function AdminAnalytics() {
     { label: 'Active Listings', value: data.activeListings ?? '—', color: 'text-indigo-600', bg: 'bg-indigo-50' },
     { label: 'Flagged', value: data.flagged ?? '—', color: 'text-yellow-600', bg: 'bg-yellow-50' },
     { label: 'Revenue', value: data.revenue != null ? `$${Number(data.revenue).toLocaleString()}` : '—', color: 'text-green-700', bg: 'bg-green-50' },
+    { label: 'Commission Revenue (6%)', value: data.platformCommissionRevenue != null ? `$${Number(data.platformCommissionRevenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+    { label: 'Featured Listing Fees', value: data.featuredListingRevenue != null ? `$${Number(data.featuredListingRevenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—', color: 'text-amber-700', bg: 'bg-amber-50' },
   ] : [];
 
   const handleDownloadReport = async (report) => {
@@ -107,19 +132,36 @@ export default function AdminAnalytics() {
             ))}
           </div>
 
-          {data.topCreators?.length > 0 && (
-            <div className="card p-5 mb-6">
-              <h2 className="font-bold text-gray-900 mb-3">Top Sellers by Listings</h2>
-              <div className="space-y-2">
-                {data.topCreators.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700">{c.username ?? c.name ?? `User ${i + 1}`}</span>
-                    <span className="font-medium text-gray-900">{c.count ?? c.listingCount ?? 0} listings</span>
-                  </div>
-                ))}
+          <div className="grid md:grid-cols-2 gap-6 mb-6">
+            {data.topCreators?.length > 0 && (
+              <div className="card p-5">
+                <h2 className="font-bold text-gray-900 mb-3">Top Sellers by Listings</h2>
+                <div className="space-y-2">
+                  {data.topCreators.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700">{c.user?.username ?? c.username ?? `User ${i + 1}`}</span>
+                      <span className="font-medium text-gray-900">{c.auction_count ?? c.count ?? 0} listings</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+            {data.topRevenue?.length > 0 && (
+              <div className="card p-5">
+                <h2 className="font-bold text-gray-900 mb-3">Top Sellers by Revenue</h2>
+                <div className="space-y-2">
+                  {data.topRevenue.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700">{c.user?.username ?? c.username ?? `User ${i + 1}`}</span>
+                      <span className="font-medium text-gray-900">
+                        ${Number(c.total_revenue ?? c.revenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </>
       ) : (
         <div className="text-center py-12 text-gray-400">Loading analytics…</div>
@@ -141,6 +183,55 @@ export default function AdminAnalytics() {
               <span className="text-xs text-gray-400">{reportBusy === r.type ? 'Generating…' : r.sub}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="card p-5 mb-6">
+        <h2 className="font-bold text-gray-900 mb-1">Recommendation System</h2>
+        <p className="text-sm text-gray-400 mb-4">Performance of the "Recommended for You" section and tunable parameters</p>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+          {[
+            { label: 'Impressions', value: recMetrics?.impressions ?? '—' },
+            { label: 'Clicks', value: recMetrics?.clicks ?? '—' },
+            { label: 'Bids After Click', value: recMetrics?.conversions ?? '—' },
+            { label: 'Click-Through Rate', value: recMetrics ? `${(recMetrics.clickThroughRate * 100).toFixed(2)}%` : '—' },
+            { label: 'Conversion Rate', value: recMetrics ? `${(recMetrics.conversionRate * 100).toFixed(2)}%` : '—' },
+          ].map(m => (
+            <div key={m.label} className="bg-gray-50 rounded-xl p-4">
+              <p className="text-xs text-gray-500 font-medium mb-1">{m.label}</p>
+              <p className="text-xl font-bold text-gray-900">{m.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Items shown (1–24)</label>
+            <input
+              type="number" min="1" max="24"
+              value={recForm.itemsShown}
+              onChange={e => setRecForm(f => ({ ...f, itemsShown: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-32"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Similarity threshold (0–1)</label>
+            <input
+              type="number" min="0" max="1" step="0.05"
+              value={recForm.similarityThreshold}
+              onChange={e => setRecForm(f => ({ ...f, similarityThreshold: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-40"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveRecSettings}
+            disabled={recSaving}
+            className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50"
+          >
+            {recSaving ? 'Saving…' : 'Save settings'}
+          </button>
         </div>
       </div>
 

@@ -24,3 +24,13 @@ export const changePassword = (data) =>
   api.post('/auth/change-password', form(data), F);
 
 export const getSession = () => api.get('/session');
+
+// Third-party (Google) sign-in — SCRUM-17
+export const getOAuthConfig = () => api.get('/oauth/config');
+export const getLinkedAccounts = () => api.get('/oauth/linked');
+export const linkOAuthAccount = (provider, credential) =>
+  api.post('/oauth/link', form({ provider, credential }), F);
+export const unlinkOAuthAccount = (provider) =>
+  api.post('/oauth/unlink', form({ provider }), F);
+export const oauthLogin = (provider, credential) =>
+  api.post('/oauth/login', form({ provider, credential }), F);

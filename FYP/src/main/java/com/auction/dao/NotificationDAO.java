@@ -112,7 +112,7 @@ public class NotificationDAO {
 
     public List<Notification> notificationHistory(int userId) throws Exception{
         String sql = "SELECT id, type, message, link, is_read, created_at "
-                + "FROM notifications WHERE user_id = ? ORDER BY created_at DESC ?";
+                + "FROM notifications WHERE user_id = ? ORDER BY created_at DESC";
         List<Notification> result = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -133,6 +133,39 @@ public class NotificationDAO {
             throw new RuntimeException(e);
         }
         return result;
+    }
+
+    /** Per-user notification preferences (all default to enabled when no row exists). */
+    public static final class Preferences {
+        public final boolean outbid;
+        public final boolean endingSoon;
+        public final boolean wonAuction;
+
+        public Preferences(boolean outbid, boolean endingSoon, boolean wonAuction) {
+            this.outbid = outbid;
+            this.endingSoon = endingSoon;
+            this.wonAuction = wonAuction;
+        }
+    }
+
+    /** Returns the user's notification preferences, defaulting to all-enabled. */
+    public Preferences getUserPreferences(int userId) {
+        String sql = "SELECT out_bided, ending_soon, won_auction FROM notification_preference WHERE user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new Preferences(
+                            rs.getBoolean("out_bided"),
+                            rs.getBoolean("ending_soon"),
+                            rs.getBoolean("won_auction"));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return new Preferences(true, true, true);
     }
 
     public boolean saveUserPreferences(int userId, boolean out_bided, boolean ending_soon, boolean won_auction) throws Exception {

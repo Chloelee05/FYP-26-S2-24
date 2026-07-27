@@ -101,6 +101,24 @@ public final class NotificationService {
         });
     }
 
+    /**
+     * Notifies a watcher that an auction on their watchlist is ending soon.
+     * Deduplicated per user + auction so the scheduler can run repeatedly.
+     */
+    public static void notifyEndingSoon(int userId, long auctionId, String title) {
+        safe(() -> {
+            String link = "/auction/" + auctionId;
+            if (notificationDAO.exists(userId, "ENDING_SOON", link)) return;
+            String t = (title == null || title.isBlank()) ? auctionTitle(auctionId) : title;
+            create(userId, "ENDING_SOON",
+                    "\"" + t + "\" on your watchlist is ending soon. Place your bid before it closes!",
+                    link,
+                    "Auction ending soon",
+                    "\"" + t + "\" on your AuctionHub watchlist is ending soon. "
+                            + "Visit the auction now to place a last-minute bid.");
+        });
+    }
+
     /** Notifies the asking buyer that a seller answered their question. */
     public static void notifyQuestionAnswered(int askerUserId, long auctionId) {
         safe(() -> {
@@ -231,14 +249,19 @@ public final class NotificationService {
 
     /** Notifies the buyer that the seller approved or declined their refund request. */
     public static void notifyBuyerRefundResolved(long auctionId, int buyerId, boolean approved) {
+        notifyBuyerRefundResolved(auctionId, buyerId, approved, "The seller");
+    }
+
+    /** Same as above, but names a different decision maker (e.g. "An AuctionHub admin"). */
+    public static void notifyBuyerRefundResolved(long auctionId, int buyerId, boolean approved, String actor) {
         safe(() -> {
             String title = auctionTitle(auctionId);
             String verb = approved ? "approved" : "declined";
             create(buyerId, approved ? "REFUND_APPROVED" : "REFUND_REJECTED",
-                    "The seller " + verb + " your refund request for \"" + title + "\".",
+                    actor + " " + verb + " your refund request for \"" + title + "\".",
                     "/profile",
                     "Refund " + verb,
-                    "The seller " + verb + " your refund request for \"" + title + "\" on AuctionHub.");
+                    actor + " " + verb + " your refund request for \"" + title + "\" on AuctionHub.");
         });
     }
 
@@ -314,6 +337,7 @@ public final class NotificationService {
 
     private static void create(int userId, String type, String message, String link,
                                String emailSubject, String emailBody) {
+        if (!allowedByPreference(userId, type)) return;
         notificationDAO.create(userId, type, message, link);
         if (MailConfig.isSmtpConfigured()) {
             try {
@@ -324,6 +348,25 @@ public final class NotificationService {
             } catch (Exception e) {
                 LOG.fine("Notification email skipped: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Checks the user's notification preferences for opt-out-able event types
+     * (outbid / ending soon / auction won). All other types are always sent.
+     */
+    private static boolean allowedByPreference(int userId, String type) {
+        if (type == null) return true;
+        try {
+            switch (type) {
+                case "OUTBID":      return notificationDAO.getUserPreferences(userId).outbid;
+                case "ENDING_SOON": return notificationDAO.getUserPreferences(userId).endingSoon;
+                case "WON":         return notificationDAO.getUserPreferences(userId).wonAuction;
+                default:            return true;
+            }
+        } catch (Exception e) {
+            LOG.fine("Preference lookup failed (defaulting to send): " + e.getMessage());
+            return true;
         }
     }
 
