@@ -187,6 +187,16 @@ public class AuctionApiServlet extends ApiBase {
             } catch (Exception ignored) { }
         }
 
+        // Blind auctions: tell the current buyer whether they already submitted a
+        // sealed bid so the UI can show a "submitted" state instead of the form.
+        if (type == AuctionType.BLIND && open && viewerId != null && !isOwner) {
+            try {
+                BigDecimal mine = bidDAO.getUserBidAmount(auctionId, viewerId);
+                body.put("mySealedBid", mine != null);
+                if (mine != null) body.put("mySealedBidAmount", mine);
+            } catch (Exception ignored) { }
+        }
+
         if (viewerId != null && !isOwner) {
             try {
                 browseHistoryDAO.recordView(viewerId, auctionId);

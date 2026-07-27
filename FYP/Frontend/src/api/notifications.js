@@ -10,3 +10,7 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 export const getNotifications = () => api.get('/notifications');
 export const markNotificationRead = (id) => api.post('/notifications', form({ action: 'read', id }), F);
 export const markAllNotificationsRead = () => api.post('/notifications', form({ action: 'readAll' }), F);
+
+export const getNotificationPreferences = () => api.get('/notifications/preferences');
+export const saveNotificationPreferences = ({ outbid, endingSoon, wonAuction }) =>
+  api.post('/notifications/preferences', form({ outbid, endingSoon, wonAuction }), F);

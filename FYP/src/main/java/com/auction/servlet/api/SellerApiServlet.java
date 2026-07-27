@@ -2,6 +2,8 @@ package com.auction.servlet.api;
 
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.AuctionTagsDAO;
+import com.auction.dao.FeaturedListingDAO;
+import com.auction.dao.PlatformRevenueDAO;
 import com.auction.dao.ReviewDAO;
 import com.auction.dao.ReviewDAO.SellerRatingResult;
 import com.auction.dao.SellerAnalyticsDAO;
@@ -95,6 +97,7 @@ public class SellerApiServlet extends ApiBase {
             case "rate-buyer": handleRateBuyer(req, resp);  break;
             case "analytics":  handleAnalyticsEmail(req, resp); break;
             case "reduce-quantity": handleReduceQuantity(req, resp); break;
+            case "feature":    handleFeature(req, resp);    break;
             default: error(resp, 404, "Not found."); break;
         }
     }
@@ -143,6 +146,56 @@ public class SellerApiServlet extends ApiBase {
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "Seller analytics email failed for " + sellerId, e);
             serverError(resp, "Could not send analytics report.");
+        }
+    }
+
+    // ── POST: seller self-features their own listing (flat fee) ──────────────
+
+    /**
+     * POST /api/seller/feature  auctionId [days]
+     * Lets a seller feature their own active listing for a flat fee
+     * ({@link PlatformRevenueDAO#FEATURED_LISTING_FEE}), recorded as platform revenue.
+     */
+    private void handleFeature(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        AuthSession session = authSession(req);
+        if (!isSeller(session)) { forbidden(resp); return; }
+        int sellerId = ((Number) session.getAttribute("userId")).intValue();
+
+        String idStr = param(req, "auctionId");
+        if (idStr == null) { badRequest(resp, "auctionId is required."); return; }
+        long auctionId;
+        try { auctionId = Long.parseLong(idStr); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid auctionId."); return; }
+
+        int days = 7;
+        String daysStr = param(req, "days");
+        if (daysStr != null) {
+            try { days = Math.max(1, Math.min(30, Integer.parseInt(daysStr))); }
+            catch (NumberFormatException ignored) { }
+        }
+
+        FeaturedListingDAO featuredDAO = new FeaturedListingDAO();
+        if (featuredDAO.sellerIdForAuction(auctionId) != sellerId) {
+            forbidden(resp); return;
+        }
+
+        try {
+            if (!featuredDAO.featureAuction(auctionId, days)) {
+                badRequest(resp, "Could not feature this listing."); return;
+            }
+            new PlatformRevenueDAO().recordFeaturedListing(auctionId, sellerId);
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("message", "Listing featured for " + days + " day(s). A $"
+                    + PlatformRevenueDAO.FEATURED_LISTING_FEE.toPlainString()
+                    + " featuring fee has been charged (simulated billing).");
+            body.put("featured", true);
+            body.put("days", days);
+            body.put("fee", PlatformRevenueDAO.FEATURED_LISTING_FEE);
+            ok(resp, body);
+        } catch (RuntimeException e) {
+            LOG.log(Level.SEVERE, "Self-feature failed for auction " + auctionId, e);
+            serverError(resp, "Could not feature this listing.");
         }
     }
 

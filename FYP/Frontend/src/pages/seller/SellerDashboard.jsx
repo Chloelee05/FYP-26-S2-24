@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Edit2, XCircle, RotateCcw, Eye, Star, BarChart3, Mail, Sparkles } from 'lucide-react';
 import {
   getSellerAuctions, cancelAuction, relistAuction, rateBuyer,
-  getSellerAnalytics, emailSellerAnalytics, reduceAuctionQuantity,
+  getSellerAnalytics, emailSellerAnalytics, reduceAuctionQuantity, featureOwnAuction,
 } from '../../api/seller';
 import { getOrders } from '../../api/orders';
 import { getMyReviews, getTransactionHistory } from '../../api/user';
@@ -23,6 +23,7 @@ const STATUS_STYLE = {
 };
 
 export default function SellerDashboard() {
+  const navigate = useNavigate();
   const [auctions, setAuctions] = useState([]);
   const [tab, setTab] = useState('ACTIVE');
   const [ratingAuction, setRatingAuction] = useState(null); // auction being rated
@@ -35,6 +36,8 @@ export default function SellerDashboard() {
   const [emailing, setEmailing] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [sales, setSales] = useState([]);
+  const [inlineReport, setInlineReport] = useState('');
+  const [featuredIds, setFeaturedIds] = useState(new Set()); // featured this session
 
   useEffect(() => {
     getSellerAuctions()
@@ -62,9 +65,14 @@ export default function SellerDashboard() {
   const handleEmailAnalytics = async () => {
     setEmailing(true);
     setAnalyticsMsg('');
+    setInlineReport('');
     try {
       const r = await emailSellerAnalytics();
       setAnalyticsMsg(r.data.message || 'Analytics report emailed.');
+      // SMTP not configured — the server returns the report body to show inline instead.
+      if (r.data.emailConfigured === false && r.data.report) {
+        setInlineReport(r.data.report);
+      }
     } catch (err) {
       setAnalyticsMsg(err.response?.data?.error || 'Could not send report.');
     } finally {
@@ -102,8 +110,22 @@ export default function SellerDashboard() {
   const handleRelist = async (id) => {
     try {
       await relistAuction(id);
-      alert('Auction relisted! Please set new dates.');
-    } catch {}
+      // Take the seller straight to the edit form so they can set new dates.
+      navigate(`/seller/auction/${id}/edit`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not relist this auction.');
+    }
+  };
+
+  const handleFeature = async (id) => {
+    if (!window.confirm('Feature this listing on the homepage for 7 days for a $9.99 fee?')) return;
+    try {
+      const r = await featureOwnAuction(id, 7);
+      setFeaturedIds(prev => new Set([...prev, id]));
+      alert(r.data.message || 'Listing featured!');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not feature this listing.');
+    }
   };
 
   const handleRateBuyer = async () => {
@@ -196,6 +218,17 @@ export default function SellerDashboard() {
             </button>
           </div>
           {analyticsMsg && <div className="text-sm text-blue-600 mb-3">{analyticsMsg}</div>}
+          {inlineReport && (
+            <div className="mb-4 border border-gray-200 rounded-xl bg-gray-50 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-600">Analytics report</p>
+                <button onClick={() => setInlineReport('')} className="text-xs text-gray-400 hover:text-gray-600">
+                  Dismiss
+                </button>
+              </div>
+              <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono max-h-72 overflow-y-auto">{inlineReport}</pre>
+            </div>
+          )}
 
           {analytics.earningsSummary && (
             <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-100">
@@ -392,9 +425,16 @@ export default function SellerDashboard() {
                 <>
                   <button
                     type="button"
-                    disabled
-                    title="Wallet billing — future work. Contact admin to feature this listing ($9.99)."
-                    className="p-2 text-gray-300 cursor-not-allowed"
+                    onClick={() => handleFeature(auction.auctionId)}
+                    disabled={featuredIds.has(auction.auctionId)}
+                    title={featuredIds.has(auction.auctionId)
+                      ? 'This listing is featured.'
+                      : 'Feature this listing on the homepage ($9.99 / 7 days)'}
+                    className={`p-2 transition-colors ${
+                      featuredIds.has(auction.auctionId)
+                        ? 'text-amber-400 cursor-default'
+                        : 'text-gray-400 hover:text-amber-500'
+                    }`}
                   >
                     <Sparkles size={16} />
                   </button>

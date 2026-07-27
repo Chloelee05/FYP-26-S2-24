@@ -12,9 +12,24 @@ export const searchAuctions = (params) => api.get('/search', { params });
 export const getCategories   = ()       => api.get('/categories');
 export const getTags         = ()       => api.get('/auction/tags');
 
-// Personalised recommendations (collaborative filtering; trending fallback)
-export const getRecommendations = (limit = 8) => api.get('/recommendations', { params: { limit } });
+// Personalised recommendations (collaborative filtering; trending fallback).
+// Without a limit the server uses the admin-configured "items shown" setting.
+export const getRecommendations = (limit) => api.get('/recommendations', { params: limit ? { limit } : {} });
 export const getFeaturedListings = (limit = 8) => api.get('/featured', { params: { limit } });
+
+// "Buyers who bid on this also bid on…" (auction detail page)
+export const getSimilarAuctions = (auctionId, limit = 4) =>
+  api.get('/recommendations/similar', { params: { auctionId, limit } });
+
+// Hide a recommendation ("not interested")
+export const dismissRecommendation = (auctionId) =>
+  api.post('/recommendations/dismiss', form({ auctionId }), F);
+
+// Recommendation analytics events (impressions batched as CSV; single click)
+export const recordRecommendationImpressions = (auctionIds) =>
+  api.post('/recommendations/events', form({ type: 'impression', auctionIds: auctionIds.join(',') }), F);
+export const recordRecommendationClick = (auctionId) =>
+  api.post('/recommendations/events', form({ type: 'click', auctionId }), F);
 
 // Auction detail
 export const getAuctionDetail = (id) => api.get(`/auction/${id}`);
@@ -63,11 +78,21 @@ export const rateSeller = (auctionId, score, comment) =>
 export const checkSellerRated = (auctionId) =>
   api.get('/rate/check', { params: { auctionId } });
 
+// Reviews written by the current user (edit/delete within 24h of posting)
+export const getMyWrittenReviews = () => api.get('/rate/mine');
+export const updateMyReview = (reviewId, score, comment) =>
+  api.post('/rate/update', form({ reviewId, score, comment }), F);
+export const deleteMyReview = (reviewId) =>
+  api.post('/rate/delete', form({ reviewId }), F);
+
 export const reportListing = (auctionId, description) =>
   api.post('/report', form({ auctionId, description }), F);
 
 export const reportUser = ({ reportedId, reason }) =>
   api.post('/report/user', form({ reportedId, reason }), F);
+
+// Reports the current user has submitted (with status + admin reply)
+export const getMyReports = () => api.get('/report/mine');
 
 // Seller public profile
 export const getSellerProfile = (sellerId) => api.get(`/seller/${sellerId}`);

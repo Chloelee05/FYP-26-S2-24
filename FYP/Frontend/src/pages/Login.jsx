@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import GoogleSignInButton from '../components/GoogleSignInButton';
+import { oauthLogin } from '../api/auth';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, setUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const justRegistered = searchParams.get('registered') === '1';
@@ -12,8 +14,23 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(true);
 
   const blockPasswordClipboard = (e) => e.preventDefault();
+
+  const handleGoogleCredential = async (credential) => {
+    setError('');
+    try {
+      const res = await oauthLogin('google', credential);
+      if (res.data?.token) sessionStorage.setItem('authToken', res.data.token);
+      setUser(res.data);
+      if (res.data?.role === 'ADMIN') navigate('/admin');
+      else if (res.data?.role === 'SELLER') navigate('/seller/dashboard');
+      else navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Google sign-in failed.');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -103,6 +120,21 @@ export default function Login() {
           <Link to="/reset-password" className="text-sm text-gray-700 underline hover:text-blue-500">
             Forgot password?
           </Link>
+        </div>
+
+        <div className={googleAvailable ? 'mt-6' : 'hidden'}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-400 uppercase">or</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+          <GoogleSignInButton
+            onCredential={handleGoogleCredential}
+            onAvailabilityChange={setGoogleAvailable}
+          />
+          <p className="text-center text-xs text-gray-400 mt-2">
+            Google sign-in works after linking it in Account Settings.
+          </p>
         </div>
       </div>
     </div>

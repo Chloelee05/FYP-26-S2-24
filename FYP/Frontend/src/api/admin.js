@@ -69,5 +69,18 @@ export const replyToReport = (reportId, type, reply) => {
   return api.post('/admin/reports', p.toString(), F);
 };
 
-// Orders
+// Reviews (moderation)
+export const getAdminReviews = () => api.get('/admin/reviews');
+export const adminDeleteReview = (reviewId) =>
+  api.post('/admin/reviews', form({ action: 'delete', reviewId }), F);
+
+// Recommendation system (performance metrics + tunable parameters)
+export const getRecommendationConfig = () => api.get('/admin/recommendations');
+export const saveRecommendationConfig = (itemsShown, similarityThreshold) =>
+  api.post('/admin/recommendations', form({ itemsShown, similarityThreshold }), F);
+
+// Orders / transactions
 export const getAdminOrders = () => api.get('/admin/orders');
+// Dispute resolution: admin overrides the seller on a pending refund request
+export const adminResolveRefund = (orderId, approve) =>
+  api.post('/admin/orders', form({ action: approve ? 'refund-approve' : 'refund-decline', orderId }), F);
