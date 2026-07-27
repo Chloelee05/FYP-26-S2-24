@@ -190,6 +190,142 @@ public class RatingDAO {
     // Average rating
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Edit / delete own review (SCRUM-79) + admin moderation (SCRUM-80)
+    // -------------------------------------------------------------------------
+
+    /** How long (hours) after posting a user may still edit or delete their review. */
+    public static final int EDIT_WINDOW_HOURS = 24;
+
+    /** Outcome codes for {@link #updateOwnReview} / {@link #deleteOwnReview}. */
+    public enum ModifyResult { SUCCESS, NOT_FOUND, WINDOW_EXPIRED }
+
+    /** Reviews written by the given user, newest first, with an {@code editable} flag. */
+    public java.util.List<java.util.Map<String, Object>> listWrittenBy(int reviewerId) {
+        String sql = "SELECT r.id, r.auction_id, r.rating, r.comment, r.created_at, "
+                + "u.username AS reviewee_name, ad.title, "
+                + "(r.created_at > NOW() - (" + EDIT_WINDOW_HOURS + " * INTERVAL '1 hour')) AS editable "
+                + "FROM user_reviews r "
+                + "JOIN users u ON u.id = r.reviewee_user_id "
+                + "LEFT JOIN auction_details ad ON ad.id = r.auction_id "
+                + "WHERE r.reviewer_user_id = ? "
+                + "ORDER BY r.created_at DESC";
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, reviewerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", rs.getLong("id"));
+                    m.put("auctionId", rs.getObject("auction_id"));
+                    m.put("auctionTitle", rs.getString("title"));
+                    m.put("revieweeName", rs.getString("reviewee_name"));
+                    m.put("rating", rs.getInt("rating"));
+                    m.put("comment", rs.getString("comment"));
+                    java.sql.Timestamp ts = rs.getTimestamp("created_at");
+                    m.put("createdAt", ts != null ? ts.toInstant().toString() : null);
+                    m.put("editable", rs.getBoolean("editable"));
+                    out.add(m);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return out;
+    }
+
+    /** Updates the caller's own review, only within {@link #EDIT_WINDOW_HOURS} of posting. */
+    public ModifyResult updateOwnReview(long reviewId, int reviewerId, int score, String comment) {
+        String update = "UPDATE user_reviews SET rating = ?, comment = ? "
+                + "WHERE id = ? AND reviewer_user_id = ? "
+                + "AND created_at > NOW() - (" + EDIT_WINDOW_HOURS + " * INTERVAL '1 hour')";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(update)) {
+            ps.setInt(1, score);
+            if (comment != null) ps.setString(2, comment); else ps.setNull(2, java.sql.Types.VARCHAR);
+            ps.setLong(3, reviewId);
+            ps.setInt(4, reviewerId);
+            if (ps.executeUpdate() == 1) return ModifyResult.SUCCESS;
+            return ownReviewExists(reviewId, reviewerId) ? ModifyResult.WINDOW_EXPIRED : ModifyResult.NOT_FOUND;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Deletes the caller's own review, only within {@link #EDIT_WINDOW_HOURS} of posting. */
+    public ModifyResult deleteOwnReview(long reviewId, int reviewerId) {
+        String delete = "DELETE FROM user_reviews WHERE id = ? AND reviewer_user_id = ? "
+                + "AND created_at > NOW() - (" + EDIT_WINDOW_HOURS + " * INTERVAL '1 hour')";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(delete)) {
+            ps.setLong(1, reviewId);
+            ps.setInt(2, reviewerId);
+            if (ps.executeUpdate() == 1) return ModifyResult.SUCCESS;
+            return ownReviewExists(reviewId, reviewerId) ? ModifyResult.WINDOW_EXPIRED : ModifyResult.NOT_FOUND;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private boolean ownReviewExists(long reviewId, int reviewerId) {
+        String sql = "SELECT 1 FROM user_reviews WHERE id = ? AND reviewer_user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, reviewId);
+            ps.setInt(2, reviewerId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** All reviews for the admin moderation view, newest first. */
+    public java.util.List<java.util.Map<String, Object>> listAllForAdmin(int limit) {
+        String sql = "SELECT r.id, r.auction_id, r.rating, r.comment, r.created_at, "
+                + "ru.username AS reviewer_name, tu.username AS reviewee_name, ad.title "
+                + "FROM user_reviews r "
+                + "JOIN users ru ON ru.id = r.reviewer_user_id "
+                + "JOIN users tu ON tu.id = r.reviewee_user_id "
+                + "LEFT JOIN auction_details ad ON ad.id = r.auction_id "
+                + "ORDER BY r.created_at DESC LIMIT ?";
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", rs.getLong("id"));
+                    m.put("auctionId", rs.getObject("auction_id"));
+                    m.put("auctionTitle", rs.getString("title"));
+                    m.put("reviewerName", rs.getString("reviewer_name"));
+                    m.put("revieweeName", rs.getString("reviewee_name"));
+                    m.put("rating", rs.getInt("rating"));
+                    m.put("comment", rs.getString("comment"));
+                    java.sql.Timestamp ts = rs.getTimestamp("created_at");
+                    m.put("createdAt", ts != null ? ts.toInstant().toString() : null);
+                    out.add(m);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return out;
+    }
+
+    /** Admin removal of an inappropriate review (no time window). */
+    public boolean adminDeleteReview(long reviewId) {
+        String sql = "DELETE FROM user_reviews WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, reviewId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Returns the average star rating for the given seller, or {@code 0.0} if
      * the seller has no ratings yet.

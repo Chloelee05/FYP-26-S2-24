@@ -6,6 +6,7 @@ import {
   getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
 } from '../api/user';
 import { getOrders, payOrder, completeOrder, advanceOrderShipping, resolveOrderRefund } from '../api/orders';
+import { getMyReports, getMyWrittenReviews, updateMyReview, deleteMyReview } from '../api/auction';
 import { formatCurrency, getRoleDisplay, decodeHtmlEntities } from '../utils/helpers';
 import StarRating from '../components/StarRating';
 import OrderTrackingModal from '../components/OrderTrackingModal';
@@ -24,11 +25,22 @@ export default function UserProfile() {
   const [reviews, setReviews] = useState([]);
   const [cards, setCards] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [myReports, setMyReports] = useState([]);
+  const [writtenReviews, setWrittenReviews] = useState([]);
+  const [editingReview, setEditingReview] = useState(null);
+  const [editScore, setEditScore] = useState(0);
+  const [editComment, setEditComment] = useState('');
+  const [reviewMsg, setReviewMsg] = useState('');
   const [tab, setTab] = useState('transactions');
   const [filter, setFilter] = useState('All');
+  const [methodType, setMethodType] = useState('card'); // card | paypal | bank
   const [cardForm, setCardForm] = useState({ cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false });
+  const [paypalForm, setPaypalForm] = useState({ paypalEmail: '', makeDefault: false });
+  const [bankForm, setBankForm] = useState({ accountHolder: '', accountNumber: '', bankName: '', makeDefault: false });
   const [cardMsg, setCardMsg] = useState('');
   const [cardErr, setCardErr] = useState('');
+  const [payingOrder, setPayingOrder] = useState(null);   // order awaiting payment-method choice
+  const [payMethodId, setPayMethodId] = useState(null);
   const [orderMsg, setOrderMsg] = useState('');
   const [trackOrder, setTrackOrder] = useState(null);
   const [rateOrder, setRateOrder] = useState(null);
@@ -50,19 +62,68 @@ export default function UserProfile() {
     getProfile().then(r => setProfile(r.data)).catch(() => {});
     getTransactionHistory().then(r => setTransactions(r.data ?? [])).catch(() => {});
     getMyReviews().then(r => setReviews(r.data ?? [])).catch(() => {});
+    getMyReports().then(r => setMyReports(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    loadWrittenReviews();
     loadCards();
     loadOrders();
   }, []);
 
-  const handlePayOrder = async (orderId) => {
-    setOrderMsg('');
-    const defaultCard = cards.find(c => c.default) ?? cards[0];
+  const loadWrittenReviews = () =>
+    getMyWrittenReviews().then(r => setWrittenReviews(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+
+  const openEditReview = (rev) => {
+    setEditingReview(rev);
+    setEditScore(rev.rating ?? 0);
+    setEditComment(rev.comment ? decodeHtmlEntities(rev.comment) : '');
+    setReviewMsg('');
+  };
+
+  const handleSaveReview = async () => {
+    if (!editScore) { setReviewMsg('Select a star rating.'); return; }
     try {
-      await payOrder(orderId, defaultCard?.id);
+      await updateMyReview(editingReview.id, editScore, editComment.trim());
+      setEditingReview(null);
+      setReviewMsg('Review updated.');
+      loadWrittenReviews();
+    } catch (err) {
+      setReviewMsg(err.response?.data?.error || 'Could not update the review.');
+    }
+  };
+
+  const handleDeleteReview = async (id) => {
+    if (!window.confirm('Delete this review? This cannot be undone.')) return;
+    setReviewMsg('');
+    try {
+      await deleteMyReview(id);
+      setReviewMsg('Review deleted.');
+      loadWrittenReviews();
+    } catch (err) {
+      setReviewMsg(err.response?.data?.error || 'Could not delete the review.');
+    }
+  };
+
+  const openPayChooser = (order) => {
+    setOrderMsg('');
+    if (cards.length === 0) {
+      setOrderMsg('Add a payment method in the Payment tab first.');
+      return;
+    }
+    const defaultCard = cards.find(c => c.default) ?? cards[0];
+    setPayMethodId(defaultCard?.id ?? null);
+    setPayingOrder(order);
+  };
+
+  const handlePayOrder = async () => {
+    if (!payingOrder) return;
+    setOrderMsg('');
+    try {
+      await payOrder(payingOrder.id, payMethodId);
       setOrderMsg('Payment successful.');
+      setPayingOrder(null);
       loadOrders();
     } catch (err) {
       setOrderMsg(err.response?.data?.error || 'Payment failed. Add a payment method first.');
+      setPayingOrder(null);
     }
   };
 
@@ -93,13 +154,21 @@ export default function UserProfile() {
     } catch (err) { setOrderMsg(err.response?.data?.error || 'Could not update the refund request.'); }
   };
 
-  const handleAddCard = async (e) => {
+  const handleAddMethod = async (e) => {
     e.preventDefault();
     setCardErr(''); setCardMsg('');
     try {
-      await addPaymentMethod(cardForm);
+      if (methodType === 'paypal') {
+        await addPaymentMethod({ type: 'paypal', ...paypalForm });
+        setPaypalForm({ paypalEmail: '', makeDefault: false });
+      } else if (methodType === 'bank') {
+        await addPaymentMethod({ type: 'bank_transfer', ...bankForm });
+        setBankForm({ accountHolder: '', accountNumber: '', bankName: '', makeDefault: false });
+      } else {
+        await addPaymentMethod(cardForm);
+        setCardForm({ cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false });
+      }
       setCardMsg('Payment method added.');
-      setCardForm({ cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false });
       loadCards();
     } catch (err) {
       setCardErr(err.response?.data?.error || 'Could not add payment method.');
@@ -195,13 +264,13 @@ export default function UserProfile() {
         <div className="md:col-span-2">
           <div className="card overflow-hidden">
             <div className="flex border-b border-gray-100">
-              {['transactions', 'orders', 'reviews', 'payment'].map(t => (
+              {['transactions', 'orders', 'reviews', 'payment', 'reports'].map(t => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${tab === t ? 'text-blue-500 border-b-2 border-blue-500 bg-blue-50' : 'text-gray-500 hover:bg-gray-50'}`}
                 >
-                  {t === 'transactions' ? '📋 Transactions' : t === 'orders' ? '📦 Orders' : t === 'reviews' ? '⭐ Reviews' : '💳 Payment'}
+                  {t === 'transactions' ? '📋 Transactions' : t === 'orders' ? '📦 Orders' : t === 'reviews' ? '⭐ Reviews' : t === 'payment' ? '💳 Payment' : '🚩 Reports'}
                 </button>
               ))}
             </div>
@@ -271,6 +340,58 @@ export default function UserProfile() {
 
             {tab === 'orders' && (
               <div className="p-5">
+                {payingOrder && (
+                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                      <h3 className="font-bold text-gray-900 mb-1">Choose payment method</h3>
+                      <p className="text-xs text-gray-400 mb-4">
+                        Paying {formatCurrency(payingOrder.amount)} for “{payingOrder.auctionTitle}”.
+                      </p>
+                      <div className="space-y-2 mb-5 max-h-64 overflow-y-auto">
+                        {cards.map(c => (
+                          <label
+                            key={c.id}
+                            className={`flex items-center gap-3 border rounded-lg px-4 py-3 cursor-pointer transition-colors ${
+                              payMethodId === c.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="payMethod"
+                              checked={payMethodId === c.id}
+                              onChange={() => setPayMethodId(c.id)}
+                            />
+                            <CreditCard size={18} className="text-gray-400" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-800">
+                                {c.displayLabel}
+                                {c.default && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Default</span>}
+                              </p>
+                              {c.methodType === 'CARD' && (
+                                <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={handlePayOrder}
+                          disabled={!payMethodId}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50"
+                        >
+                          Pay {formatCurrency(payingOrder.amount)}
+                        </button>
+                        <button
+                          onClick={() => setPayingOrder(null)}
+                          className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {trackOrder && <OrderTrackingModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
                 {rateOrder && (
                   <RateBuyerModal
@@ -357,7 +478,7 @@ export default function UserProfile() {
                             </button>
                           )}
                           {o.role === 'buyer' && o.status === 'PENDING_PAYMENT' && (
-                            <button onClick={() => handlePayOrder(o.id)} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg">
+                            <button onClick={() => openPayChooser(o)} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg">
                               Pay now
                             </button>
                           )}
@@ -441,17 +562,25 @@ export default function UserProfile() {
 
                 <div className="space-y-2 mb-6">
                   {cards.length === 0 ? (
-                    <div className="text-center text-gray-400 text-sm py-6">No saved cards.</div>
+                    <div className="text-center text-gray-400 text-sm py-6">No saved payment methods.</div>
                   ) : cards.map(c => (
                     <div key={c.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
                       <div className="flex items-center gap-3">
                         <CreditCard size={20} className="text-gray-400" />
                         <div>
                           <p className="text-sm font-medium text-gray-800">
-                            {c.cardBrand} •••• {c.last4}
+                            {c.displayLabel ?? `${c.cardBrand} •••• ${c.last4}`}
                             {c.default && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Default</span>}
                           </p>
-                          <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                          {c.methodType === 'CARD' && (
+                            <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                          )}
+                          {c.methodType === 'BANK_TRANSFER' && c.cardHolder && (
+                            <p className="text-xs text-gray-400">{c.cardHolder}</p>
+                          )}
+                          {c.methodType === 'PAYPAL' && (
+                            <p className="text-xs text-gray-400">PayPal account</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -468,53 +597,259 @@ export default function UserProfile() {
                   ))}
                 </div>
 
-                <form onSubmit={handleAddCard} className="border-t border-gray-100 pt-4 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-1"><Plus size={14} /> Add a card</h4>
+                <form onSubmit={handleAddMethod} className="border-t border-gray-100 pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-1"><Plus size={14} /> Add a payment method</h4>
                   {cardMsg && <div className="text-green-600 text-xs">{cardMsg}</div>}
                   {cardErr && <div className="text-red-500 text-xs">{cardErr}</div>}
-                  <input
-                    type="text" required placeholder="Cardholder name"
-                    value={cardForm.cardHolder}
-                    onChange={e => setCardForm(f => ({ ...f, cardHolder: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <input
-                    type="text" required inputMode="numeric" placeholder="Card number"
-                    value={cardForm.cardNumber}
-                    onChange={e => setCardForm(f => ({ ...f, cardNumber: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <div className="flex gap-3">
-                    <input
-                      type="number" required min="1" max="12" placeholder="MM"
-                      value={cardForm.expMonth}
-                      onChange={e => setCardForm(f => ({ ...f, expMonth: e.target.value }))}
-                      className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    />
-                    <input
-                      type="number" required min="2024" placeholder="YYYY"
-                      value={cardForm.expYear}
-                      onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
-                      className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    />
-                    <label className="flex items-center gap-2 text-sm text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={cardForm.makeDefault}
-                        onChange={e => setCardForm(f => ({ ...f, makeDefault: e.target.checked }))}
-                      />
-                      Default
-                    </label>
+
+                  <div className="flex gap-2">
+                    {[
+                      { key: 'card',   label: 'Card' },
+                      { key: 'paypal', label: 'PayPal' },
+                      { key: 'bank',   label: 'Bank transfer' },
+                    ].map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => { setMethodType(key); setCardErr(''); setCardMsg(''); }}
+                        className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                          methodType === key
+                            ? 'bg-blue-500 border-blue-500 text-white'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
+
+                  {methodType === 'card' && (
+                    <>
+                      <input
+                        type="text" required placeholder="Cardholder name"
+                        value={cardForm.cardHolder}
+                        onChange={e => setCardForm(f => ({ ...f, cardHolder: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <input
+                        type="text" required inputMode="numeric" placeholder="Card number"
+                        value={cardForm.cardNumber}
+                        onChange={e => setCardForm(f => ({ ...f, cardNumber: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <div className="flex gap-3">
+                        <input
+                          type="number" required min="1" max="12" placeholder="MM"
+                          value={cardForm.expMonth}
+                          onChange={e => setCardForm(f => ({ ...f, expMonth: e.target.value }))}
+                          className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                        <input
+                          type="number" required min="2024" placeholder="YYYY"
+                          value={cardForm.expYear}
+                          onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
+                          className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={cardForm.makeDefault}
+                            onChange={e => setCardForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                          />
+                          Default
+                        </label>
+                      </div>
+                    </>
+                  )}
+
+                  {methodType === 'paypal' && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        type="email" required placeholder="PayPal email"
+                        value={paypalForm.paypalEmail}
+                        onChange={e => setPaypalForm(f => ({ ...f, paypalEmail: e.target.value }))}
+                        className="flex-1 min-w-[220px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <label className="flex items-center gap-2 text-sm text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={paypalForm.makeDefault}
+                          onChange={e => setPaypalForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                        />
+                        Default
+                      </label>
+                    </div>
+                  )}
+
+                  {methodType === 'bank' && (
+                    <>
+                      <input
+                        type="text" required placeholder="Account holder name"
+                        value={bankForm.accountHolder}
+                        onChange={e => setBankForm(f => ({ ...f, accountHolder: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <div className="flex flex-wrap gap-3">
+                        <input
+                          type="text" required inputMode="numeric" placeholder="Account number"
+                          value={bankForm.accountNumber}
+                          onChange={e => setBankForm(f => ({ ...f, accountNumber: e.target.value }))}
+                          className="flex-1 min-w-[180px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                        <input
+                          type="text" required placeholder="Bank name"
+                          value={bankForm.bankName}
+                          onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))}
+                          className="flex-1 min-w-[140px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={bankForm.makeDefault}
+                            onChange={e => setBankForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                          />
+                          Default
+                        </label>
+                      </div>
+                    </>
+                  )}
+
                   <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                    Add Card
+                    {methodType === 'paypal' ? 'Link PayPal' : methodType === 'bank' ? 'Add Bank Account' : 'Add Card'}
                   </button>
                 </form>
               </div>
             )}
 
+            {tab === 'reports' && (
+              <div className="p-5">
+                <h3 className="font-bold text-gray-900 mb-1">My Reports</h3>
+                <p className="text-xs text-gray-400 mb-4">
+                  Reports you submitted about listings or users, with their status and any reply from our moderation team.
+                </p>
+                {myReports.length === 0 ? (
+                  <div className="text-center text-gray-400 text-sm py-8">You haven't submitted any reports.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {myReports.map(r => (
+                      <div key={`${r.type}-${r.id}`} className="border border-gray-200 rounded-lg px-4 py-3">
+                        <div className="flex items-start justify-between gap-3 mb-1">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{r.reason}</p>
+                            <p className="text-xs text-gray-400">
+                              {r.type === 'listing' ? 'Listing report' : 'User report'}
+                              {r.target_name ? ` · against ${r.target_name}` : ''}
+                              {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ''}
+                            </p>
+                          </div>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
+                            r.resolved ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {r.resolved ? 'Resolved' : 'Under review'}
+                          </span>
+                        </div>
+                        {r.comment && <p className="text-sm text-gray-600 mt-1">“{decodeHtmlEntities(r.comment)}”</p>}
+                        {r.admin_reply ? (
+                          <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                            <p className="text-xs font-semibold text-blue-700 mb-0.5">Reply from moderation team</p>
+                            <p className="text-sm text-gray-700">{decodeHtmlEntities(r.admin_reply)}</p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400 mt-2">No reply from the moderation team yet.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {tab === 'reviews' && (
               <div className="p-5">
+                {editingReview && (
+                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                      <h3 className="font-bold text-gray-900 mb-1">Edit Review</h3>
+                      <p className="text-xs text-gray-400 mb-4">
+                        {editingReview.auctionTitle ? `on ${editingReview.auctionTitle} · ` : ''}
+                        about {editingReview.revieweeName}
+                      </p>
+                      <div className="flex justify-center mb-3">
+                        <StarRating value={editScore} onChange={setEditScore} size={30} />
+                      </div>
+                      <textarea
+                        value={editComment}
+                        onChange={e => setEditComment(e.target.value.slice(0, 300))}
+                        rows={3}
+                        placeholder="Update your comment (optional)…"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none mb-1"
+                      />
+                      <p className="text-xs text-gray-400 text-right mb-3">{editComment.length} / 300</p>
+                      {reviewMsg && <div className="text-xs text-red-500 mb-2">{reviewMsg}</div>}
+                      <div className="flex gap-3">
+                        <button onClick={handleSaveReview}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 rounded-lg">
+                          Save
+                        </button>
+                        <button onClick={() => setEditingReview(null)}
+                          className="flex-1 border border-gray-200 text-gray-600 text-sm py-2 rounded-lg hover:bg-gray-50">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="font-bold text-gray-900 mb-1">Reviews I wrote</h3>
+                <p className="text-xs text-gray-400 mb-3">
+                  You can edit or delete a review within 24 hours of posting it.
+                </p>
+                {reviewMsg && !editingReview && <div className="text-sm text-blue-600 mb-2">{reviewMsg}</div>}
+                {writtenReviews.length === 0 ? (
+                  <div className="text-gray-400 text-sm mb-6">You haven't written any reviews yet.</div>
+                ) : (
+                  <div className="space-y-2 mb-6">
+                    {writtenReviews.map(rev => (
+                      <div key={rev.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <StarRating value={rev.rating ?? 0} size={14} />
+                              <span className="text-xs text-gray-400">
+                                about {rev.revieweeName}
+                                {rev.auctionTitle ? ` · on ${rev.auctionTitle}` : ''}
+                              </span>
+                            </div>
+                            {rev.comment && (
+                              <p className="text-sm text-gray-600 mt-1">{decodeHtmlEntities(rev.comment)}</p>
+                            )}
+                            <p className="text-xs text-gray-400 mt-1">
+                              {rev.createdAt ? new Date(rev.createdAt).toLocaleDateString() : ''}
+                            </p>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            {rev.editable ? (
+                              <>
+                                <button onClick={() => openEditReview(rev)}
+                                  className="text-xs text-blue-500 hover:underline">
+                                  Edit
+                                </button>
+                                <button onClick={() => handleDeleteReview(rev.id)}
+                                  className="text-xs text-red-500 hover:underline">
+                                  Delete
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-300">Edit window closed</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="font-bold text-gray-900 mb-3 pt-4 border-t border-gray-100">Reviews about me</h3>
                 {reviews.length === 0 ? (
                   <div className="text-center text-gray-400 py-12">No reviews yet.</div>
                 ) : (

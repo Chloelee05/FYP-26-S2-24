@@ -407,6 +407,25 @@ public class BidDAO {
     // -------------------------------------------------------------------------
 
     /**
+     * Returns the given buyer's (sealed) bid amount on an auction, or null if they
+     * have not bid. Used to show a "sealed bid submitted" state on blind auctions.
+     */
+    public BigDecimal getUserBidAmount(long auctionId, int userId) {
+        String sql = "SELECT bid_amount FROM bids WHERE auction_id = ? AND user_id = ? "
+                + "ORDER BY bid_amount DESC LIMIT 1";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getBigDecimal("bid_amount") : null;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Records a sealed bid for a BLIND auction. No floor-vs-others check (bids are
      * hidden); the amount must merely meet the starting price. Each buyer may submit
      * only one sealed bid.

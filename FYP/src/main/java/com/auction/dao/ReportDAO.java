@@ -252,6 +252,80 @@ public class ReportDAO {
         return result;
     }
 
+    /**
+     * Returns the reports submitted by the given user (account + listing reports),
+     * including resolution status and any admin reply, newest first. Same row shape
+     * as {@link #getAllReportsUnified} so the frontend can share rendering logic.
+     */
+    public List<java.util.Map<String, Object>> listForReporter(int reporterId) throws Exception {
+        List<java.util.Map<String, Object>> result = new ArrayList<>();
+
+        String accountSql = "SELECT ar.id, ar.target_id, ar.reason, ar.comment, "
+                + "ar.created_at, ar.resolved, ar.admin_reply, tu.username AS target_name "
+                + "FROM account_reports ar "
+                + "JOIN users tu ON tu.id = ar.target_id "
+                + "WHERE ar.reporter_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(accountSql)) {
+            stmt.setInt(1, reporterId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", rs.getLong("id"));
+                    m.put("type", "account");
+                    m.put("reason", rs.getString("reason"));
+                    m.put("comment", rs.getString("comment"));
+                    Timestamp ts = rs.getTimestamp("created_at");
+                    m.put("created_at", ts != null ? ts.toInstant().toString() : null);
+                    m.put("resolved", rs.getBoolean("resolved"));
+                    m.put("admin_reply", rs.getString("admin_reply"));
+                    m.put("target_name", rs.getString("target_name"));
+                    result.add(m);
+                }
+            }
+        }
+
+        String listingSql = "SELECT sr.id, sr.auction_id, sr.description, sr.created_at, "
+                + "sr.resolved, sr.admin_reply, ad.title, tu.username AS target_name "
+                + "FROM seller_reports sr "
+                + "LEFT JOIN auction_details ad ON ad.id = sr.auction_id "
+                + "JOIN users tu ON tu.id = sr.reported_user_id "
+                + "WHERE sr.reporter_user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement stmt = conn.prepareStatement(listingSql)) {
+            stmt.setInt(1, reporterId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String title = rs.getString("title");
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", rs.getLong("id"));
+                    m.put("type", "listing");
+                    m.put("reason", "Listing report" + (title != null ? ": " + title : ""));
+                    m.put("comment", rs.getString("description"));
+                    Timestamp ts = rs.getTimestamp("created_at");
+                    m.put("created_at", ts != null ? ts.toInstant().toString() : null);
+                    m.put("resolved", rs.getBoolean("resolved"));
+                    m.put("admin_reply", rs.getString("admin_reply"));
+                    m.put("target_name", rs.getString("target_name"));
+                    m.put("auction_id", rs.getLong("auction_id"));
+                    result.add(m);
+                }
+            }
+        } catch (SQLException ignored) {
+            // seller_reports table missing — account reports already loaded above.
+        }
+
+        result.sort((a, b) -> {
+            String ca = (String) a.get("created_at");
+            String cb = (String) b.get("created_at");
+            if (ca == null && cb == null) return 0;
+            if (ca == null) return 1;
+            if (cb == null) return -1;
+            return cb.compareTo(ca);
+        });
+        return result;
+    }
+
     /** Updates the {@code resolved} flag on a listing report ({@code seller_reports}). */
     public boolean setSellerReportStatus(Long id, boolean resolved) throws Exception {
         String sqlString = "UPDATE seller_reports SET resolved = ? WHERE id = ?";

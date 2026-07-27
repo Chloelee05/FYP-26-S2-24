@@ -1,6 +1,9 @@
 package com.auction.listener;
 
+import com.auction.dao.WatchlistDAO;
 import com.auction.model.AuctionStatus;
+import com.auction.model.profile.WatchlistRow;
+import com.auction.notification.NotificationService;
 import com.auction.util.AuctionFinalizer;
 import com.auction.util.DBUtil;
 
@@ -55,6 +58,18 @@ public class AuctionExpiryListener implements ServletContextListener {
             }
         } catch (Exception ignored) {
             // best-effort background task
+        }
+
+        try {
+            // Watchlist "ending soon" alerts (deduplicated inside NotificationService).
+            notifyEndingSoonWatchers();
+        } catch (Exception ignored) { }
+    }
+
+    private static void notifyEndingSoonWatchers() throws Exception {
+        List<WatchlistRow> endingSoon = new WatchlistDAO().getEndingSoonWatchlistItems();
+        for (WatchlistRow row : endingSoon) {
+            NotificationService.notifyEndingSoon(row.getUserId(), row.getAuctionId(), row.getTitle());
         }
     }
 

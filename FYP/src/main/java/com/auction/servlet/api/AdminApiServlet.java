@@ -62,6 +62,8 @@ public class AdminApiServlet extends ApiBase {
     private final SellerAnalyticsDAO sellerAnalyticsDAO = new SellerAnalyticsDAO();
     private final FeaturedListingDAO featuredListingDAO = new FeaturedListingDAO();
     private final PlatformRevenueDAO platformRevenueDAO = new PlatformRevenueDAO();
+    private final com.auction.dao.RatingDAO ratingDAO = new com.auction.dao.RatingDAO();
+    private final com.auction.dao.RecommendationDAO recommendationDAO = new com.auction.dao.RecommendationDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -79,6 +81,10 @@ public class AdminApiServlet extends ApiBase {
             handleDatabaseBackup(resp);
             return;
         }
+        if (path != null && path.equals("/recommendations")) {
+            handleGetRecommendationConfig(resp);
+            return;
+        }
         switch (sub(req)) {
             case "dashboard":   handleDashboard(resp);         break;
             case "users":       ok(resp, userDAO.listUsersForAdminTable()); break;
@@ -86,6 +92,7 @@ public class AdminApiServlet extends ApiBase {
             case "categories":  ok(resp, catDAO.listAll());    break;
             case "analytics":   handleAnalytics(resp);         break;
             case "reports":     handleGetReports(resp);        break;
+            case "reviews":     ok(resp, ratingDAO.listAllForAdmin(200)); break;
             case "orders":      handleGetOrders(resp);         break;
             default: error(resp, 404, "Not found.");            break;
         }
@@ -103,12 +110,77 @@ public class AdminApiServlet extends ApiBase {
             handleSellerAnalyticsEmail(req, resp);
             return;
         }
+        if (path != null && path.equals("/recommendations")) {
+            handleSaveRecommendationConfig(req, resp);
+            return;
+        }
         switch (sub(req)) {
             case "users":      handleUserAction(req, resp);      break;
             case "listings":   handleListingAction(req, resp);   break;
             case "categories": handleCategoryAction(req, resp);  break;
             case "reports":    handleReportAction(req, resp);    break;
+            case "reviews":    handleReviewAction(req, resp);    break;
+            case "orders":     handleOrderAction(req, resp);     break;
             default: error(resp, 404, "Not found.");             break;
+        }
+    }
+
+    /** GET /api/admin/recommendations — performance metrics + tunable parameters. */
+    private void handleGetRecommendationConfig(HttpServletResponse resp) throws IOException {
+        try {
+            com.auction.dao.RecommendationDAO.Settings s = recommendationDAO.getSettings();
+            Map<String, Object> settings = new LinkedHashMap<>();
+            settings.put("itemsShown", s.itemsShown);
+            settings.put("similarityThreshold", s.similarityThreshold);
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("metrics", recommendationDAO.metrics());
+            body.put("settings", settings);
+            ok(resp, body);
+        } catch (Exception e) {
+            serverError(resp, "Could not load recommendation configuration.");
+        }
+    }
+
+    /** POST /api/admin/recommendations  itemsShown, similarityThreshold. */
+    private void handleSaveRecommendationConfig(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+        int itemsShown;
+        double threshold;
+        try {
+            itemsShown = Integer.parseInt(param(req, "itemsShown"));
+            threshold  = Double.parseDouble(param(req, "similarityThreshold"));
+        } catch (Exception e) {
+            badRequest(resp, "itemsShown and similarityThreshold are required numbers."); return;
+        }
+        if (itemsShown < 1 || itemsShown > 24) {
+            badRequest(resp, "itemsShown must be between 1 and 24."); return;
+        }
+        if (threshold < 0 || threshold > 1) {
+            badRequest(resp, "similarityThreshold must be between 0 and 1."); return;
+        }
+        try {
+            recommendationDAO.saveSettings(itemsShown, threshold);
+            okMsg(resp, "Recommendation settings saved.");
+        } catch (Exception e) {
+            serverError(resp, "Could not save settings. Run DB migrations and try again.");
+        }
+    }
+
+    /** POST /api/admin/reviews  action=delete, reviewId — remove an inappropriate review. */
+    private void handleReviewAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String action = param(req, "action");
+        String idStr  = param(req, "reviewId");
+        if (!"delete".equalsIgnoreCase(action)) { badRequest(resp, "Unknown action."); return; }
+        if (idStr == null) { badRequest(resp, "reviewId is required."); return; }
+        long reviewId;
+        try { reviewId = Long.parseLong(idStr); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid reviewId."); return; }
+
+        if (ratingDAO.adminDeleteReview(reviewId)) {
+            okMsg(resp, "Review removed.");
+        } else {
+            error(resp, 404, "Review not found.");
         }
     }
 
@@ -568,6 +640,46 @@ public class AdminApiServlet extends ApiBase {
             ok(resp, orderDAO.listAllForAdmin());
         } catch (Exception e) {
             serverError(resp, "Could not load orders.");
+        }
+    }
+
+    /**
+     * POST /api/admin/orders  action=refund-approve|refund-decline, orderId —
+     * admin dispute resolution (SCRUM-70). Overrides the seller and settles a
+     * pending refund request; both parties are notified.
+     */
+    private void handleOrderAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String action = param(req, "action");
+        boolean approve = "refund-approve".equalsIgnoreCase(action);
+        if (!approve && !"refund-decline".equalsIgnoreCase(action)) {
+            badRequest(resp, "action must be 'refund-approve' or 'refund-decline'."); return;
+        }
+        long orderId;
+        try { orderId = Long.parseLong(param(req, "orderId")); }
+        catch (Exception e) { badRequest(resp, "orderId is required."); return; }
+
+        try {
+            OrderDAO.RefundDecision d = orderDAO.adminResolveRefund(orderId, approve);
+            switch (d) {
+                case SUCCESS:
+                    int[] parties = orderDAO.partiesAndAuction(orderId);
+                    if (parties != null) {
+                        com.auction.notification.NotificationService
+                                .notifyBuyerRefundResolved(parties[2], parties[0], approve, "An AuctionHub admin");
+                    }
+                    okMsg(resp, approve
+                            ? "Refund approved — the order was cancelled and the buyer was notified."
+                            : "Refund declined — the order stays active and the buyer was notified.");
+                    break;
+                case NOT_FOUND:
+                    error(resp, 404, "Order not found.");
+                    break;
+                case NOT_REQUESTED:
+                default:
+                    error(resp, 400, "There is no pending refund request for this order.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not resolve the refund request.");
         }
     }
 

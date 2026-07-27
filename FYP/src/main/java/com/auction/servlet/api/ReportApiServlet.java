@@ -18,6 +18,7 @@ import java.time.Instant;
 /**
  * POST /api/report        params: auctionId, description (optional) — report a listing (buyer only)
  * POST /api/report/user   params: reportedId, reason                — report a user   (buyer only)
+ * GET  /api/report/mine   — the caller's submitted reports with status + admin reply
  */
 @WebServlet("/api/report/*")
 public class ReportApiServlet extends ApiBase {
@@ -33,6 +34,20 @@ public class ReportApiServlet extends ApiBase {
     /** Test hook */
     public void setReportDAO(ReportDAO reportDAO) { this.reportDAO = reportDAO; }
     public void setUserDAO(UserDAO userDAO)       { this.userDAO    = userDAO; }
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        String path = req.getPathInfo();
+        if (path == null || !path.startsWith("/mine")) { error(resp, 404, "Not found."); return; }
+
+        int userId = sessionUserId(req);
+        try {
+            ok(resp, reportDAO.listForReporter(userId));
+        } catch (Exception e) {
+            serverError(resp, "Could not load your reports.");
+        }
+    }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { X } from 'lucide-react';
 import AuctionCard from '../components/AuctionCard';
-import { searchAuctions, getCategories, getRecommendations, getFeaturedListings } from '../api/auction';
+import {
+  searchAuctions, getCategories, getRecommendations, getFeaturedListings,
+  dismissRecommendation, recordRecommendationImpressions, recordRecommendationClick,
+} from '../api/auction';
 import { useAuth } from '../context/AuthContext';
 
 export default function Home() {
@@ -20,13 +24,23 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    getRecommendations(8)
+    getRecommendations()
       .then(r => {
-        setRecommended(r.data.results ?? []);
+        const results = r.data.results ?? [];
+        setRecommended(results);
         setPersonalised(Boolean(r.data.personalised));
+        // Impression tracking for recommendation performance metrics.
+        if (results.length > 0) {
+          recordRecommendationImpressions(results.map(a => a.auctionId)).catch(() => {});
+        }
       })
       .catch(() => { setRecommended([]); setPersonalised(false); });
   }, [user]);
+
+  const handleDismiss = async (auctionId) => {
+    setRecommended(prev => prev.filter(a => a.auctionId !== auctionId));
+    try { await dismissRecommendation(auctionId); } catch { /* keep hidden locally */ }
+  };
 
   return (
     <div className="min-h-screen">
@@ -100,7 +114,29 @@ export default function Home() {
                 : 'Trending auctions across the marketplace. Sign in for personalised picks.'}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {recommended.map(a => <AuctionCard key={a.auctionId} auction={a} />)}
+              {recommended.map(a => (
+                <div
+                  key={a.auctionId}
+                  className="relative group"
+                  onClickCapture={e => {
+                    if (e.target.closest('[data-dismiss]')) return; // dismissing ≠ clicking through
+                    recordRecommendationClick(a.auctionId).catch(() => {});
+                  }}
+                >
+                  {user && (
+                    <button
+                      type="button"
+                      data-dismiss
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); handleDismiss(a.auctionId); }}
+                      title="Not interested — hide this recommendation"
+                      className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-400 hover:text-gray-700 rounded-full p-1 shadow opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                  <AuctionCard auction={a} />
+                </div>
+              ))}
             </div>
           </section>
         )}

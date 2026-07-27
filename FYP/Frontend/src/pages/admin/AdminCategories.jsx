@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, RotateCcw } from 'lucide-react';
-import { getAdminCategories, createCategory, deleteCategory, restoreCategory } from '../../api/admin';
+import { Plus, Trash2, RotateCcw, Pencil } from 'lucide-react';
+import { getAdminCategories, createCategory, editCategory, deleteCategory, restoreCategory } from '../../api/admin';
 
 // Backend Category fields: id, name, description, displayOrder, slug, deleted, createdAt, auctionCount
 
@@ -8,6 +8,9 @@ export default function AdminCategories() {
   const [categories, setCategories] = useState([]);
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null); // category being edited
+  const [editForm, setEditForm] = useState({ name: '', description: '', displayOrder: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     getAdminCategories().then(r => setCategories(r.data ?? [])).catch(() => {});
@@ -36,6 +39,37 @@ export default function AdminCategories() {
     } catch {}
   };
 
+  const openEdit = (cat) => {
+    setEditing(cat);
+    setEditForm({
+      name: cat.name ?? '',
+      description: cat.description ?? '',
+      displayOrder: cat.displayOrder ?? '',
+    });
+  };
+
+  const handleEditSave = async (e) => {
+    e.preventDefault();
+    if (!editForm.name.trim()) return;
+    setSaving(true);
+    try {
+      await editCategory(editing.id, {
+        name: editForm.name.trim(),
+        description: editForm.description.trim(),
+        displayOrder: editForm.displayOrder === '' ? null : editForm.displayOrder,
+      });
+      setCategories(prev => prev.map(c => c.id === editing.id
+        ? { ...c, name: editForm.name.trim(), description: editForm.description.trim(),
+            displayOrder: editForm.displayOrder === '' ? c.displayOrder : Number(editForm.displayOrder) }
+        : c));
+      setEditing(null);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update category.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleRestore = async (id) => {
     try {
       await restoreCategory(id);
@@ -52,6 +86,51 @@ export default function AdminCategories() {
     <div className="p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Categories</h1>
       <p className="text-gray-400 text-sm mb-6">Manage auction categories</p>
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleEditSave} className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h3 className="font-bold text-gray-900">Edit Category</h3>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Name</label>
+              <input
+                value={editForm.name}
+                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                required
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Description</label>
+              <textarea
+                value={editForm.description}
+                onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                rows={3}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Display order</label>
+              <input
+                type="number"
+                value={editForm.displayOrder}
+                onChange={e => setEditForm(f => ({ ...f, displayOrder: e.target.value }))}
+                className="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button type="submit" disabled={saving}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button type="button" onClick={() => setEditing(null)}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <form onSubmit={handleAdd} className="flex gap-3 mb-6">
         <input
@@ -80,7 +159,10 @@ export default function AdminCategories() {
                 <td className="px-4 py-3 font-medium text-gray-900">{cat.name}</td>
                 <td className="px-4 py-3 text-gray-500">{cat.auctionCount ?? 0} listings</td>
                 <td className="px-4 py-3">
-                  <button onClick={() => handleDelete(cat.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1">
+                  <button onClick={() => openEdit(cat)} className="text-gray-400 hover:text-blue-500 transition-colors p-1" title="Edit category">
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => handleDelete(cat.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="Delete category">
                     <Trash2 size={14} />
                   </button>
                 </td>

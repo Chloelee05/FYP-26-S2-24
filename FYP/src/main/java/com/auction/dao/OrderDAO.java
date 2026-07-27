@@ -261,6 +261,39 @@ public class OrderDAO {
         }
     }
 
+    /**
+     * Admin override for dispute resolution (SCRUM-70): approves or declines a pending
+     * refund request on any order, regardless of seller. Same state transitions as
+     * {@link #resolveRefund(long, int, boolean)}.
+     */
+    public RefundDecision adminResolveRefund(long orderId, boolean approve) {
+        try (Connection conn = DBUtil.connectDB()) {
+            conn.setAutoCommit(false);
+            String refundStatus;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT refund_status FROM orders WHERE id = ? FOR UPDATE")) {
+                ps.setLong(1, orderId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { conn.rollback(); return RefundDecision.NOT_FOUND; }
+                    refundStatus = rs.getString("refund_status");
+                }
+            }
+            if (!"REQUESTED".equals(refundStatus)) { conn.rollback(); return RefundDecision.NOT_REQUESTED; }
+
+            String update = approve
+                    ? "UPDATE orders SET refund_status = 'APPROVED', status = 'CANCELLED', refund_resolved_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    : "UPDATE orders SET refund_status = 'REJECTED', refund_resolved_at = CURRENT_TIMESTAMP WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(update)) {
+                ps.setLong(1, orderId);
+                ps.executeUpdate();
+            }
+            conn.commit();
+            return RefundDecision.SUCCESS;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public enum RefundResult { SUCCESS, NOT_FOUND, NOT_BUYER, NOT_ELIGIBLE, ALREADY_REQUESTED }
 
     /** Buyer requests a refund on a paid order that is not yet completed. */

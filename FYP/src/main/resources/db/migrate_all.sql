@@ -73,4 +73,13 @@
 \echo '== buy it now price =='
 \ir migration_buy_it_now.sql
 
+\echo '== notification preferences =='
+\ir migration_notification_preferences.sql
+
+\echo '== recommendation features (dismiss, metrics, settings) =='
+\ir migration_recommendation_features.sql
+
+\echo '== linked third-party accounts (Google sign-in) =='
+\ir migration_linked_accounts.sql
+
 \echo 'All migrations applied.'
