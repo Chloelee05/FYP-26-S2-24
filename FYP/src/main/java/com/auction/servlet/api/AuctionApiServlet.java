@@ -4,11 +4,13 @@ import com.auction.dao.AuctionTagsDAO;
 import com.auction.dao.AutoBidDAO;
 import com.auction.dao.BidDAO;
 import com.auction.dao.BrowseHistoryDAO;
+import com.auction.dao.PlatformRulesDAO;
 import com.auction.dao.QuestionDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionBidHistoryEntry;
 import com.auction.model.AuctionQuestion;
 import com.auction.model.AuctionType;
+import com.auction.model.admin.PlatformRules;
 import com.auction.util.DutchClock;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,6 +53,7 @@ public class AuctionApiServlet extends ApiBase {
     private final AuctionTagsDAO    tagsDAO           = new AuctionTagsDAO();
     private final BrowseHistoryDAO  browseHistoryDAO  = new BrowseHistoryDAO();
     private final AutoBidDAO        autoBidDAO        = new AutoBidDAO();
+    private final PlatformRulesDAO  platformRulesDAO  = new PlatformRulesDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -162,6 +165,14 @@ public class AuctionApiServlet extends ApiBase {
                 body.put("currentBid", detail.getCurrentBid());
                 body.put("numBids", detail.getBidCount());
                 break;
+        }
+
+        // SCRUM-67: surface the platform bid-increment rule that BidDAO enforces, so the
+        // bid form can show the lowest acceptable amount instead of failing on submit.
+        if (type == AuctionType.PRICE_UP) {
+            PlatformRules rules = platformRulesDAO.get();
+            body.put("minBidIncrement", rules.getMinBidIncrement());
+            body.put("minimumNextBid",  rules.minimumAcceptableBid(detail.getCurrentBid()));
         }
 
         // Seller-private cost price: visible only to the auction owner.

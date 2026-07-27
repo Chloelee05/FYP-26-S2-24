@@ -1,5 +1,7 @@
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.AuctionTagsDAO;
+import com.auction.dao.PlatformRulesDAO;
+import com.auction.model.admin.PlatformRules;
 import com.auction.servlet.CreateAuctionServlet;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,6 +40,7 @@ public class TestCreateAuctionServlet{
 
     private AuctionDAO mockDAO;
     private AuctionTagsDAO mockTagDAO;
+    private PlatformRulesDAO mockRulesDAO;
     private CreateAuctionServletWrapper mockServlet;
     private HttpServletRequest mockRequest;
     private HttpServletResponse mockResponse;
@@ -49,8 +52,11 @@ public class TestCreateAuctionServlet{
     public void setUp() throws Exception {
         mockDAO = mock(AuctionDAO.class);
         mockTagDAO = mock(AuctionTagsDAO.class);
+        mockRulesDAO = mock(PlatformRulesDAO.class);
+        when(mockRulesDAO.get()).thenReturn(PlatformRules.defaults());
         mockServlet = new CreateAuctionServletWrapper();
         mockServlet.setAuctionDAO(mockDAO, mockTagDAO);
+        mockServlet.setPlatformRulesDAO(mockRulesDAO);
         mockRequest = mock(HttpServletRequest.class);
         mockResponse = mock(HttpServletResponse.class);
         mockSession = mock(HttpSession.class);

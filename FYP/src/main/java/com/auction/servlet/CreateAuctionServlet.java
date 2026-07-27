@@ -14,10 +14,12 @@ import java.util.stream.Collectors;
 
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.AuctionTagsDAO;
+import com.auction.dao.PlatformRulesDAO;
 import com.auction.model.Auction;
 import com.auction.model.AuctionTags;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
+import com.auction.model.admin.PlatformRules;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.MultipartConfig;
@@ -34,17 +36,23 @@ import jakarta.servlet.http.*;
 public class CreateAuctionServlet extends HttpServlet {
     private AuctionDAO auctionDAO;
     private AuctionTagsDAO auctionTagsDAO;
+    private PlatformRulesDAO platformRulesDAO;
     private String uploadDir;
     private static final List<String> ALLOWED_EXTENSIONS = List.of(".jpg", ".jpeg", ".png", ".webp");
 
     public CreateAuctionServlet() {
         auctionDAO = new AuctionDAO();
         auctionTagsDAO = new AuctionTagsDAO();
+        platformRulesDAO = new PlatformRulesDAO();
     }
 
     public void setAuctionDAO(AuctionDAO auctionDAO, AuctionTagsDAO auctionTagsDAO) {
         this.auctionDAO = auctionDAO;
         this.auctionTagsDAO = auctionTagsDAO;
+    }
+
+    public void setPlatformRulesDAO(PlatformRulesDAO platformRulesDAO) {
+        this.platformRulesDAO = platformRulesDAO;
     }
 
 
@@ -186,6 +194,14 @@ public class CreateAuctionServlet extends HttpServlet {
 
         if (input.auctionEnd.isBefore(input.auctionStart)) {
             errorHandler(req, resp, "End date must be after start date", input);
+            return false;
+        }
+
+        // SCRUM-67: platform-wide maximum auction duration
+        PlatformRules rules = platformRulesDAO.get();
+        if (rules.exceedsMaxDuration(input.auctionStart, input.auctionEnd)) {
+            errorHandler(req, resp, "Auction duration cannot exceed the platform maximum of "
+                    + rules.getMaxAuctionDurationDays() + " day(s)", input);
             return false;
         }
 

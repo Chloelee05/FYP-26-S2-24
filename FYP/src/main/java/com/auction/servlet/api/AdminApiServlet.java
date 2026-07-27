@@ -6,6 +6,7 @@ import com.auction.dao.CategoryDAO;
 import com.auction.dao.FeaturedListingDAO;
 import com.auction.dao.OrderDAO;
 import com.auction.dao.PlatformRevenueDAO;
+import com.auction.dao.PlatformRulesDAO;
 import com.auction.dao.ReportDAO;
 import com.auction.dao.SellerAnalyticsDAO;
 import com.auction.dao.UserDAO;
@@ -14,6 +15,7 @@ import com.auction.model.Status;
 import com.auction.model.User;
 import com.auction.model.admin.AdminUserSummary;
 import com.auction.model.admin.DashboardMetrics;
+import com.auction.model.admin.PlatformRules;
 import com.auction.util.DatabaseBackupUtil;
 import com.auction.util.InputValidator;
 import com.auction.util.MailConfig;
@@ -26,6 +28,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -42,6 +45,8 @@ import java.util.Map;
  * POST /api/admin/listings        (action: FLAG|REMOVE|RESTORE, auctionId)
  * GET  /api/admin/categories
  * POST /api/admin/categories      (action: CREATE|EDIT|DELETE|RESTORE)
+ * GET  /api/admin/rules
+ * POST /api/admin/rules           (minBidIncrement, maxAuctionDurationDays)
  * GET  /api/admin/analytics
  * GET  /api/admin/analytics/report?type=user-activity|revenue|moderation
  * GET  /api/admin/database/status
@@ -62,6 +67,12 @@ public class AdminApiServlet extends ApiBase {
     private final SellerAnalyticsDAO sellerAnalyticsDAO = new SellerAnalyticsDAO();
     private final FeaturedListingDAO featuredListingDAO = new FeaturedListingDAO();
     private final PlatformRevenueDAO platformRevenueDAO = new PlatformRevenueDAO();
+    private PlatformRulesDAO platformRulesDAO = new PlatformRulesDAO();
+
+    /** Test hook */
+    public void setPlatformRulesDAO(PlatformRulesDAO platformRulesDAO) {
+        this.platformRulesDAO = platformRulesDAO;
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -84,6 +95,7 @@ public class AdminApiServlet extends ApiBase {
             case "users":       ok(resp, userDAO.listUsersForAdminTable()); break;
             case "listings":    ok(resp, auctionDAO.listListingsForModeration()); break;
             case "categories":  ok(resp, catDAO.listAll());    break;
+            case "rules":       handleGetRules(resp);          break;
             case "analytics":   handleAnalytics(resp);         break;
             case "reports":     handleGetReports(resp);        break;
             case "orders":      handleGetOrders(resp);         break;
@@ -107,6 +119,7 @@ public class AdminApiServlet extends ApiBase {
             case "users":      handleUserAction(req, resp);      break;
             case "listings":   handleListingAction(req, resp);   break;
             case "categories": handleCategoryAction(req, resp);  break;
+            case "rules":      handleUpdateRules(req, resp);     break;
             case "reports":    handleReportAction(req, resp);    break;
             default: error(resp, 404, "Not found.");             break;
         }
@@ -514,6 +527,69 @@ public class AdminApiServlet extends ApiBase {
         boolean ok = catDAO.restore(id);
         if (ok) okMsg(resp, "Category restored.");
         else serverError(resp, "Could not restore category.");
+    }
+
+    // ── Platform auction rules (SCRUM-67) ────────────────────────────────────
+
+    private void handleGetRules(HttpServletResponse resp) throws IOException {
+        try {
+            ok(resp, platformRulesDAO.get());
+        } catch (Exception e) {
+            serverError(resp, "Could not load platform rules.");
+        }
+    }
+
+    /**
+     * Saves the platform-wide auction rules. Both parameters are optional; whichever is
+     * omitted keeps its current value, so the admin UI can save one field at a time.
+     */
+    private void handleUpdateRules(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String incrementStr = param(req, "minBidIncrement");
+        String durationStr  = param(req, "maxAuctionDurationDays");
+        if (incrementStr == null && durationStr == null) {
+            badRequest(resp, "minBidIncrement or maxAuctionDurationDays is required."); return;
+        }
+
+        PlatformRules current;
+        try {
+            current = platformRulesDAO.get();
+        } catch (Exception e) {
+            serverError(resp, "Could not load platform rules."); return;
+        }
+
+        BigDecimal increment = current.getMinBidIncrement();
+        if (incrementStr != null) {
+            try { increment = new BigDecimal(incrementStr); }
+            catch (NumberFormatException e) {
+                badRequest(resp, "Minimum bid increment must be a valid number."); return;
+            }
+        }
+
+        int durationDays = current.getMaxAuctionDurationDays();
+        if (durationStr != null) {
+            try { durationDays = Integer.parseInt(durationStr); }
+            catch (NumberFormatException e) {
+                badRequest(resp, "Maximum auction duration must be a whole number of days."); return;
+            }
+        }
+
+        String violation = PlatformRules.violationForBidIncrement(increment);
+        if (violation == null) violation = PlatformRules.violationForDurationDays(durationDays);
+        if (violation != null) { badRequest(resp, violation); return; }
+
+        AuthSession session = authSession(req);
+        Integer adminId = (session != null && session.getAttribute("userId") instanceof Number)
+                ? ((Number) session.getAttribute("userId")).intValue() : null;
+
+        try {
+            PlatformRules updated = platformRulesDAO.update(increment, durationDays, adminId);
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("message", "Platform auction rules updated.");
+            body.put("rules",   updated);
+            ok(resp, body);
+        } catch (Exception e) {
+            serverError(resp, "Could not save platform rules.");
+        }
     }
 
     // ── GET: reports ─────────────────────────────────────────────────────────

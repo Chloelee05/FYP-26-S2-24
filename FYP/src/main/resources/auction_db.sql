@@ -14,6 +14,7 @@ COMMENT ON DATABASE auction_db
 
 -- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS announcements;
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS notification_preference;
 DROP TABLE IF EXISTS payment_methods;
@@ -277,6 +278,25 @@ CREATE TABLE notifications (
   CONSTRAINT notifications_user_fk FOREIGN KEY (user_id) REFERENCES users (id)
 );
 CREATE INDEX idx_notifications_user_unread ON notifications (user_id, is_read);
+
+-- System-wide announcements (admin broadcast: maintenance / policy updates).
+-- Master record only: broadcasting fans out one `notifications` row per targeted user,
+-- so announcements reuse the per-user read state and unread badge users already have.
+CREATE TABLE announcements (
+  id              BIGSERIAL    PRIMARY KEY,
+  title           VARCHAR(150) NOT NULL,
+  message         TEXT         NOT NULL,
+  audience        VARCHAR(20)  NOT NULL DEFAULT 'ALL',
+  severity        VARCHAR(20)  NOT NULL DEFAULT 'INFO',
+  link            VARCHAR(512),
+  created_by      BIGINT,
+  created_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  recipient_count INT          NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
+  CONSTRAINT announcements_audience_check CHECK (audience IN ('ALL', 'BUYERS', 'SELLERS')),
+  CONSTRAINT announcements_severity_check CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL')),
+  CONSTRAINT announcements_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id)
+);
+CREATE INDEX idx_announcements_created_at ON announcements (created_at DESC);
 
 -- Orders (fund$ vs goods exchange — simulated checkout after a win)
 CREATE TABLE orders (

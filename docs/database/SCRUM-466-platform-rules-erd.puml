@@ -1,0 +1,118 @@
+@startuml SCRUM-66 Platform auction rules schema
+
+title Platform auction rules — schema design (SCRUM-66)\nSource of truth: FYP/src/main/resources/db/migration_platform_rules.sql
+
+skinparam roundcorner 8
+skinparam linetype ortho
+hide circle
+
+' ============================================================
+' Configuration table (single row)
+' ============================================================
+entity "platform_rules" as platform_rules {
+  * id : SMALLINT <<PK>> = 1
+  --
+  * min_bid_increment : NUMERIC(10,2) = 1.00
+  * max_auction_duration_days : INT = 30
+  * updated_at : TIMESTAMPTZ = CURRENT_TIMESTAMP
+  updated_by : BIGINT <<FK→users>>
+  ..constraints..
+  CHECK (id = 1) — singleton row
+  CHECK (min_bid_increment BETWEEN 0.01 AND 10000.00)
+  CHECK (max_auction_duration_days BETWEEN 1 AND 365)
+}
+
+entity "users" as users {
+  * id : BIGINT <<PK>>
+  --
+  * role_id : SMALLINT <<FK→roles>>
+  ..note..
+  only ADMIN may write the rules
+}
+
+' ============================================================
+' Tables validated against the rules (existing schema, abridged)
+' ============================================================
+entity "auction" as auction {
+  * auction_id : BIGINT <<PK>>
+  --
+  * date_created : TIMESTAMPTZ
+  * date_end : TIMESTAMPTZ
+  * status_id : SMALLINT
+  * seller_id : BIGINT
+  ..rule..
+  date_end - date_created <= max_auction_duration_days
+}
+
+entity "bids" as bids {
+  * bid_id : BIGINT <<PK>>
+  --
+  * auction_id : BIGINT <<FK→auction>>
+  * user_id : BIGINT <<FK→users>>
+  * bid_amount : NUMERIC(10,2)
+  * bid_time : TIMESTAMPTZ
+  ..rule..
+  bid_amount >= current price + min_bid_increment
+}
+
+entity "auto_bids" as auto_bids {
+  * id : BIGINT <<PK>>
+  --
+  * auction_id : BIGINT <<FK→auction>>
+  * user_id : BIGINT <<FK→users>>
+  * max_amount_enc : TEXT
+  * bid_increment : NUMERIC(10,2)
+  ..rule..
+  per-buyer step clamped up to min_bid_increment
+}
+
+platform_rules }o--|| users : updated_by
+
+' ============================================================
+' Design notes
+' ============================================================
+note as WHY_SINGLETON
+  **Why a single-row table and not a key/value store**
+  Both rules are typed (money / whole days) and are read on
+  every bid and every listing creation. A typed single row
+  gives DB-level CHECK constraints, one cheap SELECT, and no
+  string parsing. `CHECK (id = 1)` makes a second row
+  impossible, so the table can never disagree with itself.
+end note
+
+note as WHY_NO_FK_CASCADE
+  **updated_by is nullable, no ON DELETE**
+  The seeded defaults have no author. If an admin account is
+  ever removed the rules must survive, so the FK is a plain
+  reference with no cascade.
+end note
+
+note as ENFORCEMENT
+  **Enforcement points (SCRUM-67)**
+  min_bid_increment
+    · BidDAO.placeBid — manual bid must reach
+      max(starting_price, highest bid) + min_bid_increment
+    · AutoBidDAO — proxy steps clamped up to the rule
+  max_auction_duration_days
+    · SellerApiServlet create/edit (POST /api/seller/create, /edit)
+    · CreateAuctionServlet (legacy /create-auction)
+
+  Not enforced (by design): Dutch auctions have no bid steps
+  (price descends on a clock) and blind auctions are sealed,
+  so there is no visible current price to increment over.
+end note
+
+note as MIGRATION
+  **Rollout**
+  migration_platform_rules.sql is idempotent and seeds row 1.
+  If the table is missing (older DB), PlatformRulesDAO falls
+  back to the same defaults ($1.00 / 30 days) so bidding and
+  listing keep working.
+end note
+
+platform_rules .. WHY_SINGLETON
+platform_rules .. WHY_NO_FK_CASCADE
+bids .. ENFORCEMENT
+auction .. MIGRATION
+
+@enduml

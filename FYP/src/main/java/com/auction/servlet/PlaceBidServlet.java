@@ -138,6 +138,8 @@ public class PlaceBidServlet extends HttpServlet {
             case AUCTION_REMOVED:  return "This auction has been removed from the platform.";
             case SELF_BID:         return "You cannot bid on your own auction.";
             case BID_TOO_LOW:      return "Your bid must be higher than the current bid.";
+            case BELOW_MIN_INCREMENT:
+                return "Your bid must beat the current price by at least the platform minimum bid increment.";
             case EXCEEDS_MAX_PRICE:return "Your bid exceeds the maximum allowed price for this auction.";
             default:               return "Could not place bid. Please try again.";
         }

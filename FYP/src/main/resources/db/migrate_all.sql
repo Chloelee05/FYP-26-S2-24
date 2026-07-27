@@ -73,4 +73,10 @@
 \echo '== buy it now price =='
 \ir migration_buy_it_now.sql
 
+\echo '== platform auction rules (min bid increment, max duration) =='
+\ir migration_platform_rules.sql
+
+\echo '== system-wide announcements (admin broadcast) =='
+\ir migration_announcements.sql
+
 \echo 'All migrations applied.'

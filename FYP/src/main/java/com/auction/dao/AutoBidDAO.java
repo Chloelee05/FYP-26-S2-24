@@ -54,6 +54,13 @@ public class AutoBidDAO {
     /** Safety cap on proxy-bidding rounds per trigger (prevents infinite loops). */
     static final int MAX_ROUNDS = 50;
 
+    private PlatformRulesDAO platformRulesDAO = new PlatformRulesDAO();
+
+    /** Test hook */
+    public void setPlatformRulesDAO(PlatformRulesDAO platformRulesDAO) {
+        this.platformRulesDAO = platformRulesDAO;
+    }
+
     // -------------------------------------------------------------------------
     // Store / retrieve / delete
     // -------------------------------------------------------------------------
@@ -78,15 +85,17 @@ public class AutoBidDAO {
      * @param userId       buyer setting the auto-bid (always from session)
      * @param maxAmount    buyer's maximum bid ceiling; must be positive
      * @param note         optional private note; may be {@code null} or blank
-     * @param bidIncrement per-step counter-bid amount; clamped to MIN_INCREMENT floor
+     * @param bidIncrement per-step counter-bid amount; clamped up to the platform-wide
+     *                     minimum increment (SCRUM-67), never below {@link #MIN_INCREMENT}
      */
     public void upsert(long auctionId, int userId, BigDecimal maxAmount, String note,
                        BigDecimal bidIncrement) {
         String encAmount = SecurityUtil.encrypt(maxAmount.toPlainString());
         String encNote = (note != null && !note.isBlank())
                 ? SecurityUtil.encrypt(note.trim()) : null;
-        BigDecimal safeIncrement = (bidIncrement != null && bidIncrement.compareTo(MIN_INCREMENT) >= 0)
-                ? bidIncrement : MIN_INCREMENT;
+        BigDecimal floor = platformMinIncrement();
+        BigDecimal safeIncrement = (bidIncrement != null && bidIncrement.compareTo(floor) >= 0)
+                ? bidIncrement : floor;
 
         String sql =
                 "INSERT INTO auto_bids (auction_id, user_id, max_amount_enc, note_enc, bid_increment) "
@@ -187,6 +196,7 @@ public class AutoBidDAO {
      */
     public int processAutoBids(Connection conn, long auctionId) throws SQLException {
         BigDecimal startingPrice = fetchStartingPrice(conn, auctionId);
+        BigDecimal minIncrement = platformRulesDAO.get(conn).getMinBidIncrement().max(MIN_INCREMENT);
         int placed = 0;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
@@ -210,7 +220,7 @@ public class AutoBidDAO {
             // Decrypt all auto-bids
             List<AutoBidRow> allBids = fetchAllDecrypted(conn, auctionId);
 
-            CounterBid next = resolveNextAutoBid(allBids, floor, topBidderId);
+            CounterBid next = resolveNextAutoBid(allBids, floor, topBidderId, minIncrement);
             if (next == null) break;
 
             // Insert the counter-bid within the caller's transaction
@@ -254,13 +264,35 @@ public class AutoBidDAO {
      */
     public static CounterBid resolveNextAutoBid(
             List<AutoBidRow> allBids, BigDecimal floor, int currentTopBidder) {
+        return resolveNextAutoBid(allBids, floor, currentTopBidder, MIN_INCREMENT);
+    }
+
+    /**
+     * As {@link #resolveNextAutoBid(List, BigDecimal, int)}, but with the platform-wide
+     * minimum increment applied (SCRUM-67).
+     *
+     * <p>Proxy bids are real bids, so they obey the same rule as manual ones: a
+     * counter-bid must clear the floor by at least {@code minIncrement}. An auto-bidder
+     * whose ceiling cannot reach {@code floor + minIncrement} therefore does not fire at
+     * all, and a per-buyer step smaller than the platform rule is raised to it.</p>
+     *
+     * @param minIncrement platform minimum bid increment; values below
+     *                     {@link #MIN_INCREMENT} are treated as {@link #MIN_INCREMENT}
+     */
+    public static CounterBid resolveNextAutoBid(
+            List<AutoBidRow> allBids, BigDecimal floor, int currentTopBidder, BigDecimal minIncrement) {
 
         if (allBids == null || allBids.isEmpty()) return null;
 
-        // Competing auto-bids: excludes the current top bidder, must have max > floor
+        BigDecimal step = (minIncrement != null && minIncrement.compareTo(MIN_INCREMENT) > 0)
+                ? minIncrement : MIN_INCREMENT;
+        BigDecimal minCounter = floor.add(step);
+
+        // Competing auto-bids: excludes the current top bidder, must be able to clear
+        // the floor by at least the platform minimum increment
         List<AutoBidRow> competitors = new ArrayList<>();
         for (AutoBidRow b : allBids) {
-            if (b.userId != currentTopBidder && b.maxAmount.compareTo(floor) > 0) {
+            if (b.userId != currentTopBidder && b.maxAmount.compareTo(minCounter) >= 0) {
                 competitors.add(b);
             }
         }
@@ -284,12 +316,12 @@ public class AutoBidDAO {
         // This produces a visible step-by-step bid history instead of a single jump.
         // The loop in processAutoBids re-enters until no competitor can respond,
         // effectively resolving the final price through repeated small steps.
-        // Uses winner's per-buyer increment (defaults to MIN_INCREMENT for legacy rows).
-        BigDecimal step = winner.getIncrement();
-        BigDecimal counter = floor.add(step).min(winner.maxAmount);
+        // Uses the winner's per-buyer increment, raised to the platform minimum.
+        BigDecimal winnerStep = winner.getIncrement().max(step);
+        BigDecimal counter = floor.add(winnerStep).min(winner.maxAmount);
 
-        // Edge: if counter ≤ floor (shouldn't happen given filters above), bail out
-        if (counter.compareTo(floor) <= 0) return null;
+        // Edge: if counter cannot clear the platform minimum increment, bail out
+        if (counter.compareTo(minCounter) < 0) return null;
 
         return new CounterBid(winner.userId, counter);
     }
@@ -297,6 +329,11 @@ public class AutoBidDAO {
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
+
+    /** Platform-wide minimum bid increment, never below the one-cent hard floor. */
+    private BigDecimal platformMinIncrement() {
+        return platformRulesDAO.get().getMinBidIncrement().max(MIN_INCREMENT);
+    }
 
     private List<AutoBidRow> fetchAllDecrypted(Connection conn, long auctionId)
             throws SQLException {

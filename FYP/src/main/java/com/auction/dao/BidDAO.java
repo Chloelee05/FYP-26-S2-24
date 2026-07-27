@@ -6,6 +6,7 @@ import com.auction.model.AuctionStatus;
 import com.auction.model.AuctionType;
 import com.auction.model.Bid;
 import com.auction.model.ItemCondition;
+import com.auction.model.admin.PlatformRules;
 import com.auction.util.DBUtil;
 import com.auction.util.DutchClock;
 import com.auction.util.SecurityUtil;
@@ -29,10 +30,11 @@ import java.util.List;
  * then inserts the bid or rolls back. This prevents TOCTOU races on concurrent
  * bids (SCRUM-265).</p>
  *
- * <p><b>Minimum increment (SCRUM-263):</b> A new bid must exceed the greater of the
- * current highest bid and the starting price. Because {@code bids.bid_amount} is
- * {@code NUMERIC(10,2)}, the effective minimum meaningful step is {@code 0.01}.
- * Equal bids are always rejected ({@code >}, not {@code >=}).</p>
+ * <p><b>Minimum increment (SCRUM-263 / SCRUM-67):</b> A new bid must exceed the greater of the
+ * current highest bid and the starting price, by at least the platform-wide
+ * {@code min_bid_increment} that admins configure ({@link PlatformRulesDAO}). Because
+ * {@code bids.bid_amount} is {@code NUMERIC(10,2)}, the absolute floor for that rule is
+ * {@code 0.01}. Equal bids are always rejected ({@code >}, not {@code >=}).</p>
  *
  * <p><b>Auto-bid integration (SCRUM-52):</b> After each successful manual bid insert,
  * {@link AutoBidDAO#processAutoBids(Connection, long)} is called within the same
@@ -51,6 +53,7 @@ public class BidDAO {
     public static final int MAX_BID_HISTORY_PAGE_SIZE = 50;
 
     private final AutoBidDAO autoBidDAO;
+    private PlatformRulesDAO platformRulesDAO = new PlatformRulesDAO();
 
     public BidDAO() {
         this.autoBidDAO = new AutoBidDAO();
@@ -59,6 +62,11 @@ public class BidDAO {
     /** Injection constructor for testing (allows mocking {@link AutoBidDAO}). */
     public BidDAO(AutoBidDAO autoBidDAO) {
         this.autoBidDAO = autoBidDAO;
+    }
+
+    /** Test hook */
+    public void setPlatformRulesDAO(PlatformRulesDAO platformRulesDAO) {
+        this.platformRulesDAO = platformRulesDAO;
     }
 
     /** Outcome codes returned by {@link #placeBid}. */
@@ -73,6 +81,11 @@ public class BidDAO {
         SELF_BID,
         /** Bid amount ≤ current floor (current highest bid or starting price). */
         BID_TOO_LOW,
+        /**
+         * Bid beats the current floor but by less than the platform-wide minimum
+         * increment configured by admins (SCRUM-67).
+         */
+        BELOW_MIN_INCREMENT,
         /** Bid amount exceeds the seller-set max-price cap. */
         EXCEEDS_MAX_PRICE,
         /** Sealed (blind) auction: this buyer has already submitted a bid. */
@@ -101,6 +114,10 @@ public class BidDAO {
         if (bidAmount == null || bidAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return BidResult.BID_TOO_LOW;
         }
+
+        // Read the platform rules before opening the transaction, so no second pool
+        // connection is taken while the auction row lock is held (SCRUM-67).
+        PlatformRules rules = platformRulesDAO.get();
 
         Connection conn = null;
         try {
@@ -175,6 +192,12 @@ public class BidDAO {
             if (bidAmount.compareTo(floor) <= 0) {
                 conn.rollback();
                 return BidResult.BID_TOO_LOW;
+            }
+
+            // SCRUM-67: and must clear the floor by the platform-wide minimum increment
+            if (!rules.meetsMinBidIncrement(bidAmount, floor)) {
+                conn.rollback();
+                return BidResult.BELOW_MIN_INCREMENT;
             }
 
             // Max-price cap check (SCRUM-263)

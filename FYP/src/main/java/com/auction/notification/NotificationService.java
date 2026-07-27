@@ -3,6 +3,7 @@ package com.auction.notification;
 import com.auction.dao.NotificationDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.model.admin.Announcement;
 import com.auction.util.DBUtil;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
@@ -10,6 +11,7 @@ import com.auction.util.OtpMailer;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
@@ -291,6 +293,40 @@ public final class NotificationService {
                     "New listing report: \"" + title + "\"",
                     "/admin/reports");
         });
+    }
+
+    /**
+     * Emails an admin's system-wide announcement to every recipient address.
+     *
+     * <p>The in-app notification written by {@code AnnouncementDAO.broadcast} is the guaranteed
+     * delivery channel; this is the optional extra reach an admin asks for when a notice cannot
+     * wait for the next sign-in. Best-effort throughout: unconfigured SMTP or an address the
+     * mail server rejects is logged and skipped, never propagated back to the broadcast.</p>
+     *
+     * @param announcement the announcement as stored
+     * @param emails       recipient addresses (see {@code AnnouncementDAO.recipientEmails})
+     * @return how many emails the mail server accepted
+     */
+    public static int emailAnnouncement(Announcement announcement, List<String> emails) {
+        if (announcement == null || emails == null || emails.isEmpty()) return 0;
+        if (!MailConfig.isSmtpConfigured()) {
+            LOG.fine("Announcement email skipped: SMTP is not configured.");
+            return 0;
+        }
+
+        String subject = announcement.toEmailSubject();
+        String body = announcement.toEmailBody();
+        int sent = 0;
+        for (String email : emails) {
+            if (email == null || email.isBlank()) continue;
+            try {
+                OtpMailer.sendNotification(email, subject, body);
+                sent++;
+            } catch (Exception e) {
+                LOG.fine("Announcement email failed for one recipient: " + e.getMessage());
+            }
+        }
+        return sent;
     }
 
     private static void notifyAllAdmins(String type, String message, String link) {

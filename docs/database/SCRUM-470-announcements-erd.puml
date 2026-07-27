@@ -1,0 +1,125 @@
+@startuml System-wide announcements schema
+
+title System-wide announcements — schema design\nSource of truth: FYP/src/main/resources/db/migration_announcements.sql
+
+skinparam roundcorner 8
+skinparam linetype ortho
+hide circle
+
+' ============================================================
+' Master record: what the admin composed
+' ============================================================
+entity "announcements" as announcements {
+  * id : BIGSERIAL <<PK>>
+  --
+  * title : VARCHAR(150)
+  * message : TEXT
+  * audience : VARCHAR(20) = 'ALL'
+  * severity : VARCHAR(20) = 'INFO'
+  link : VARCHAR(512)
+  created_by : BIGINT <<FK→users>>
+  * created_at : TIMESTAMPTZ = CURRENT_TIMESTAMP
+  * recipient_count : INT = 0
+  ..constraints..
+  CHECK (audience IN ('ALL','BUYERS','SELLERS'))
+  CHECK (severity IN ('INFO','WARNING','CRITICAL'))
+  CHECK (recipient_count >= 0)
+}
+
+' ============================================================
+' Delivery: one row per targeted user (existing table)
+' ============================================================
+entity "notifications" as notifications {
+  * id : BIGSERIAL <<PK>>
+  --
+  * user_id : BIGINT <<FK→users>>
+  * type : VARCHAR(40) = 'ANNOUNCEMENT'
+  * message : TEXT — "title — message"
+  link : VARCHAR(512)
+  * is_read : BOOLEAN = FALSE
+  * created_at : TIMESTAMPTZ
+  ..note..
+  written by the broadcast fan-out
+}
+
+entity "users" as users {
+  * id : BIGINT <<PK>>
+  --
+  * email : VARCHAR(255)
+  * role_id : SMALLINT <<FK→roles>>
+  * status_id : SMALLINT <<FK→user_status>>
+  ..targeting..
+  status_id = Active(1) always
+  role_id filters BUYERS / SELLERS
+}
+
+announcements }o--|| users : created_by (admin)
+notifications }o--|| users : user_id (recipient)
+announcements ..> notifications : fan-out\n1 row per active user in audience
+
+' ============================================================
+' Design notes
+' ============================================================
+note as WHY_FANOUT
+  **Why fan out instead of a shared "read receipts" table**
+  Read state is per user, and users already poll
+  GET /api/notifications every 30s. Writing one
+  notifications row per recipient means the unread
+  badge, mark-as-read, mark-all-read and the history
+  page all work for announcements with no new
+  endpoint and no frontend change. The cost is one
+  set-based INSERT ... SELECT per broadcast, not one
+  statement per user.
+
+  The alternative — an announcement_reads join table —
+  would need every one of those flows rewritten to
+  merge two sources.
+end note
+
+note as WHY_MASTER_ROW
+  **Why keep the announcements row at all**
+  The notifications rows are the delivery; they are
+  per user, get marked read, and say nothing about
+  who sent the notice or how far it reached. The
+  master row is the audit trail: author, audience,
+  severity, and the recipient_count measured at
+  broadcast time.
+end note
+
+note as TARGETING
+  **Who receives a broadcast**
+  Only status_id = Active. Suspended, Pending,
+  Rejected and Deleted accounts cannot sign in, so a
+  notification for them would never be read — and
+  writing to Deleted rows would contradict the PDPA
+  anonymisation path.
+
+  audience = ALL adds no role filter; BUYERS and
+  SELLERS filter on users.role_id.
+end note
+
+note as LINK_RULE
+  **link is an in-app path, never an absolute URL**
+  NotificationBell hands link to the SPA router
+  (navigate(n.link)), which cannot leave the site.
+  Announcement.violationForLink rejects anything not
+  starting with "/" — and rejects "//host" — so a
+  broadcast can never become an open redirect
+  delivered to every user at once.
+end note
+
+note as RETENTION
+  **created_by is nullable, no ON DELETE**
+  Announcements outlive the admin who sent them. If
+  that account is later anonymised the notice, its
+  audience and its reach must survive, so the FK is a
+  plain reference with no cascade.
+end note
+
+announcements .. WHY_FANOUT
+announcements .. WHY_MASTER_ROW
+users .. TARGETING
+notifications .. LINK_RULE
+announcements .. RETENTION
+
+@enduml

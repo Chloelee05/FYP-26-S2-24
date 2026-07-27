@@ -2,6 +2,7 @@ package com.auction.servlet.api;
 
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.AuctionTagsDAO;
+import com.auction.dao.PlatformRulesDAO;
 import com.auction.dao.ReviewDAO;
 import com.auction.dao.ReviewDAO.SellerRatingResult;
 import com.auction.dao.SellerAnalyticsDAO;
@@ -15,6 +16,7 @@ import com.auction.model.Auction;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
 import com.auction.model.SellerPublicProfile;
+import com.auction.model.admin.PlatformRules;
 import com.auction.util.AuthSession;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,6 +40,7 @@ import java.util.logging.Logger;
 /**
  * GET  /api/seller/{id}           — public seller profile (no auth required)
  * GET  /api/seller/auctions        — seller's own listings (SELLER role)
+ * GET  /api/seller/rules           — platform auction rules, read-only (SELLER role)
  * GET  /api/seller/{id}/edit       — fetch auction for edit form (SELLER role)
  * POST /api/seller/create          — create auction (SELLER role)
  * POST /api/seller/cancel          — cancel auction (SELLER role)
@@ -49,12 +52,23 @@ public class SellerApiServlet extends ApiBase {
     private static final Logger LOG = Logger.getLogger(SellerApiServlet.class.getName());
 
     private final SellerProfileDAO profileDAO  = new SellerProfileDAO();
-    private final SellerAuctionDAO auctionDAO  = new SellerAuctionDAO();
+    private SellerAuctionDAO       auctionDAO  = new SellerAuctionDAO();
     private final AuctionDAO       mainDAO     = new AuctionDAO();
     private final AuctionTagsDAO   tagsDAO     = new AuctionTagsDAO();
     private final ReviewDAO        reviewDAO   = new ReviewDAO();
     private final SellerAnalyticsDAO analyticsDAO = new SellerAnalyticsDAO();
     private final UserDAO          userDAO     = new UserDAO();
+    private PlatformRulesDAO       platformRulesDAO = new PlatformRulesDAO();
+
+    /** Test hook */
+    public void setPlatformRulesDAO(PlatformRulesDAO platformRulesDAO) {
+        this.platformRulesDAO = platformRulesDAO;
+    }
+
+    /** Test hook */
+    public void setSellerAuctionDAO(SellerAuctionDAO auctionDAO) {
+        this.auctionDAO = auctionDAO;
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -68,6 +82,8 @@ public class SellerApiServlet extends ApiBase {
             handleListAuctions(req, resp);
         } else if ("analytics".equals(parts[0])) {
             handleAnalytics(req, resp);
+        } else if ("rules".equals(parts[0])) {
+            handleGetRules(req, resp);
         } else {
             // /api/seller/{id} or /api/seller/{id}/edit
             long sellerId;
@@ -143,6 +159,23 @@ public class SellerApiServlet extends ApiBase {
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "Seller analytics email failed for " + sellerId, e);
             serverError(resp, "Could not send analytics report.");
+        }
+    }
+
+    // ── GET: platform auction rules (SCRUM-67) ───────────────────────────────
+
+    /**
+     * Read-only view of the admin-configured rules, so the listing form can show the
+     * limits it will be validated against instead of failing on submit.
+     */
+    private void handleGetRules(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return;
+        AuthSession session = authSession(req);
+        if (!isSeller(session)) { forbidden(resp); return; }
+        try {
+            ok(resp, platformRulesDAO.get());
+        } catch (Exception e) {
+            serverError(resp, "Could not load platform rules.");
         }
     }
 
@@ -303,6 +336,12 @@ public class SellerApiServlet extends ApiBase {
         }
         if (endDate.isBefore(startDate)) {
             badRequest(resp, "End date must be after start date."); return;
+        }
+        // SCRUM-67: platform-wide maximum auction duration
+        PlatformRules rules = platformRulesDAO.get();
+        if (rules.exceedsMaxDuration(startDate, endDate)) {
+            badRequest(resp, "Auction duration cannot exceed the platform maximum of "
+                    + rules.getMaxAuctionDurationDays() + " day(s)."); return;
         }
 
         AuctionType auctionType = AuctionType.PRICE_UP;
@@ -538,6 +577,20 @@ public class SellerApiServlet extends ApiBase {
             catch (DateTimeParseException e) { badRequest(resp, "Invalid end date format."); return; }
             if (newEndDate.isBefore(Instant.now())) {
                 badRequest(resp, "End date must be in the future."); return;
+            }
+            // SCRUM-67: a reschedule may not stretch the listing past the platform maximum,
+            // measured from the auction's own start date.
+            PlatformRules rules = platformRulesDAO.get();
+            try {
+                SellerAuctionDAO.AuctionEditData existing = auctionDAO.getAuctionForEdit(auctionId, sellerId);
+                if (existing == null) { error(resp, 404, "Auction not found or access denied."); return; }
+                Instant start = existing.startDate != null ? existing.startDate : Instant.now();
+                if (rules.exceedsMaxDuration(start, newEndDate)) {
+                    badRequest(resp, "Auction duration cannot exceed the platform maximum of "
+                            + rules.getMaxAuctionDurationDays() + " day(s)."); return;
+                }
+            } catch (Exception e) {
+                serverError(resp, "Could not update auction."); return;
             }
         }
 

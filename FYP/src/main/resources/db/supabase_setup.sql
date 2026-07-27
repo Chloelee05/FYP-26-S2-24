@@ -8,6 +8,8 @@
 -- =============================================================================
 
 -- ── 1. Drop app tables (dependency order) ─────────────────────────────────────
+DROP TABLE IF EXISTS announcements CASCADE;
+DROP TABLE IF EXISTS platform_rules CASCADE;
 DROP TABLE IF EXISTS support_thread_reads CASCADE;
 DROP TABLE IF EXISTS support_messages CASCADE;
 DROP TABLE IF EXISTS support_threads CASCADE;
@@ -349,6 +351,40 @@ CREATE TABLE order_messages (
   CONSTRAINT order_messages_sender_fk FOREIGN KEY (sender_id) REFERENCES users  (id)
 );
 
+-- SCRUM-66: platform-wide auction rules (single configuration row, id pinned to 1).
+CREATE TABLE platform_rules (
+  id                        SMALLINT      PRIMARY KEY DEFAULT 1,
+  min_bid_increment         NUMERIC(10,2) NOT NULL DEFAULT 1.00,
+  max_auction_duration_days INT           NOT NULL DEFAULT 30,
+  updated_at                TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by                BIGINT,
+  CONSTRAINT platform_rules_singleton CHECK (id = 1),
+  CONSTRAINT platform_rules_increment_check
+      CHECK (min_bid_increment >= 0.01 AND min_bid_increment <= 10000.00),
+  CONSTRAINT platform_rules_duration_check
+      CHECK (max_auction_duration_days BETWEEN 1 AND 365),
+  CONSTRAINT platform_rules_updated_by_fk FOREIGN KEY (updated_by) REFERENCES users (id)
+);
+
+INSERT INTO platform_rules (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- System-wide announcements (admin broadcast: maintenance / policy updates).
+-- Master record only: broadcasting fans out one `notifications` row per targeted user.
+CREATE TABLE announcements (
+  id              BIGSERIAL    PRIMARY KEY,
+  title           VARCHAR(150) NOT NULL,
+  message         TEXT         NOT NULL,
+  audience        VARCHAR(20)  NOT NULL DEFAULT 'ALL',
+  severity        VARCHAR(20)  NOT NULL DEFAULT 'INFO',
+  link            VARCHAR(512),
+  created_by      BIGINT,
+  created_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  recipient_count INT          NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
+  CONSTRAINT announcements_audience_check CHECK (audience IN ('ALL', 'BUYERS', 'SELLERS')),
+  CONSTRAINT announcements_severity_check CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL')),
+  CONSTRAINT announcements_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id)
+);
+
 -- ── 4. Indexes ───────────────────────────────────────────────────────────────
 
 CREATE INDEX idx_payment_methods_user ON payment_methods (user_id);
@@ -364,6 +400,7 @@ CREATE INDEX idx_support_threads_status ON support_threads (status);
 CREATE INDEX idx_support_messages_thread ON support_messages (thread_id);
 CREATE INDEX idx_support_thread_reads_user ON support_thread_reads (user_id);
 CREATE INDEX idx_order_messages_order ON order_messages (order_id);
+CREATE INDEX idx_announcements_created_at ON announcements (created_at DESC);
 CREATE INDEX idx_auction_details_title ON auction_details (LOWER(title));
 CREATE INDEX idx_auction_moderation_end ON auction (moderation_state, date_end);
 

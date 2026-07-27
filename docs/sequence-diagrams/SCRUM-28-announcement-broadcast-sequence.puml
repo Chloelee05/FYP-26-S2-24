@@ -1,0 +1,126 @@
+@startuml Admin system-wide announcement broadcast
+
+title Admin System-Wide Announcement — compose, broadcast, deliver
+
+actor Admin as A
+actor "Any user" as U
+participant "Admin client\nPOST /api/admin/announcements" as C
+participant "AdminAnnouncementApiServlet" as S
+participant "Announcement\n(model + rules)" as M
+participant "AnnouncementDAO" as DAO
+participant "NotificationService" as NS
+participant "OtpMailer / SMTP" as MAIL
+database "PostgreSQL" as DB
+participant "NotificationBell\nGET /api/notifications" as BELL
+
+== POST — compose and broadcast ==
+
+A -> C : title, message, audience,\nseverity, link, sendEmail
+C -> S : POST /api/admin/announcements\n(Authorization: Bearer <token>)
+activate S
+
+S -> S : requireRole(req, resp, "ADMIN")
+note right of S
+  401 when unauthenticated,
+  403 for BUYER / SELLER —
+  the DAO is never touched.
+end note
+
+S -> M : normalize(title / message / link)
+note right of M
+  Trim, CRLF → LF, drop control chars.
+  Deliberately <b>not</b> HTML-escaped: the text is
+  stored raw via PreparedStatement and escaped
+  where it is rendered (React in the bell, plain
+  text in email). Escaping on the way in would
+  double-escape the admin's own words.
+end note
+M --> S : normalized text
+
+S -> M : violationForTitle / violationForMessage / violationForLink
+M --> S : null (valid)
+S -> M : Audience.parse / Severity.parse
+M --> S : ALL / INFO (defaults when omitted)
+
+alt any violation
+  S --> C : 400 { error: "<rule message>" }
+  note right of S: nothing is written
+end
+
+S -> M : compose(title, message, audience, severity, link, adminId)
+M --> S : Announcement (id 0, unsent)
+
+S -> DAO : broadcast(draft)
+activate DAO
+DAO -> DB : BEGIN
+DAO -> DB : INSERT INTO announcements (...)\nRETURNING id, created_at
+DB --> DAO : id, created_at
+
+DAO -> DB : INSERT INTO notifications (user_id, type, message, link)\nSELECT u.id, 'ANNOUNCEMENT', ?, ?\nFROM users u WHERE u.status_id = Active\n[AND u.role_id = ?]
+note right of DAO
+  One set-based statement, not a loop:
+  the fan-out costs the same whether the
+  platform has 50 users or 50 000.
+end note
+DB --> DAO : rows inserted = N
+
+DAO -> DB : UPDATE announcements SET recipient_count = N WHERE id = ?
+DAO -> DB : COMMIT
+note right of DAO
+  All in one transaction: an announcement is
+  never half-delivered. Any failure rolls back
+  both the master row and every notification.
+end note
+DAO --> S : Announcement (id, created_at, recipientCount = N)
+deactivate DAO
+
+alt sendEmail = true
+  S -> DAO : recipientEmails(audience)
+  DAO -> DB : SELECT email FROM users\nWHERE status_id = Active [AND role_id = ?]
+  DB --> DAO : addresses
+  DAO --> S : List<String>
+  S -> NS : emailAnnouncement(sent, emails)
+  activate NS
+  NS -> MAIL : sendNotification(email, subject, body) per address
+  MAIL --> NS : accepted / rejected
+  NS --> S : emailedCount
+  deactivate NS
+  note right of S
+    Best-effort. Unconfigured SMTP or a rejected
+    address is logged and skipped — the in-app
+    notification is already delivered, so a mail
+    failure must not report the broadcast as failed.
+  end note
+end
+
+S --> C : 200 { message, announcement, recipientCount, emailedCount }
+deactivate S
+C -> A : "Announcement sent to N users."
+
+== Delivery — no frontend change needed ==
+
+U -> BELL : (poll, every 30s)
+BELL -> DB : SELECT ... FROM notifications\nWHERE user_id = ? ORDER BY created_at DESC
+DB --> BELL : includes the ANNOUNCEMENT row
+BELL -> U : unread badge + announcement line
+U -> BELL : click → POST /api/notifications action=read
+note right of BELL
+  Announcements reuse the existing feed, so
+  read state, the unread count and the history
+  page work unchanged.
+end note
+
+== GET — admin history ==
+
+A -> C : Open announcements history
+C -> S : GET /api/admin/announcements
+activate S
+S -> S : requireRole(req, resp, "ADMIN")
+S -> DAO : listRecent(50)
+DAO -> DB : SELECT a.*, u.username\nFROM announcements a LEFT JOIN users u ON u.id = a.created_by\nORDER BY a.created_at DESC LIMIT ?
+DB --> DAO : rows
+DAO --> S : List<Announcement>
+S --> C : 200 [ { title, audience, severity, recipientCount, createdByName, createdAt } ]
+deactivate S
+
+@enduml
