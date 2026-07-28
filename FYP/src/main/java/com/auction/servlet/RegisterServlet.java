@@ -85,11 +85,10 @@ public class RegisterServlet extends HttpServlet {
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
-        if (rolePara.equalsIgnoreCase("seller")) {
-            role = Role.SELLER;
-        } else {
-            role = Role.BUYER;
-        }
+        // Buying and selling share one account: every registration creates a Buyer,
+        // who can turn selling on later from Account Settings. The `role` parameter is
+        // still required by this legacy form but no longer selects the account type.
+        role = Role.BUYER;
 
         try {
             if (userDAO.checkUser(username.trim())) {

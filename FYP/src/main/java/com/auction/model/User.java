@@ -8,6 +8,15 @@ public class User implements Serializable {
     private String username;
     private String password;
     private Role role;
+    /**
+     * Whether this account may list items for sale.
+     *
+     * <p>Buying and selling live on one account: everyone registers as a
+     * {@link Role#BUYER} and switches selling on later, so seller authorisation
+     * reads this flag rather than {@link #role}. Accounts created before the merge
+     * carry {@link Role#SELLER} and were backfilled to {@code true}.</p>
+     */
+    private boolean canSell;
     /** {@link com.auction.model.Status#getId()} — defaults to {@link com.auction.model.Status#ACTIVE}. */
     private int statusId = Status.ACTIVE.getId();
     private boolean twoFactorEnabled;
@@ -78,6 +87,23 @@ public class User implements Serializable {
     public void setRole(Role role)
     {
         this.role = role;
+    }
+
+    /**
+     * Whether this account may list items for sale.
+     *
+     * <p>True when the {@code can_sell} flag is set, or when the account still
+     * carries the legacy {@link Role#SELLER} role — so a database that has not yet
+     * had {@code migration_seller_capability.sql} applied keeps working.</p>
+     */
+    public boolean canSell()
+    {
+        return this.canSell || this.role == Role.SELLER;
+    }
+
+    public void setCanSell(boolean canSell)
+    {
+        this.canSell = canSell;
     }
 
     public int getStatusId() {

@@ -65,6 +65,9 @@ CREATE TABLE users (
   username      VARCHAR(255) NOT NULL UNIQUE,
   password      VARCHAR(255) NOT NULL,
   role_id       SMALLINT     NOT NULL,
+  -- Selling is a capability, not a separate account type: every account registers
+  -- as a Buyer and can switch this on later. See migration_seller_capability.sql.
+  can_sell      BOOLEAN      NOT NULL DEFAULT FALSE,
   date_created  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_status_changed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   status_id     SMALLINT     NOT NULL,

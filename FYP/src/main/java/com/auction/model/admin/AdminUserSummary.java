@@ -16,9 +16,16 @@ public final class AdminUserSummary {
     private final LocalDate joined;
     private final int bidCount;
     private final int listingCount;
+    /** Whether this account may list items for sale (merged buyer/seller accounts). */
+    private final boolean canSell;
 
     public AdminUserSummary(int id, String username, String email, Role role, int statusId,
                             LocalDate joined, int bidCount, int listingCount) {
+        this(id, username, email, role, statusId, joined, bidCount, listingCount, false);
+    }
+
+    public AdminUserSummary(int id, String username, String email, Role role, int statusId,
+                            LocalDate joined, int bidCount, int listingCount, boolean canSell) {
         this.id = id;
         this.username = username;
         this.email = email;
@@ -27,6 +34,7 @@ public final class AdminUserSummary {
         this.joined = joined;
         this.bidCount = bidCount;
         this.listingCount = listingCount;
+        this.canSell = canSell;
     }
 
     public int getId() {
@@ -59,5 +67,13 @@ public final class AdminUserSummary {
 
     public int getListingCount() {
         return listingCount;
+    }
+
+    /**
+     * Whether this account may list items for sale. True for accounts that opted in,
+     * and for pre-merge accounts still carrying the SELLER role.
+     */
+    public boolean canSell() {
+        return canSell || role == Role.SELLER;
     }
 }

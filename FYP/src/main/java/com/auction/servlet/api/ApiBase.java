@@ -113,8 +113,38 @@ public abstract class ApiBase extends HttpServlet {
     }
 
     protected boolean isAdmin(AuthSession session)  { return hasRole(session, Role.ADMIN);  }
-    protected boolean isSeller(AuthSession session) { return hasRole(session, Role.SELLER); }
     protected boolean isBuyer(AuthSession session)  { return hasRole(session, Role.BUYER);  }
+
+    /**
+     * True when the session may list items for sale.
+     *
+     * <p>Buying and selling share one account, so this reads the {@code canSell}
+     * capability written at login rather than a SELLER role. Sessions created before
+     * the merge (or against an un-migrated database) still pass via the legacy role.</p>
+     */
+    protected boolean isSeller(AuthSession session) {
+        if (session == null || session.getAttribute("userId") == null) return false;
+        if (Boolean.TRUE.equals(session.getAttribute("canSell"))) return true;
+        return hasRole(session, Role.SELLER);
+    }
+
+    /** Request-scoped form of {@link #isSeller(AuthSession)}. */
+    protected boolean canSell(HttpServletRequest req) {
+        return isSeller(authSession(req));
+    }
+
+    /**
+     * Writes 403 and returns false when the caller cannot sell.
+     * Use as a guard: {@code if (!requireSeller(req, resp)) return;}
+     */
+    protected boolean requireSeller(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireAuth(req, resp)) return false;
+        if (!canSell(req)) {
+            forbidden(resp);
+            return false;
+        }
+        return true;
+    }
 
     /**
      * Writes 401 and returns false if the caller is not logged in.

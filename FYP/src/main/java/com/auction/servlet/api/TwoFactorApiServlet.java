@@ -79,6 +79,7 @@ public class TwoFactorApiServlet extends ApiBase {
         session.setMaxInactiveInterval(60 * 30);
         session.setAttribute("userId",           user.getId());
         session.setAttribute("userRole",         user.getRole().name());
+        session.setAttribute("canSell",         user.canSell());
         session.setAttribute("sessionEmail",     user.getEmail());
         session.setAttribute("twoFactorEnabled", true);
         session.setAttribute("maskedEmail",      SecurityUtil.maskEmail(user.getEmail()));
@@ -90,6 +91,7 @@ public class TwoFactorApiServlet extends ApiBase {
         body.put("username",         user.getUsername());
         body.put("email",            user.getEmail());
         body.put("role",             user.getRole().name());
+        body.put("canSell",             user.canSell());
         body.put("profileImageUrl",  user.getProfileImageUrl());
         body.put("twoFactorEnabled", true);
         ok(resp, body);

@@ -51,8 +51,16 @@ public final class RbacUtil {
         return hasRole(session, Role.ADMIN);
     }
 
-    /** Convenience: {@code true} only when the session user holds the SELLER role. */
+    /**
+     * Convenience: {@code true} when the session user may list items for sale.
+     *
+     * <p>Buying and selling share one account, so this reads the {@code canSell}
+     * capability written at login. Sessions created before the merge (or against an
+     * un-migrated database) still pass via the legacy SELLER role.</p>
+     */
     public static boolean isSeller(HttpSession session) {
+        if (!isAuthenticated(session)) return false;
+        if (Boolean.TRUE.equals(session.getAttribute("canSell"))) return true;
         return hasRole(session, Role.SELLER);
     }
 

@@ -88,6 +88,7 @@ public class LoginServlet extends HttpServlet {
         }
         session.setAttribute("userId", user.getId());
         session.setAttribute("userRole", user.getRole().name());
+        session.setAttribute("canSell", user.canSell());
         session.setAttribute("sessionEmail", user.getEmail());
         session.setAttribute("twoFactorEnabled", user.isTwoFactorEnabled());
         session.setAttribute("maskedEmail", SecurityUtil.maskEmail(user.getEmail()));

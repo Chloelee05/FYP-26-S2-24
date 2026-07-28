@@ -68,7 +68,7 @@ public class OrderApiServlet extends ApiBase {
     }
 
     private void handleDeclare(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
-        if (!"SELLER".equalsIgnoreCase(sessionRole(req))) { forbidden(resp); return; }
+        if (!canSell(req)) { forbidden(resp); return; }
         Long auctionId = parseLong(param(req, "auctionId"));
         if (auctionId == null) { badRequest(resp, "auctionId is required."); return; }
 
@@ -156,7 +156,7 @@ public class OrderApiServlet extends ApiBase {
     }
 
     private void handleRefundResolve(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
-        if (!"SELLER".equalsIgnoreCase(sessionRole(req))) { forbidden(resp); return; }
+        if (!canSell(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
         if (orderId == null) { badRequest(resp, "orderId is required."); return; }
         String action = param(req, "action");
@@ -184,7 +184,7 @@ public class OrderApiServlet extends ApiBase {
     }
 
     private void handleShipping(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
-        if (!"SELLER".equalsIgnoreCase(sessionRole(req))) { forbidden(resp); return; }
+        if (!canSell(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
         if (orderId == null) { badRequest(resp, "orderId is required."); return; }
         OrderDAO.ShippingAdvanceResult r = orderDAO.advanceShipping(orderId, sellerId);
