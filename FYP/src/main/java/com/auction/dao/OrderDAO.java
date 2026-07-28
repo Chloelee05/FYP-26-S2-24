@@ -469,6 +469,18 @@ public class OrderDAO {
         return out;
     }
 
+    /** Total completed (fully settled) orders — used by the public platform stats. */
+    public int countCompletedOrders() {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT COUNT(*) FROM orders WHERE status = 'COMPLETED'");
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public boolean isDelivered(long orderId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(

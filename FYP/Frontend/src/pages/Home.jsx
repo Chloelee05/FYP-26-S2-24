@@ -3,15 +3,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   X, ArrowRight, ShieldCheck, Gavel, Sparkles, TrendingUp, Search as SearchIcon,
   Watch, Headphones, Car, Smartphone, Home as HomeIcon, Camera, Tag, SearchX,
-  AlertCircle, RotateCcw,
+  AlertCircle, RotateCcw, UserPlus, BadgeDollarSign, Star, Quote,
 } from 'lucide-react';
 import { apiErrorMessage } from '../utils/apiError';
 import AuctionCard from '../components/AuctionCard';
 import {
   getTrendingAuctions, getCategories, getRecommendations, getFeaturedListings,
   dismissRecommendation, recordRecommendationImpressions, recordRecommendationClick,
+  getPlatformStats,
 } from '../api/auction';
 import { useAuth } from '../context/AuthContext';
+import { decodeHtmlEntities } from '../utils/helpers';
 
 const HERO_TILES = [Watch, Headphones, Car, Smartphone, HomeIcon, Camera];
 
@@ -58,6 +60,7 @@ export default function Home() {
   const [recommended, setRecommended] = useState([]);
   const [personalised, setPersonalised] = useState(false);
   const [featured, setFeatured] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -74,6 +77,10 @@ export default function Home() {
       .catch(err => setLoadError(apiErrorMessage(err, 'Could not load auctions right now.')))
       .finally(() => setLoadingTrending(false));
     getFeaturedListings(8).then(r => setFeatured(r.data.results ?? [])).catch(() => {});
+    // Live platform metrics + fee schedule + testimonials — all DB-driven, never hardcoded.
+    getPlatformStats()
+      .then(r => setStats(r.data && Object.keys(r.data).length ? r.data : null))
+      .catch(() => setStats(null));
   }, [reloadKey]);
 
   useEffect(() => {
@@ -148,6 +155,24 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            {/* Live platform metrics straight from the database */}
+            {stats && (
+              <div className="flex flex-wrap gap-x-10 gap-y-4 mt-8">
+                {[
+                  { label: 'Live auctions', value: stats.activeListings },
+                  { label: 'Registered users', value: stats.totalUsers },
+                  { label: 'Completed sales', value: stats.completedOrders },
+                ].filter(s => s.value != null).map(s => (
+                  <div key={s.label}>
+                    <p className="font-display text-3xl font-extrabold tabular-nums">
+                      {Number(s.value).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-white/55 mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="hidden md:grid grid-cols-3 gap-3 max-w-sm ml-auto">
@@ -166,15 +191,18 @@ export default function Home() {
       </section>
 
       <div className="max-w-7xl mx-auto px-4 py-12 space-y-14">
-        {/* Categories */}
+        {/* Categories — ranked by real listing counts, not a hand-picked order */}
         {categories.length > 0 && (
           <section>
             <SectionHeader
               title="Popular Categories"
-              subtitle="Jump straight into the collections buyers browse most."
+              subtitle="Ranked by live listing count across the marketplace."
             />
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {categories.map((cat) => (
+              {[...categories]
+                .sort((a, b) => (b.auctionCount ?? 0) - (a.auctionCount ?? 0))
+                .slice(0, 8)
+                .map((cat) => (
                 <Link
                   key={cat.name}
                   to={`/search?category=${encodeURIComponent(cat.name)}`}
@@ -186,6 +214,9 @@ export default function Home() {
                   <span className="text-xs font-semibold text-ink-700 leading-tight line-clamp-2 group-hover:text-primary-600 transition-colors">
                     {cat.name}
                   </span>
+                  {cat.auctionCount > 0 && (
+                    <span className="text-[11px] text-ink-400">{cat.auctionCount} listings</span>
+                  )}
                 </Link>
               ))}
             </div>
@@ -286,6 +317,111 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {/* Fee schedule — values come from the billing constants via /api/stats */}
+        {stats?.fees && (
+          <section>
+            <SectionHeader
+              icon={BadgeDollarSign}
+              title="Simple, Transparent Costs"
+              subtitle="No surprises — this is everything AuctionHub charges."
+            />
+            <div className="grid sm:grid-cols-3 gap-4">
+              <div className="card p-6">
+                <p className="font-display text-3xl font-extrabold text-emerald-600">Free</p>
+                <p className="text-sm font-semibold text-ink-800 mt-2">Browsing &amp; bidding</p>
+                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                  Creating an account, watching and bidding never cost anything.
+                </p>
+              </div>
+              <div className="card p-6">
+                <p className="font-display text-3xl font-extrabold text-primary-600">
+                  {stats.fees.commissionPercent}%
+                </p>
+                <p className="text-sm font-semibold text-ink-800 mt-2">Commission on sales</p>
+                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                  Sellers pay a small commission only when an item actually sells.
+                </p>
+              </div>
+              <div className="card p-6">
+                <p className="font-display text-3xl font-extrabold text-accent-600">
+                  ${Number(stats.fees.featuredListingFee).toFixed(2)}
+                </p>
+                <p className="text-sm font-semibold text-ink-800 mt-2">Featured listing (optional)</p>
+                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                  Promote a listing to the front page for extra visibility.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Testimonials — real buyer reviews pulled from the reviews table */}
+        {stats?.testimonials?.length > 0 && (
+          <section>
+            <SectionHeader
+              icon={Quote}
+              title="What Buyers Say"
+              subtitle="Real reviews left by buyers after completed orders."
+            />
+            <div className="grid md:grid-cols-3 gap-4">
+              {stats.testimonials.map((t, i) => (
+                <figure key={i} className="card p-6 flex flex-col">
+                  <div className="flex items-center gap-0.5 mb-3">
+                    {Array.from({ length: 5 }, (_, s) => (
+                      <Star
+                        key={s}
+                        size={14}
+                        className={s < t.rating ? 'text-amber-400 fill-amber-400' : 'text-ink-200'}
+                      />
+                    ))}
+                  </div>
+                  <blockquote className="text-sm text-ink-700 leading-relaxed flex-1">
+                    “{decodeHtmlEntities(t.comment)}”
+                  </blockquote>
+                  <figcaption className="text-xs text-ink-400 mt-4">
+                    <span className="font-semibold text-ink-600">{t.reviewerName}</span>
+                    {t.auctionTitle && <> · bought “{t.auctionTitle}”</>}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Guest sign-up band */}
+        {!user && (
+          <section className="rounded-3xl bg-ink-900 text-white px-8 py-12 text-center relative overflow-hidden">
+            <div
+              className="absolute inset-0 opacity-80"
+              style={{
+                backgroundImage:
+                  'radial-gradient(32rem 20rem at 20% 0%, #1d4dd8, transparent 60%), radial-gradient(28rem 18rem at 85% 100%, rgba(249,126,7,0.3), transparent 55%)',
+              }}
+            />
+            <div className="relative">
+              <h2 className="font-display text-2xl md:text-3xl font-extrabold">Ready to place your first bid?</h2>
+              <p className="text-sm text-white/65 mt-2 max-w-md mx-auto">
+                Join {stats?.totalUsers ? Number(stats.totalUsers).toLocaleString() : 'our'} registered
+                users — create a free account to bid, watch and sell.
+              </p>
+              <div className="flex justify-center gap-3 mt-6">
+                <Link
+                  to="/register"
+                  className="inline-flex items-center gap-2 bg-white text-ink-900 px-6 py-3 rounded-xl font-semibold text-sm shadow-lift hover:bg-ink-100 transition-colors"
+                >
+                  <UserPlus size={16} /> Create free account
+                </Link>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 border border-white/25 bg-white/5 px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 transition-colors"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
