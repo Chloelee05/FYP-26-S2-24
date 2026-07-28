@@ -9,8 +9,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.StringWriter;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 @DisplayName("WatchlistApiServlet")
@@ -59,6 +62,52 @@ class TestWatchlistApiServlet {
         servlet.doGet(req, resp);
         verify(resp).setStatus(200);
         verify(mockDAO).listByUser(2);
+    }
+
+    @Test
+    @DisplayName("GET ?auctionId= returns the single-auction watching flag")
+    void checkSingleAuction() throws Exception {
+        AuthSession s = ApiTestSupport.newBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("99");
+        when(mockDAO.existsByUserAndAuction(2, 99L)).thenReturn(true);
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        assertTrue(ApiTestSupport.parse(sw).get("watching").asBoolean());
+        // Must not fall back to downloading the entire watchlist.
+        verify(mockDAO, never()).listByUser(anyInt());
+    }
+
+    @Test
+    @DisplayName("GET ?auctionId= reports false when not watched")
+    void checkSingleAuctionNotWatched() throws Exception {
+        AuthSession s = ApiTestSupport.newBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("99");
+        when(mockDAO.existsByUserAndAuction(2, 99L)).thenReturn(false);
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        assertFalse(ApiTestSupport.parse(sw).get("watching").asBoolean());
+    }
+
+    @Test
+    @DisplayName("GET ?auctionId=abc → 400")
+    void checkRejectsBadId() throws Exception {
+        AuthSession s = ApiTestSupport.newBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("abc");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(400);
+        verify(mockDAO, never()).existsByUserAndAuction(anyInt(), anyLong());
     }
 
     @Test

@@ -14,6 +14,7 @@ import java.util.Map;
 
 /**
  * GET  /api/recommendations?limit=8            — personalised recommendations
+ * GET  /api/recommendations/trending?limit=8   — trending auctions, never personalised
  * GET  /api/recommendations/similar?auctionId= — "buyers who bid on this also bid on…"
  * POST /api/recommendations/dismiss  auctionId — hide a recommendation (auth required)
  * POST /api/recommendations/events   type=impression|click, auctionId (or auctionIds CSV)
@@ -46,14 +47,13 @@ public class RecommendationApiServlet extends ApiBase {
             return;
         }
 
-        int limit = recommendationDAO.getSettings().itemsShown;
-        String limitStr = param(req, "limit");
-        if (limitStr != null) {
-            try { limit = Math.max(1, Math.min(MAX_LIMIT, Integer.parseInt(limitStr))); }
-            catch (NumberFormatException ignored) { }
-        }
+        int limit = resolveLimit(req);
 
-        Integer userId = sessionUserId(req);
+        // /trending is never personalised, even for a signed-in user — the home page
+        // needs a genuine "what's hot right now" list alongside personalised picks.
+        boolean trendingOnly = path != null && path.startsWith("/trending");
+
+        Integer userId = trendingOnly ? null : sessionUserId(req);
         boolean personalised = userId != null;
 
         List<SearchResultItem> results;
@@ -72,6 +72,17 @@ public class RecommendationApiServlet extends ApiBase {
         body.put("results", results);
         body.put("personalised", personalised);
         ok(resp, body);
+    }
+
+    /** Caller-supplied {@code limit}, clamped to {@link #MAX_LIMIT}; admin setting by default. */
+    private int resolveLimit(HttpServletRequest req) {
+        int limit = recommendationDAO.getSettings().itemsShown;
+        String limitStr = param(req, "limit");
+        if (limitStr != null) {
+            try { limit = Math.max(1, Math.min(MAX_LIMIT, Integer.parseInt(limitStr))); }
+            catch (NumberFormatException ignored) { }
+        }
+        return limit;
     }
 
     @Override
