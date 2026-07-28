@@ -76,30 +76,30 @@ export default function TwoFactorSettings() {
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/profile" className="text-gray-400 hover:text-gray-600 text-sm">← Back to Profile</Link>
+        <Link to="/profile" className="text-ink-400 hover:text-ink-600 text-sm">← Back to Profile</Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Two-Factor Authentication</h1>
-      <p className="text-gray-500 text-sm mb-6">
+      <h1 className="text-2xl font-bold text-ink-900 mb-2">Two-Factor Authentication</h1>
+      <p className="text-ink-500 text-sm mb-6">
         Add an extra layer of security to your account by requiring a code from your authenticator app when signing in.
       </p>
 
       {message && (
-        <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg mb-4">{message}</div>
+        <div className="alert-success mb-4">{message}</div>
       )}
       {error && (
-        <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>
+        <div className="alert-error mb-4">{error}</div>
       )}
 
       {/* ── Current status ── */}
       <div className="card p-5 mb-6 flex items-center justify-between">
         <div>
-          <p className="font-medium text-gray-900">Status</p>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="font-medium text-ink-900">Status</p>
+          <p className="text-sm text-ink-500 mt-0.5">
             {is2FAEnabled ? 'Two-factor authentication is enabled.' : 'Two-factor authentication is disabled.'}
           </p>
         </div>
-        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${is2FAEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${is2FAEnabled ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-ink-100 text-ink-600 ring-ink-200'}`}>
           {is2FAEnabled ? 'Enabled' : 'Disabled'}
         </span>
       </div>
@@ -109,7 +109,7 @@ export default function TwoFactorSettings() {
         <button
           onClick={handleStartSetup}
           disabled={loading}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+          className="btn-primary btn-block btn-lg"
         >
           {loading ? 'Setting up…' : 'Enable Two-Factor Authentication'}
         </button>
@@ -117,30 +117,30 @@ export default function TwoFactorSettings() {
 
       {!is2FAEnabled && step === 'setup' && (
         <div className="card p-6 space-y-5">
-          <h2 className="font-bold text-gray-900">Step 1 — Scan the QR code</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="font-bold text-ink-900">Step 1 — Scan the QR code</h2>
+          <p className="text-sm text-ink-500">
             Open Google Authenticator, Authy, or any TOTP app and scan the QR code below.
           </p>
 
-          <div className="flex justify-center p-4 bg-white border border-gray-200 rounded-xl">
+          <div className="flex justify-center p-4 bg-white border border-ink-200 rounded-xl">
             <QRCodeSVG value={totpUri} size={180} />
           </div>
 
           <div>
-            <p className="text-xs text-gray-400 mb-1">Can't scan? Enter this key manually:</p>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 text-sm font-mono text-gray-700 break-all flex items-center justify-between gap-2">
+            <p className="text-xs text-ink-400 mb-1">Can't scan? Enter this key manually:</p>
+            <div className="bg-ink-50 border border-ink-200 rounded-lg px-4 py-2 text-sm font-mono text-ink-700 break-all flex items-center justify-between gap-2">
               <span>{totpSecret}</span>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(totpSecret).then(() => setMessage('Key copied!'))}
-                className="text-blue-500 text-xs whitespace-nowrap hover:underline"
+                className="text-primary-500 text-xs whitespace-nowrap hover:underline"
               >
                 Copy
               </button>
             </div>
           </div>
 
-          <h2 className="font-bold text-gray-900">Step 2 — Enter the verification code</h2>
+          <h2 className="font-bold text-ink-900">Step 2 — Enter the verification code</h2>
           <form onSubmit={handleConfirm} className="space-y-3">
             <input
               type="text"
@@ -162,7 +162,7 @@ export default function TwoFactorSettings() {
             <button
               type="button"
               onClick={() => { setStep('idle'); clearMessages(); }}
-              className="w-full border border-gray-200 text-gray-600 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors"
+              className="btn-secondary btn-block btn-lg"
             >
               Cancel
             </button>
@@ -182,8 +182,8 @@ export default function TwoFactorSettings() {
             </button>
           ) : (
             <div className="card p-6 border-red-200 space-y-4">
-              <h2 className="font-bold text-gray-900">Disable 2FA</h2>
-              <p className="text-sm text-gray-500">Enter your current password to confirm.</p>
+              <h2 className="font-bold text-ink-900">Disable 2FA</h2>
+              <p className="text-sm text-ink-500">Enter your current password to confirm.</p>
               <form onSubmit={handleDisable} className="space-y-3">
                 <input
                   type="password"
@@ -203,7 +203,7 @@ export default function TwoFactorSettings() {
                 <button
                   type="button"
                   onClick={() => { setShowDisable(false); setDisableCode(''); clearMessages(); }}
-                  className="w-full border border-gray-200 text-gray-600 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="btn-secondary btn-block btn-lg"
                 >
                   Cancel
                 </button>

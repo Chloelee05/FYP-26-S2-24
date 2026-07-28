@@ -15,6 +15,12 @@ export const getTags         = ()       => api.get('/auction/tags');
 // Personalised recommendations (collaborative filtering; trending fallback).
 // Without a limit the server uses the admin-configured "items shown" setting.
 export const getRecommendations = (limit) => api.get('/recommendations', { params: limit ? { limit } : {} });
+
+// Trending auctions — never personalised, unlike /recommendations which switches to
+// per-user picks once you are signed in.
+export const getTrendingAuctions = (limit) =>
+  api.get('/recommendations/trending', { params: limit ? { limit } : {} });
+
 export const getFeaturedListings = (limit = 8) => api.get('/featured', { params: { limit } });
 
 // "Buyers who bid on this also bid on…" (auction detail page)
@@ -54,11 +60,12 @@ export const setAutoBid = (auctionId, maxAmount, note, bidIncrement) =>
 export const cancelAutoBid = (auctionId) =>
   api.post('/auto-bid', form({ auctionId, action: 'CANCEL' }), F);
 
-export const getMyAutoBid = (auctionId) =>
-  api.get(`/auto-bid?auctionId=${auctionId}`);
-
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist');
+
+/** Whether one auction is on the caller's watchlist — avoids fetching the whole list. */
+export const checkWatching = (auctionId) =>
+  api.get('/watchlist', { params: { auctionId } });
 export const addToWatchlist = (auctionId) =>
   api.post('/watchlist', form({ auctionId, action: 'add' }), F);
 export const removeFromWatchlist = (auctionId) =>

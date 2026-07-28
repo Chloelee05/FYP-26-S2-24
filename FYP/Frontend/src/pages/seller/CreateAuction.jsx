@@ -5,6 +5,8 @@ import { getCategories, getTags } from '../../api/auction';
 import { normalizeCategories } from '../../utils/helpers';
 import { publicPath } from '../../utils/appBase';
 import ImageUploader from '../../components/ImageUploader';
+import Modal from '../../components/Modal';
+import { Eye } from 'lucide-react';
 
 // Maps UI condition labels to backend ItemCondition IDs (BRAND_NEW=1, SLIGHTLY_USED=2, USED=3, DAMAGED=4)
 const CONDITIONS = [
@@ -115,115 +117,115 @@ export default function CreateAuction() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       {showPreview && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6">
-            <h3 className="font-bold text-gray-900 text-lg mb-1">Listing preview</h3>
-            <p className="text-xs text-gray-500 mb-4">How buyers will see this auction — nothing has been published yet.</p>
-
-            <div className="bg-gray-100 rounded-xl aspect-video flex items-center justify-center mb-3 overflow-hidden">
+        <Modal
+          title="Listing preview"
+          subtitle="How buyers will see this auction — nothing has been published yet."
+          icon={Eye}
+          size="lg"
+          onClose={() => setShowPreview(false)}
+        >
+          <div className="p-6">
+            <div className="bg-ink-100 rounded-xl aspect-video flex items-center justify-center mb-3 overflow-hidden">
               {imageUrls[0]
                 ? <img src={publicPath(imageUrls[0])} alt={form.auctionName || 'Preview'} className="w-full h-full object-contain" />
-                : <span className="text-sm text-gray-400">No photos yet</span>}
+                : <span className="text-sm text-ink-400">No photos yet</span>}
             </div>
             {imageUrls.length > 1 && (
               <div className="flex gap-2 mb-4 overflow-x-auto">
                 {imageUrls.map((url, i) => (
-                  <img key={i} src={publicPath(url)} alt="" className="w-16 h-12 object-cover rounded-lg border border-gray-200 shrink-0" />
+                  <img key={i} src={publicPath(url)} alt="" className="w-16 h-12 object-cover rounded-lg border border-ink-200 shrink-0" />
                 ))}
               </div>
             )}
 
-            <h4 className="text-xl font-bold text-gray-900 mb-1">{form.auctionName || 'Untitled listing'}</h4>
-            <div className="flex flex-wrap gap-2 text-xs text-gray-500 mb-3">
-              {form.category && <span className="bg-gray-100 px-2 py-0.5 rounded">{form.category}</span>}
+            <h4 className="text-xl font-bold text-ink-900 mb-1">{form.auctionName || 'Untitled listing'}</h4>
+            <div className="flex flex-wrap gap-2 text-xs text-ink-500 mb-3">
+              {form.category && <span className="bg-ink-100 px-2 py-0.5 rounded">{form.category}</span>}
               <span>Condition: {conditionLabel}</span>
               <span>{strategyLabel}</span>
             </div>
             {selectedTagNames.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {selectedTagNames.map(name => (
-                  <span key={name} className="bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full text-xs">{name}</span>
+                  <span key={name} className="bg-primary-50 text-primary-600 border border-primary-100 px-2 py-0.5 rounded-full text-xs">{name}</span>
                 ))}
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-3 text-sm mb-4">
               <div>
-                <p className="text-xs text-gray-400">Starting bid</p>
-                <p className="font-semibold text-gray-900">{form.startPrice ? `$${Number(form.startPrice).toFixed(2)}` : '—'}</p>
+                <p className="text-xs text-ink-400">Starting bid</p>
+                <p className="font-semibold text-ink-900">{form.startPrice ? `$${Number(form.startPrice).toFixed(2)}` : '—'}</p>
               </div>
               {form.auctionType === '2' ? (
                 <div>
-                  <p className="text-xs text-gray-400">Floor price</p>
-                  <p className="font-semibold text-gray-900">{form.dutchFloorPrice ? `$${Number(form.dutchFloorPrice).toFixed(2)}` : '—'}</p>
+                  <p className="text-xs text-ink-400">Floor price</p>
+                  <p className="font-semibold text-ink-900">{form.dutchFloorPrice ? `$${Number(form.dutchFloorPrice).toFixed(2)}` : '—'}</p>
                 </div>
               ) : (
                 <div>
-                  <p className="text-xs text-gray-400">Reserve / max</p>
-                  <p className="font-semibold text-gray-900">{form.maxPrice ? `$${Number(form.maxPrice).toFixed(2)}` : '—'}</p>
+                  <p className="text-xs text-ink-400">Reserve / max</p>
+                  <p className="font-semibold text-ink-900">{form.maxPrice ? `$${Number(form.maxPrice).toFixed(2)}` : '—'}</p>
                 </div>
               )}
               {form.auctionType === '1' && form.buyItNowPrice && (
                 <div>
-                  <p className="text-xs text-gray-400">Buy It Now</p>
+                  <p className="text-xs text-ink-400">Buy It Now</p>
                   <p className="font-semibold text-green-600">${Number(form.buyItNowPrice).toFixed(2)}</p>
                 </div>
               )}
               <div>
-                <p className="text-xs text-gray-400">Quantity</p>
-                <p className="font-semibold text-gray-900">{form.quantity || '1'}</p>
+                <p className="text-xs text-ink-400">Quantity</p>
+                <p className="font-semibold text-ink-900">{form.quantity || '1'}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Starts</p>
-                <p className="font-semibold text-gray-900">{formatPreviewDate(form.startDate)}</p>
+                <p className="text-xs text-ink-400">Starts</p>
+                <p className="font-semibold text-ink-900">{formatPreviewDate(form.startDate)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Ends</p>
-                <p className="font-semibold text-gray-900">{formatPreviewDate(form.endDate)}</p>
+                <p className="text-xs text-ink-400">Ends</p>
+                <p className="font-semibold text-ink-900">{formatPreviewDate(form.endDate)}</p>
               </div>
             </div>
 
             <div className="mb-5">
-              <p className="text-xs font-semibold text-gray-500 mb-1">Description</p>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{form.auctionDetails || 'No description yet.'}</p>
+              <p className="text-xs font-semibold text-ink-500 mb-1">Description</p>
+              <p className="text-sm text-ink-600 whitespace-pre-wrap">{form.auctionDetails || 'No description yet.'}</p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowPreview(false)}
-              className="w-full border border-gray-200 text-gray-700 font-medium py-2.5 rounded-lg hover:bg-gray-50"
-            >
+            <button type="button" onClick={() => setShowPreview(false)} className="btn-secondary btn-block">
               Close preview
             </button>
           </div>
-        </div>
+        </Modal>
       )}
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Create New Auction</h1>
-      <div className="card p-8">
-        {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+      <h1 className="page-title">Create New Auction</h1>
+      <p className="page-subtitle mb-6">Set your price, timing and photos — buyers see this exactly as previewed.</p>
+      <div className="card p-6 sm:p-8">
+        {error && <div className="alert-error mb-5">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-5">
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+            <label className="field-label">Title *</label>
             <input value={form.auctionName} onChange={e => update('auctionName', e.target.value)}
               required className="input-field" placeholder="Item title" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+            <label className="field-label">Description *</label>
             <textarea value={form.auctionDetails} onChange={e => update('auctionDetails', e.target.value)}
               required rows={4}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+              className="textarea-field"
               placeholder="Describe your item in detail…" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+            <label className="field-label">Category *</label>
             <select value={form.category} onChange={e => update('category', e.target.value)}
               required
               disabled={categories.length === 0}
-              className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50">
+              className="select-field disabled:bg-ink-50">
               <option value="">-- Select a category --</option>
               {categories.map(c => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)}
             </select>
@@ -231,26 +233,26 @@ export default function CreateAuction() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Auction Strategy *</label>
+            <label className="field-label">Auction Strategy *</label>
             <select value={form.auctionType} onChange={e => update('auctionType', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              className="select-field">
               {STRATEGIES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="field-hint">
               {STRATEGIES.find(s => s.id === form.auctionType)?.help}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Condition *</label>
+              <label className="field-label">Condition *</label>
               <select value={form.itemCondition} onChange={e => update('itemCondition', e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                className="select-field">
                 {CONDITIONS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
+              <label className="field-label">Quantity *</label>
               <input type="number" min="1" step="1" value={form.quantity}
                 onChange={e => update('quantity', e.target.value)}
                 className="input-field" placeholder="1" />
@@ -259,7 +261,7 @@ export default function CreateAuction() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="field-label">
                 {form.auctionType === '2' ? 'Starting (High) Price ($) *' : 'Starting Bid ($)'}
               </label>
               <input type="number" min="0.01" step="0.01" value={form.startPrice}
@@ -267,8 +269,8 @@ export default function CreateAuction() {
                 className="input-field" placeholder="0.00" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cost Price ($) <span className="text-gray-400 font-normal">(private)</span>
+              <label className="field-label">
+                Cost Price ($) <span className="text-ink-400 font-normal">(private)</span>
               </label>
               <input type="number" min="0" step="0.01" value={form.costPrice}
                 onChange={e => update('costPrice', e.target.value)}
@@ -278,15 +280,15 @@ export default function CreateAuction() {
 
           {form.auctionType === '2' ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Floor (Low) Price ($) *</label>
+              <label className="field-label">Floor (Low) Price ($) *</label>
               <input type="number" min="0" step="0.01" value={form.dutchFloorPrice}
                 onChange={e => update('dutchFloorPrice', e.target.value)}
                 className="input-field" placeholder="Lowest price the clock may reach" />
-              <p className="text-xs text-gray-500 mt-1">The price falls from the starting price to this floor by the end time.</p>
+              <p className="field-hint">The price falls from the starting price to this floor by the end time.</p>
             </div>
           ) : (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reserve / Max Price ($) <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="field-label">Reserve / Max Price ($) <span className="text-ink-400 font-normal">(optional)</span></label>
               <input type="number" min="0.01" step="0.01" value={form.maxPrice}
                 onChange={e => update('maxPrice', e.target.value)}
                 className="input-field" placeholder="Max value" />
@@ -295,24 +297,24 @@ export default function CreateAuction() {
 
           {form.auctionType === '1' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Buy It Now ($) <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="field-label">
+                Buy It Now ($) <span className="text-ink-400 font-normal">(optional)</span>
               </label>
               <input type="number" min="0.01" step="0.01" value={form.buyItNowPrice}
                 onChange={e => update('buyItNowPrice', e.target.value)}
                 className="input-field" placeholder="Instant purchase price" />
-              <p className="text-xs text-gray-500 mt-1">Buyers can purchase immediately at this price instead of bidding.</p>
+              <p className="field-hint">Buyers can purchase immediately at this price instead of bidding.</p>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Start Time <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="field-label">Start Time <span className="text-ink-400 font-normal">(optional)</span></label>
               <input type="datetime-local" value={form.startDate} onChange={e => update('startDate', e.target.value)}
                 className="input-field" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">End Time *</label>
+              <label className="field-label">End Time *</label>
               <input type="datetime-local" value={form.endDate} onChange={e => update('endDate', e.target.value)}
                 required className="input-field" />
             </div>
@@ -320,7 +322,7 @@ export default function CreateAuction() {
 
           {availableTags.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tags <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="field-label">Tags <span className="text-ink-400 font-normal">(optional)</span></label>
               <div className="flex flex-wrap gap-2">
                 {availableTags.map(tag => {
                   const active = selectedTags.includes(tag.id);
@@ -331,10 +333,10 @@ export default function CreateAuction() {
                       onClick={() => setSelectedTags(prev =>
                         active ? prev.filter(id => id !== tag.id) : [...prev, tag.id]
                       )}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                         active
-                          ? 'bg-blue-500 text-white border-blue-500'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                          ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+                          : 'bg-white text-ink-600 border-ink-200 hover:border-primary-300 hover:text-primary-600'
                       }`}
                     >
                       {tag.name}
@@ -346,21 +348,22 @@ export default function CreateAuction() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Photos *</label>
+            <label className="field-label">Photos *</label>
             <ImageUploader onChange={(urls) => setImageUrls(urls)} />
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button type="submit" disabled={loading}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50">
+          <div className="flex flex-wrap gap-3 pt-3 border-t border-ink-100">
+            <button type="submit" disabled={loading} className="btn-primary btn-lg flex-1">
               {loading ? 'Creating…' : 'Create Auction'}
             </button>
-            <button type="button" onClick={() => setShowPreview(true)}
-              className="flex-1 border border-blue-200 text-blue-600 font-medium py-3 rounded-lg hover:bg-blue-50">
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              className="btn btn-lg flex-1 border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100"
+            >
               Preview
             </button>
-            <button type="button" onClick={() => navigate('/seller/dashboard')}
-              className="flex-1 border border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50">
+            <button type="button" onClick={() => navigate('/seller/dashboard')} className="btn-secondary btn-lg flex-1">
               Cancel
             </button>
           </div>

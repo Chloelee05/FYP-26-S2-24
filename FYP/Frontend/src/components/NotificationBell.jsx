@@ -71,39 +71,52 @@ export default function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         onClick={handleOpen}
-        className="relative p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-600"
+        className={`relative p-2 rounded-full transition-colors ${open ? 'bg-ink-100 text-ink-900' : 'text-ink-500 hover:bg-ink-100 hover:text-ink-900'}`}
         aria-label="Notifications"
       >
         <Bell size={20} />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+          <span className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-12 bg-white border border-gray-200 rounded-xl shadow-lg w-80 z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-            <span className="text-sm font-semibold text-gray-800">Notifications</span>
+        <div className="absolute right-0 top-full mt-2.5 bg-white border border-ink-200 rounded-2xl shadow-pop w-[21rem] max-w-[calc(100vw-2rem)] z-50 overflow-hidden animate-scale-in origin-top-right">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-ink-100">
+            <span className="text-sm font-bold text-ink-900">
+              Notifications
+              {unread > 0 && <span className="ml-2 badge-danger">{unread} new</span>}
+            </span>
             {unread > 0 && (
-              <button onClick={handleMarkAll} className="text-xs text-blue-500 hover:underline">
+              <button onClick={handleMarkAll} className="text-xs font-semibold text-primary-600 hover:text-primary-700">
                 Mark all read
               </button>
             )}
           </div>
           <div className="max-h-96 overflow-y-auto">
             {items.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-400">No notifications yet.</div>
+              <div className="px-4 py-12 text-center">
+                <span className="grid place-items-center w-11 h-11 rounded-full bg-ink-100 text-ink-400 mx-auto mb-3">
+                  <Bell size={18} />
+                </span>
+                <p className="text-sm text-ink-400">No notifications yet.</p>
+              </div>
             ) : (
               items.map(n => (
                 <button
                   key={n.id}
                   onClick={() => handleClick(n)}
-                  className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${n.read ? '' : 'bg-blue-50/50'}`}
+                  className={`w-full text-left px-4 py-3 border-b border-ink-100 last:border-0 transition-colors flex gap-2.5 ${
+                    n.read ? 'hover:bg-ink-50' : 'bg-primary-50/50 hover:bg-primary-50'
+                  }`}
                 >
-                  <p className={`text-sm ${n.read ? 'text-gray-600' : 'text-gray-900 font-medium'}`}>{n.message}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{timeAgo(n.createdAt)}</p>
+                  <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.read ? 'bg-transparent' : 'bg-primary-500'}`} />
+                  <span className="min-w-0">
+                    <span className={`block text-sm leading-snug ${n.read ? 'text-ink-600' : 'text-ink-900 font-semibold'}`}>{n.message}</span>
+                    <span className="block text-xs text-ink-400 mt-0.5">{timeAgo(n.createdAt)}</span>
+                  </span>
                 </button>
               ))
             )}

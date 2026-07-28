@@ -32,6 +32,17 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
+  /** Re-reads the session, e.g. after enabling selling, so capability gates update. */
+  const refreshUser = async () => {
+    try {
+      const res = await getSession();
+      setUser(res.data);
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
   const logout = async () => {
     try {
       await apiLogout();
@@ -42,7 +53,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, setUser, login, logout, refreshUser, loading }}>
       {children}
     </AuthContext.Provider>
   );

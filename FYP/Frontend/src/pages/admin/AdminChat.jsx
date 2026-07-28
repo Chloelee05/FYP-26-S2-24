@@ -9,7 +9,7 @@ import SupportChatInput from '../../components/SupportChatInput';
 function threadPreview(t) {
   const body = (t.lastBody || '').trim();
   if (body && body !== ' ') return body;
-  if (t.lastAttachmentUrl) return '📷 Image attached';
+  if (t.lastAttachmentUrl) return 'Image attached';
   return 'New message';
 }
 
@@ -97,29 +97,29 @@ export default function AdminChat() {
   return (
     <div className="p-6 flex flex-col h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] overflow-hidden">
       <div className="shrink-0">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Support Chat</h1>
-        <p className="text-gray-400 text-sm mb-4">Direct messages with users</p>
-        {msg && <div className="text-sm text-blue-600 mb-2">{msg}</div>}
+        <h1 className="page-title">Support Chat</h1>
+        <p className="text-ink-400 text-sm mb-4">Direct messages with users</p>
+        {msg && <div className="text-sm text-primary-600 mb-2">{msg}</div>}
       </div>
 
       <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
         <div className="w-80 card overflow-hidden flex flex-col min-h-0 shrink-0">
-          <div className="px-4 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">Threads</div>
+          <div className="px-4 py-3 border-b border-ink-100 text-xs font-semibold text-ink-500 uppercase">Threads</div>
           <div className="flex-1 overflow-y-auto min-h-0">
-            {threads.length === 0 && <p className="p-4 text-sm text-gray-400">No conversations yet.</p>}
+            {threads.length === 0 && <p className="p-4 text-sm text-ink-400">No conversations yet.</p>}
             {threads.map(t => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => selectThread(t)}
-                className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                  selectedId === t.id ? 'bg-blue-50' : t.unread ? 'bg-sky-50 border-l-4 border-l-sky-500' : ''
+                className={`w-full text-left px-4 py-3 border-b border-ink-50 hover:bg-ink-50 transition-colors ${
+                  selectedId === t.id ? 'bg-primary-50' : t.unread ? 'bg-sky-50 border-l-4 border-l-sky-500' : ''
                 }`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <div className="flex items-center gap-2 min-w-0">
                     {t.unread && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-sky-500" aria-hidden />}
-                    <p className={`text-sm text-gray-900 truncate ${t.unread ? 'font-bold' : 'font-medium'}`}>
+                    <p className={`text-sm text-ink-900 truncate ${t.unread ? 'font-bold' : 'font-medium'}`}>
                       {t.username}
                     </p>
                   </div>
@@ -129,12 +129,12 @@ export default function AdminChat() {
                     </span>
                   )}
                 </div>
-                <p className={`text-xs truncate ${t.unread ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
+                <p className={`text-xs truncate ${t.unread ? 'font-semibold text-ink-800' : 'text-ink-600'}`}>
                   {threadPreview(t)}
                 </p>
                 <div className="flex items-center justify-between mt-1.5">
-                  <span className={`text-xs ${t.status === 'OPEN' ? 'text-green-600' : 'text-gray-400'}`}>{t.status}</span>
-                  <span className="text-xs text-gray-400">{formatThreadTime(t.lastMessageAt)}</span>
+                  <span className={`text-xs ${t.status === 'OPEN' ? 'text-green-600' : 'text-ink-400'}`}>{t.status}</span>
+                  <span className="text-xs text-ink-400">{formatThreadTime(t.lastMessageAt)}</span>
                 </div>
               </button>
             ))}
@@ -143,13 +143,13 @@ export default function AdminChat() {
 
         <div className="flex-1 card flex flex-col min-h-0 overflow-hidden">
           {!selectedId ? (
-            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">Select a conversation</div>
+            <div className="flex-1 flex items-center justify-center text-ink-400 text-sm">Select a conversation</div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
+              <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between bg-white shrink-0">
                 <div>
-                  <p className="font-semibold text-gray-900">{selected?.username}</p>
-                  <p className="text-xs text-gray-500">{selected?.subject}</p>
+                  <p className="font-semibold text-ink-900">{selected?.username}</p>
+                  <p className="text-xs text-ink-500">{selected?.subject}</p>
                 </div>
                 {selected?.status === 'OPEN' && (
                   <button type="button" onClick={handleClose} className="text-xs text-red-500 hover:text-red-600">Close thread</button>
@@ -169,7 +169,7 @@ export default function AdminChat() {
               {selected?.status === 'OPEN' ? (
                 <SupportChatInput onSend={handleSend} placeholder="Type a reply…" />
               ) : (
-                <div className="p-4 border-t border-gray-100 text-center text-sm text-gray-400 bg-white shrink-0">
+                <div className="p-4 border-t border-ink-100 text-center text-sm text-ink-400 bg-white shrink-0">
                   This thread is closed.
                 </div>
               )}

@@ -1,36 +1,78 @@
 import { Link } from 'react-router-dom';
-import { Clock } from 'lucide-react';
+import { Clock, ImageIcon } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
 
+/** Auctions closing within this window get the urgent (amber) treatment. */
+const URGENT_MS = 6 * 60 * 60 * 1000;
+
 export default function AuctionCard({ auction }) {
   const {
-    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername,
+    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category,
   } = auction;
 
+  const msLeft = endDate ? new Date(endDate) - new Date() : null;
+  const ended = msLeft != null && msLeft <= 0;
+  const urgent = msLeft != null && msLeft > 0 && msLeft < URGENT_MS;
+
   return (
-    <div className="card overflow-hidden hover:shadow-md transition-shadow">
-      <div className="aspect-square bg-gray-100 overflow-hidden">
-        {thumbnailUrl
-          ? <img src={publicPath(thumbnailUrl)} alt={title} className="w-full h-full object-cover" />
-          : <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
-        }
-      </div>
-      <div className="p-4">
-        <h3 className="font-bold text-sm text-gray-900 leading-tight mb-1 line-clamp-2">{title}</h3>
-        {sellerUsername && <p className="text-xs text-gray-400 mb-2">Seller: {sellerUsername}</p>}
-        <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
-          <Clock size={12} />
-          <span>End in: {timeRemaining(endDate)}</span>
-        </div>
-        <p className="text-xs text-gray-500 mb-1">Current Bid</p>
-        <p className="font-bold text-gray-900">{formatCurrency(currentPrice)}</p>
-        <Link
-          to={`/auction/${auctionId}`}
-          className="mt-3 block w-full text-center bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+    <div className="card card-hover group overflow-hidden flex flex-col">
+      <Link to={`/auction/${auctionId}`} className="block relative aspect-square bg-ink-100 overflow-hidden">
+        {thumbnailUrl ? (
+          <img
+            src={publicPath(thumbnailUrl)}
+            alt={title}
+            loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-ink-300 bg-gradient-to-br from-ink-100 to-ink-200">
+            <ImageIcon size={26} />
+            <span className="text-xs font-medium">No image</span>
+          </div>
+        )}
+
+        {/* Time status chip */}
+        <span
+          className={`absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-md shadow-sm ${
+            ended
+              ? 'bg-ink-900/75 text-white'
+              : urgent
+                ? 'bg-accent-500/95 text-white'
+                : 'bg-white/90 text-ink-700'
+          }`}
         >
-          BID NOW
+          <Clock size={11} />
+          {ended ? 'Ended' : timeRemaining(endDate)}
+        </span>
+
+        {category && (
+          <span className="absolute top-2.5 right-2.5 rounded-full bg-white/90 backdrop-blur-md px-2.5 py-1 text-[11px] font-semibold text-ink-600 shadow-sm">
+            {category}
+          </span>
+        )}
+      </Link>
+
+      <div className="p-4 flex flex-col flex-1">
+        <Link to={`/auction/${auctionId}`} className="block">
+          <h3 className="font-semibold text-sm text-ink-900 leading-snug line-clamp-2 group-hover:text-primary-600 transition-colors">
+            {title}
+          </h3>
         </Link>
+        {sellerUsername && (
+          <p className="text-xs text-ink-400 mt-1 truncate">by {sellerUsername}</p>
+        )}
+
+        <div className="mt-auto pt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Current bid</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatCurrency(currentPrice)}</p>
+          <Link
+            to={`/auction/${auctionId}`}
+            className="btn-primary btn-block mt-3 text-xs uppercase tracking-wide"
+          >
+            {ended ? 'View Result' : 'Bid Now'}
+          </Link>
+        </div>
       </div>
     </div>
   );

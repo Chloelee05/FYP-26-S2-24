@@ -20,13 +20,13 @@ export function getInitials(name = '') {
 }
 
 const ROLE_LABELS = {
-  BUYER: { label: 'Buyer', className: 'bg-blue-100 text-blue-600' },
-  SELLER: { label: 'Seller', className: 'bg-purple-100 text-purple-600' },
-  ADMIN: { label: 'Admin', className: 'bg-red-100 text-red-600' },
+  BUYER: { label: 'Buyer', className: 'badge bg-primary-50 text-primary-700 ring-primary-200' },
+  SELLER: { label: 'Seller', className: 'badge bg-purple-50 text-purple-700 ring-purple-200' },
+  ADMIN: { label: 'Admin', className: 'badge bg-red-50 text-red-700 ring-red-200' },
 };
 
 export function getRoleDisplay(role) {
-  return ROLE_LABELS[role] ?? { label: role || 'User', className: 'bg-gray-100 text-gray-600' };
+  return ROLE_LABELS[role] ?? { label: role || 'User', className: 'badge bg-ink-100 text-ink-600 ring-ink-200' };
 }
 
 export function normalizeCategories(data) {

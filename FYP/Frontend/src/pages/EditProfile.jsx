@@ -36,7 +36,7 @@ export default function EditProfile() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(''); setMessage('');
-    if (form.phone && !/^[\d\s\+\-\(\)]+$/.test(form.phone)) {
+    if (form.phone && !/^[\d\s+()-]+$/.test(form.phone)) {
       setError('Phone number can only contain digits, spaces, +, -, and parentheses.');
       return;
     }
@@ -68,23 +68,23 @@ export default function EditProfile() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Edit Profile</h1>
+      <h1 className="page-title mb-6">Edit Profile</h1>
       <div className="card p-8">
-        {message && <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-lg mb-4">{message}</div>}
-        {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+        {message && <div className="alert-success mb-4">{message}</div>}
+        {error   && <div className="alert-error mb-4">{error}</div>}
 
         {/* Photo upload */}
         <div className="flex items-center gap-5 mb-6">
           <div className="relative shrink-0">
             {displayImage ? (
-              <img src={displayImage} alt="Profile" className="w-20 h-20 rounded-full object-cover border border-gray-200" />
+              <img src={displayImage} alt="Profile" className="w-20 h-20 rounded-full object-cover border border-ink-200" />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex items-center justify-center text-white text-2xl font-bold">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-primary-500 flex items-center justify-center text-white text-2xl font-bold">
                 {initials}
               </div>
             )}
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="absolute -bottom-1 -right-1 bg-blue-500 hover:bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center shadow transition-colors"
+              className="absolute -bottom-1 -right-1 bg-primary-600 hover:bg-primary-700 text-white rounded-full w-7 h-7 flex items-center justify-center shadow-lift transition-all hover:scale-110"
               title="Change photo">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
@@ -93,11 +93,11 @@ export default function EditProfile() {
           </div>
           <div>
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="text-sm font-medium text-blue-500 hover:underline">
+              className="link-subtle text-sm">
               {uploading ? 'Uploading…' : 'Upload new photo'}
             </button>
-            <p className="text-xs text-gray-400 mt-0.5">JPEG, PNG, GIF or WebP · Max 5 MB</p>
-            {selectedFile && <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[200px]">{selectedFile.name}</p>}
+            <p className="text-xs text-ink-400 mt-0.5">JPEG, PNG, GIF or WebP · Max 5 MB</p>
+            {selectedFile && <p className="text-xs text-ink-500 mt-0.5 truncate max-w-[200px]">{selectedFile.name}</p>}
           </div>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp"
             onChange={handleFileChange} className="hidden" />
@@ -111,7 +111,7 @@ export default function EditProfile() {
             { key: 'address',  label: 'Address',       type: 'text',  placeholder: 'Street, City, Country' },
           ].map(({ key, label, type, placeholder }) => (
             <div key={key}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+              <label className="field-label">{label}</label>
               <input type={type} value={form[key]}
                 onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                 placeholder={placeholder} className="input-field" />
@@ -119,11 +119,11 @@ export default function EditProfile() {
           ))}
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={uploading}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50">
+              className="btn-primary flex-1 btn-lg">
               {uploading ? 'Uploading photo…' : 'Save Changes'}
             </button>
             <button type="button" onClick={() => navigate('/profile')}
-              className="flex-1 border border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors">
+              className="btn-secondary flex-1 btn-lg">
               Cancel
             </button>
           </div>

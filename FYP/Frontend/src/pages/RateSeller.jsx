@@ -1,21 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, Star, Package } from 'lucide-react';
 import { getAuctionDetail, rateSeller, getSellerProfile, checkSellerRated } from '../api/auction';
 import StarRating from '../components/StarRating';
 import { publicPath } from '../utils/appBase';
 
 function StarDisplay({ value, size = 18 }) {
-  return (
-    <div className="flex">
-      {[1, 2, 3, 4, 5].map(i => (
-        <span key={i} style={{ fontSize: size, lineHeight: 1 }}
-              className={i <= Math.round(value) ? 'text-yellow-400' : 'text-gray-200'}>
-          ★
-        </span>
-      ))}
-    </div>
-  );
+  return <StarRating value={Math.round(value)} size={size} />;
 }
 
 export default function RateSeller() {
@@ -64,7 +55,7 @@ export default function RateSeller() {
 
   if (!auction) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">Loading…</div>
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center text-ink-400">Loading…</div>
     );
   }
 
@@ -75,10 +66,12 @@ export default function RateSeller() {
   if (alreadyRated && !submitted) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <p className="text-5xl mb-4">✓</p>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">You already rated this seller</h2>
-        <p className="text-gray-500 text-sm mb-6">Each buyer can submit one review per completed order.</p>
-        <Link to="/profile" className="bg-blue-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-600 inline-block">
+        <span className="grid place-items-center w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-500 mx-auto mb-5">
+          <CheckCircle2 size={30} />
+        </span>
+        <h2 className="text-xl font-bold text-ink-900 mb-2">You already rated this seller</h2>
+        <p className="text-ink-500 text-sm mb-6">Each buyer can submit one review per completed order.</p>
+        <Link to="/profile" className="btn-primary inline-flex">
           Back to Orders
         </Link>
       </div>
@@ -88,12 +81,14 @@ export default function RateSeller() {
   if (submitted) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <p className="text-5xl mb-4">⭐</p>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Thank you for your review!</h2>
-        <p className="text-gray-500 text-sm mb-6">Your feedback helps other buyers make better decisions.</p>
+        <span className="grid place-items-center w-16 h-16 rounded-2xl bg-amber-50 text-amber-500 mx-auto mb-5">
+          <Star size={30} className="fill-amber-400 text-amber-400" />
+        </span>
+        <h2 className="text-xl font-bold text-ink-900 mb-2">Thank you for your review!</h2>
+        <p className="text-ink-500 text-sm mb-6">Your feedback helps other buyers make better decisions.</p>
         <button
           onClick={() => navigate('/bidding-history')}
-          className="bg-blue-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-600"
+          className="btn-primary"
         >
           Back to Bidding History
         </button>
@@ -103,97 +98,97 @@ export default function RateSeller() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <Link to="/bidding-history" className="flex items-center gap-1 text-sm text-blue-500 hover:underline mb-6">
+      <Link to="/bidding-history" className="inline-flex items-center gap-1 text-sm font-medium text-ink-500 hover:text-primary-600 transition-colors mb-6">
         <ChevronLeft size={16} /> Back to Bidding History
       </Link>
 
       {/* Product header */}
       <div className="card p-5 flex items-center gap-4 mb-6">
-        <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center text-3xl shrink-0">
+        <div className="w-20 h-20 rounded-xl bg-ink-100 grid place-items-center text-ink-400 shrink-0 overflow-hidden">
           {auction.images?.[0]
-            ? <img src={publicPath(auction.images[0])} alt={auction.title} className="w-full h-full object-cover rounded-xl" />
-            : '🏷'}
+            ? <img src={publicPath(auction.images[0])} alt={auction.title} className="w-full h-full object-cover" />
+            : <Package size={26} />}
         </div>
         <div>
-          <h1 className="text-lg font-bold text-gray-900">{auction.title}</h1>
+          <h1 className="font-display text-lg font-bold text-ink-900">{auction.title}</h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <StarDisplay value={avgRating} size={16} />
-            <span className="text-sm text-gray-600 font-medium">{avgRating.toFixed(1)} out of 5</span>
-            <span className="text-gray-200">|</span>
-            <span className="text-sm text-blue-500">{totalReviews} {totalReviews === 1 ? 'review' : 'reviews'}</span>
+            <span className="text-sm text-ink-600 font-medium">{avgRating.toFixed(1)} out of 5</span>
+            <span className="text-ink-200">|</span>
+            <span className="text-sm text-primary-500">{totalReviews} {totalReviews === 1 ? 'review' : 'reviews'}</span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Seller: {auction.seller}</p>
+          <p className="text-xs text-ink-400 mt-1">Seller: {auction.seller}</p>
         </div>
       </div>
 
-      <hr className="border-gray-100 mb-6" />
+      <hr className="border-ink-100 mb-6" />
 
       {/* Write a Review */}
       <section className="mb-6">
-        <h2 className="text-base font-bold text-gray-900 mb-5">Write a Review</h2>
+        <h2 className="section-title mb-5">Write a Review</h2>
 
         <div className="mb-5">
-          <label className="text-sm font-medium text-gray-700 block mb-2">Your Rating</label>
+          <label className="field-label">Your Rating</label>
           <StarRating value={score} onChange={setScore} size={28} />
-          {!score && <p className="text-xs text-gray-400 mt-1">Click a star to rate</p>}
+          {!score && <p className="text-xs text-ink-400 mt-1">Click a star to rate</p>}
         </div>
 
         <div className="mb-5">
-          <label className="text-sm font-medium text-gray-700 block mb-2">Your Review</label>
+          <label className="field-label">Your Review</label>
           <div className="relative">
             <textarea
               value={comment}
               onChange={e => setComment(e.target.value.slice(0, 300))}
               placeholder="Share your experience about this seller..."
               rows={5}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none"
+              className="textarea-field"
             />
-            <span className="absolute bottom-2.5 right-3 text-xs text-gray-400 select-none">
+            <span className="absolute bottom-2.5 right-3 text-xs text-ink-400 select-none">
               {comment.length} / 300
             </span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Minimum 10 characters</p>
+          <p className="text-xs text-ink-400 mt-1">Minimum 10 characters</p>
         </div>
 
-        {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+        {error && <p className="alert-error mb-3">{error}</p>}
 
         <div className="flex justify-end">
           <button
             onClick={handleSubmit}
             disabled={loading || !score}
-            className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="btn-primary"
           >
             {loading ? 'Submitting…' : 'Submit Review'}
           </button>
         </div>
       </section>
 
-      <hr className="border-gray-100 mb-6" />
+      <hr className="border-ink-100 mb-6" />
 
       {/* Customer Reviews */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-gray-900">Customer Reviews</h2>
+          <h2 className="section-title">Customer Reviews</h2>
           {reviews.length > 0 && (
-            <span className="text-sm text-gray-400">Newest First</span>
+            <span className="text-sm text-ink-400">Newest First</span>
           )}
         </div>
 
         {reviews.length === 0 ? (
-          <p className="text-sm text-gray-400 py-4">No reviews yet for this seller.</p>
+          <p className="text-sm text-ink-400 py-4">No reviews yet for this seller.</p>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-ink-100">
             {reviews.map((rev, i) => (
               <div key={i} className="py-4 flex gap-3">
-                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center shrink-0 text-gray-600 font-semibold text-sm">
+                <div className="w-10 h-10 rounded-full bg-ink-200 flex items-center justify-center shrink-0 text-ink-600 font-semibold text-sm">
                   {(rev.reviewerMaskedName ?? 'B').charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-sm text-gray-800">
+                    <span className="font-semibold text-sm text-ink-800">
                       {rev.reviewerMaskedName ?? 'Buyer'}
                     </span>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-ink-400">
                       {rev.reviewDate
                         ? new Date(rev.reviewDate).toLocaleDateString('en-US', {
                             day: 'numeric', month: 'short', year: 'numeric'
@@ -203,7 +198,7 @@ export default function RateSeller() {
                   </div>
                   <StarDisplay value={rev.rating ?? 0} size={15} />
                   {rev.comment && (
-                    <p className="text-sm text-gray-600 mt-1.5">{rev.comment}</p>
+                    <p className="text-sm text-ink-600 mt-1.5">{rev.comment}</p>
                   )}
                 </div>
               </div>

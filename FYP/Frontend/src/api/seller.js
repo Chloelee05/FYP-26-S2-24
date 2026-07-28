@@ -11,9 +11,6 @@ const form = (obj) => {
 };
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
-// Seller dashboard summary
-export const getSellerDashboard = () => api.get('/seller/dashboard');
-
 // Seller's own auction list
 export const getSellerAuctions = (params) => api.get('/seller/auctions', { params });
 

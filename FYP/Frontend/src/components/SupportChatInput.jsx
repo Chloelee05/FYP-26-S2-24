@@ -50,21 +50,21 @@ export default function SupportChatInput({ onSend, disabled, placeholder = 'Type
   };
 
   return (
-    <div className="border-t border-gray-100 shrink-0">
+    <div className="border-t border-ink-100 shrink-0">
       {error && <p className="px-3 pt-2 text-xs text-red-500">{error}</p>}
       {preview && (
         <div className="px-3 pt-2 flex items-start gap-2">
           <div className="relative">
-            <img src={preview} alt="" className="h-16 w-16 object-cover rounded-lg border border-gray-200" />
+            <img src={preview} alt="" className="h-16 w-16 object-cover rounded-lg border border-ink-200" />
             <button
               type="button"
               onClick={clearAttachment}
-              className="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full p-0.5"
+              className="absolute -top-1.5 -right-1.5 bg-ink-800 text-white rounded-full p-0.5"
             >
               <X size={12} />
             </button>
           </div>
-          {uploading && <span className="text-xs text-gray-400 self-center">Uploading…</span>}
+          {uploading && <span className="text-xs text-ink-400 self-center">Uploading…</span>}
         </div>
       )}
       <form onSubmit={handleSubmit} className="p-3 flex gap-2 items-end">
@@ -73,7 +73,7 @@ export default function SupportChatInput({ onSend, disabled, placeholder = 'Type
           type="button"
           disabled={disabled || uploading}
           onClick={() => fileRef.current?.click()}
-          className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-50 rounded-lg disabled:opacity-40"
+          className="p-2 text-ink-400 hover:text-primary-500 hover:bg-ink-50 rounded-lg disabled:opacity-40"
           title="Attach photo"
         >
           <ImagePlus size={18} />
@@ -83,12 +83,12 @@ export default function SupportChatInput({ onSend, disabled, placeholder = 'Type
           onChange={e => setDraft(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
+          className="flex-1 border border-ink-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-100 disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={disabled || uploading || (!draft.trim() && !pendingUrl)}
-          className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-40"
+          className="btn-primary p-2"
         >
           <Send size={16} />
         </button>

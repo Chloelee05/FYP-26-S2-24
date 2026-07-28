@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Gavel, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { resetPassword, forgotPassword } from '../api/auth';
 
 export default function ResetPassword() {
@@ -51,86 +52,109 @@ export default function ResetPassword() {
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-md p-10 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Reset Password</h1>
+    <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md animate-fade-up">
+        <Link to="/" className="flex items-center justify-center gap-2 mb-7">
+          <span className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-sm">
+            <Gavel size={19} />
+          </span>
+          <span className="font-display font-extrabold text-lg text-ink-900">
+            Auction<span className="text-primary-600">Hub</span>
+          </span>
+        </Link>
 
-        {error && (
-          <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>
-        )}
-        {codeSent && !error && (
-          <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-lg mb-4">
-            Verification code sent to your email.
+        <div className="card p-7 sm:p-9">
+          <div className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 mb-4">
+            <KeyRound size={22} />
           </div>
-        )}
+          <h1 className="font-display text-2xl font-bold text-ink-900">Reset your password</h1>
+          <p className="text-sm text-ink-500 mt-1.5 mb-6">
+            We’ll email you a 6-digit code to confirm it’s you.
+          </p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={form.identifier}
-              onChange={set('identifier')}
-              required
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-          </div>
-
-          {/* New Password */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-            <input
-              type="password"
-              value={form.newPassword}
-              onChange={set('newPassword')}
-              required
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-          </div>
-
-          {/* Confirm Password */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-            <input
-              type="password"
-              value={form.confirmNewPassword}
-              onChange={set('confirmNewPassword')}
-              required
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-          </div>
-
-          {/* Verification Code + Send button */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Enter Verification Code</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={form.otp}
-                onChange={set('otp')}
-                required
-                className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-              />
-              <button
-                type="button"
-                onClick={handleSendCode}
-                disabled={sending}
-                className="bg-blue-300 hover:bg-blue-400 text-white font-medium px-5 py-3 rounded-xl transition-colors disabled:opacity-50 whitespace-nowrap"
-              >
-                {sending ? 'Sending…' : 'Send code'}
-              </button>
+          {error && (
+            <div className="alert-error mb-4">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
-          </div>
+          )}
+          {codeSent && !error && (
+            <div className="alert-success mb-4">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+              <span>Verification code sent to your email.</span>
+            </div>
+          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-300 hover:bg-blue-400 text-white font-bold py-4 rounded-2xl text-base transition-colors disabled:opacity-50 mt-2"
-          >
-            {loading ? 'Resetting…' : 'Reset Password'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="field-label" htmlFor="reset-email">Email</label>
+              <input
+                id="reset-email"
+                type="email"
+                placeholder="you@example.com"
+                value={form.identifier}
+                onChange={set('identifier')}
+                required
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reset-new">New password</label>
+              <input
+                id="reset-new"
+                type="password"
+                value={form.newPassword}
+                onChange={set('newPassword')}
+                required
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reset-confirm">Confirm password</label>
+              <input
+                id="reset-confirm"
+                type="password"
+                value={form.confirmNewPassword}
+                onChange={set('confirmNewPassword')}
+                required
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reset-otp">Verification code</label>
+              <div className="flex gap-2">
+                <input
+                  id="reset-otp"
+                  type="text"
+                  placeholder="000000"
+                  value={form.otp}
+                  onChange={set('otp')}
+                  required
+                  className="input-field flex-1 tracking-[0.3em] font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={sending}
+                  className="btn-secondary shrink-0 whitespace-nowrap"
+                >
+                  {sending ? 'Sending…' : 'Send code'}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary btn-block btn-lg">
+              {loading ? 'Resetting…' : 'Reset Password'}
+            </button>
+          </form>
+
+          <p className="text-center text-sm text-ink-400 mt-6">
+            <Link to="/login" className="link-subtle">Back to sign in</Link>
+          </p>
+        </div>
       </div>
     </div>
   );

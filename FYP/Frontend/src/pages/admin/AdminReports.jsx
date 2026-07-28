@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getAdminReports, resolveReport, dismissReport, replyToReport } from '../../api/admin';
+import Modal from '../../components/Modal';
 
 export default function AdminReports() {
   const [reports, setReports] = useState([]);
@@ -71,21 +72,19 @@ export default function AdminReports() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">User Reports</h1>
-      <p className="text-gray-400 text-sm mb-6">Click a report to read the full details and respond</p>
+      <h1 className="page-title">User Reports</h1>
+      <p className="page-subtitle mb-6">Click a report to read the full details and respond</p>
 
       <div className="flex gap-2 mb-5">
         {[['all', 'All'], ['open', 'Open'], ['resolved', 'Resolved']].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setFilter(key)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              filter === key ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            className={`tab-pill ${filter === key ? 'tab-pill-active' : ''}`}
           >
             {label}
             {key === 'open' && (
-              <span className="ml-1.5 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
+              <span className="ml-1.5 bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5">
                 {reports.filter(r => !r.resolved).length}
               </span>
             )}
@@ -95,41 +94,41 @@ export default function AdminReports() {
 
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="text-center py-10 text-gray-400 text-sm">Loading reports…</div>
+          <div className="text-center py-10 text-ink-400 text-sm">Loading reports…</div>
         ) : visible.length === 0 ? (
-          <div className="text-center py-10 text-gray-400 text-sm">No reports found.</div>
+          <div className="text-center py-10 text-ink-400 text-sm">No reports found.</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
+            <thead className="text-xs text-ink-500 uppercase tracking-wider bg-ink-50 border-b border-ink-200">
               <tr>
                 {['Type', 'Reporter', 'Target', 'Reason', 'Date', 'Status'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left font-bold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-ink-100">
               {visible.map(report => (
                 <tr
                   key={`${report.type ?? 'account'}-${report.id}`}
                   onClick={() => openReport(report)}
-                  className="hover:bg-blue-50 cursor-pointer"
+                  className="hover:bg-primary-50/60 cursor-pointer transition-colors"
                 >
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      report.type === 'listing' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600'
+                    <span className={`badge ${
+                      report.type === 'listing' ? 'bg-accent-50 text-accent-700 ring-accent-200' : 'bg-purple-50 text-purple-700 ring-purple-200'
                     }`}>
                       {report.type === 'listing' ? 'Listing' : 'User'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-700">{report.reporter_name ?? `#${report.reporter_id}`}</td>
-                  <td className="px-4 py-3 text-gray-700">{report.target_name ?? `#${report.target_id}`}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 max-w-xs truncate">{report.reason ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
+                  <td className="px-4 py-3 text-ink-700">{report.reporter_name ?? `#${report.reporter_id}`}</td>
+                  <td className="px-4 py-3 text-ink-700">{report.target_name ?? `#${report.target_id}`}</td>
+                  <td className="px-4 py-3 font-medium text-ink-900 max-w-xs truncate">{report.reason ?? '—'}</td>
+                  <td className="px-4 py-3 text-ink-400 whitespace-nowrap">
                     {report.created_at ? new Date(report.created_at).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      report.resolved ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'
+                    <span className={`badge ${
+                      report.resolved ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'
                     }`}>
                       {report.resolved ? 'Resolved' : 'Open'}
                     </span>
@@ -142,71 +141,69 @@ export default function AdminReports() {
       </div>
 
       {selected && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSelected(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  selected.type === 'listing' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600'
-                }`}>
-                  {selected.type === 'listing' ? 'Listing report' : 'User report'}
-                </span>
-                <h2 className="text-lg font-bold text-gray-900 mt-2">{selected.reason ?? 'Report'}</h2>
-              </div>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                selected.resolved ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'
+        <Modal
+          title={selected.reason ?? 'Report'}
+          subtitle={selected.type === 'listing' ? 'Listing report' : 'User report'}
+          icon={AlertCircle}
+          size="xl"
+          onClose={() => setSelected(null)}
+        >
+          <div className="p-6">
+            <div className="flex justify-end mb-4">
+              <span className={`badge ${
+                selected.resolved ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'
               }`}>
                 {selected.resolved ? 'Resolved' : 'Open'}
               </span>
             </div>
 
             <dl className="text-sm space-y-2 mb-4">
-              <div><span className="text-gray-400">Reporter: </span>{selected.reporter_name} (#{selected.reporter_id})</div>
-              <div><span className="text-gray-400">Target: </span>{selected.target_name} (#{selected.target_id})</div>
+              <div><span className="text-ink-400">Reporter: </span>{selected.reporter_name} (#{selected.reporter_id})</div>
+              <div><span className="text-ink-400">Target: </span>{selected.target_name} (#{selected.target_id})</div>
               {selected.auction_id && (
                 <div>
-                  <span className="text-gray-400">Auction: </span>
-                  <Link to={`/auction/${selected.auction_id}`} className="text-blue-500 hover:underline">#{selected.auction_id}</Link>
+                  <span className="text-ink-400">Auction: </span>
+                  <Link to={`/auction/${selected.auction_id}`} className="link-subtle">#{selected.auction_id}</Link>
                 </div>
               )}
-              <div><span className="text-gray-400">Submitted: </span>
+              <div><span className="text-ink-400">Submitted: </span>
                 {selected.created_at ? new Date(selected.created_at).toLocaleString() : '—'}
               </div>
             </dl>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <p className="text-xs font-semibold text-gray-500 mb-1">User message</p>
-              <p className="text-sm text-gray-800 whitespace-pre-wrap">{selected.comment || '—'}</p>
+            <div className="bg-ink-50 rounded-lg p-4 mb-4">
+              <p className="text-xs font-semibold text-ink-500 mb-1">User message</p>
+              <p className="text-sm text-ink-800 whitespace-pre-wrap">{selected.comment || '—'}</p>
             </div>
 
             <div className="mb-4">
-              <label className="text-xs font-semibold text-gray-500 block mb-1">Admin reply</label>
+              <label className="text-xs font-semibold text-ink-500 block mb-1">Admin reply</label>
               <textarea
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
                 rows={4}
                 placeholder="Write a response to the reporter…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none"
+                className="textarea-field"
               />
             </div>
 
-            {msg && <div className="text-sm text-blue-600 mb-3">{msg}</div>}
+            {msg && <div className="text-sm text-primary-600 mb-3">{msg}</div>}
 
             <div className="flex flex-wrap gap-2">
-              <button onClick={handleReply} className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600">Save reply</button>
+              <button onClick={handleReply} className="btn-primary">Save reply</button>
               {!selected.resolved ? (
-                <button onClick={() => handleResolve(selected)} className="flex items-center gap-1 px-4 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600">
+                <button onClick={() => handleResolve(selected)} className="btn-success">
                   <CheckCircle size={14} /> Resolve
                 </button>
               ) : (
-                <button onClick={() => handleDismiss(selected)} className="flex items-center gap-1 px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
+                <button onClick={() => handleDismiss(selected)} className="btn-secondary">
                   <XCircle size={14} /> Reopen
                 </button>
               )}
-              <button onClick={() => setSelected(null)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 ml-auto">Close</button>
+              <button onClick={() => setSelected(null)} className="btn-ghost ml-auto">Close</button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

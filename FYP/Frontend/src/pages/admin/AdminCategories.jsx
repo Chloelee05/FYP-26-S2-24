@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, RotateCcw, Pencil } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Pencil, Tag, AlertCircle } from 'lucide-react';
 import { getAdminCategories, createCategory, editCategory, deleteCategory, restoreCategory } from '../../api/admin';
+import { apiErrorMessage } from '../../utils/apiError';
+import Modal from '../../components/Modal';
 
 // Backend Category fields: id, name, description, displayOrder, slug, deleted, createdAt, auctionCount
 
@@ -11,6 +13,7 @@ export default function AdminCategories() {
   const [editing, setEditing] = useState(null); // category being edited
   const [editForm, setEditForm] = useState({ name: '', description: '', displayOrder: '' });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     getAdminCategories().then(r => setCategories(r.data ?? [])).catch(() => {});
@@ -33,10 +36,13 @@ export default function AdminCategories() {
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this category?')) return;
+    setError('');
     try {
       await deleteCategory(id);
       setCategories(prev => prev.map(c => c.id === id ? { ...c, deleted: true } : c));
-    } catch {}
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete that category.'));
+    }
   };
 
   const openEdit = (cat) => {
@@ -84,52 +90,58 @@ export default function AdminCategories() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Categories</h1>
-      <p className="text-gray-400 text-sm mb-6">Manage auction categories</p>
+      <h1 className="page-title">Categories</h1>
+      <p className="page-subtitle mb-6">Manage auction categories</p>
+
+      {error && (
+        <div className="alert-error mb-5">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {editing && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleEditSave} className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">Edit Category</h3>
+        <Modal title="Edit Category" icon={Tag} size="md" onClose={() => setEditing(null)}>
+          <form onSubmit={handleEditSave} className="p-6 space-y-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Name</label>
+              <label className="block text-xs text-ink-500 mb-1">Name</label>
               <input
                 value={editForm.name}
                 onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
                 required
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="input-field"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Description</label>
+              <label className="block text-xs text-ink-500 mb-1">Description</label>
               <textarea
                 value={editForm.description}
                 onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
                 rows={3}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+                className="textarea-field"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Display order</label>
+              <label className="block text-xs text-ink-500 mb-1">Display order</label>
               <input
                 type="number"
                 value={editForm.displayOrder}
                 onChange={e => setEditForm(f => ({ ...f, displayOrder: e.target.value }))}
-                className="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="input-field w-32"
               />
             </div>
             <div className="flex gap-3 pt-1">
               <button type="submit" disabled={saving}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50">
+                className="btn-primary flex-1">
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
               <button type="button" onClick={() => setEditing(null)}
-                className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50">
+                className="btn-secondary flex-1">
                 Cancel
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       <form onSubmit={handleAdd} className="flex gap-3 mb-6">
@@ -137,32 +149,32 @@ export default function AdminCategories() {
           value={newName}
           onChange={e => setNewName(e.target.value)}
           placeholder="New category name"
-          className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm flex-1 max-w-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+          className="border border-ink-200 rounded-lg px-4 py-2.5 text-sm flex-1 max-w-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
         />
-        <button type="submit" disabled={adding} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50">
+        <button type="submit" disabled={adding} className="btn-primary">
           <Plus size={16} /> Add Category
         </button>
       </form>
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
+          <thead className="text-xs text-ink-500 uppercase tracking-wider bg-ink-50 border-b border-ink-200">
             <tr>
-              <th className="px-4 py-3 text-left font-semibold">Category</th>
-              <th className="px-4 py-3 text-left font-semibold">Listings</th>
-              <th className="px-4 py-3 text-left font-semibold">Actions</th>
+              <th className="px-4 py-3 text-left font-bold whitespace-nowrap">Category</th>
+              <th className="px-4 py-3 text-left font-bold whitespace-nowrap">Listings</th>
+              <th className="px-4 py-3 text-left font-bold whitespace-nowrap">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-ink-100">
             {visible.map(cat => (
-              <tr key={cat.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{cat.name}</td>
-                <td className="px-4 py-3 text-gray-500">{cat.auctionCount ?? 0} listings</td>
+              <tr key={cat.id} className="hover:bg-ink-50 transition-colors">
+                <td className="px-4 py-3 font-medium text-ink-900">{cat.name}</td>
+                <td className="px-4 py-3 text-ink-500">{cat.auctionCount ?? 0} listings</td>
                 <td className="px-4 py-3">
-                  <button onClick={() => openEdit(cat)} className="text-gray-400 hover:text-blue-500 transition-colors p-1" title="Edit category">
+                  <button onClick={() => openEdit(cat)} className="text-ink-400 hover:text-primary-500 transition-colors p-1" title="Edit category">
                     <Pencil size={14} />
                   </button>
-                  <button onClick={() => handleDelete(cat.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="Delete category">
+                  <button onClick={() => handleDelete(cat.id)} className="text-ink-400 hover:text-red-500 transition-colors p-1" title="Delete category">
                     <Trash2 size={14} />
                   </button>
                 </td>
@@ -171,29 +183,29 @@ export default function AdminCategories() {
           </tbody>
         </table>
         {visible.length === 0 && (
-          <div className="text-center py-8 text-gray-400">No categories yet.</div>
+          <div className="text-center py-8 text-ink-400">No categories yet.</div>
         )}
       </div>
 
       {deleted.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-base font-semibold text-gray-500 mb-3">Deactivated Categories</h2>
+          <h2 className="text-base font-semibold text-ink-500 mb-3">Deactivated Categories</h2>
           <div className="card overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
+              <thead className="text-xs text-ink-500 uppercase tracking-wider bg-ink-50 border-b border-ink-200">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold">Category</th>
-                  <th className="px-4 py-3 text-left font-semibold">Actions</th>
+                  <th className="px-4 py-3 text-left font-bold whitespace-nowrap">Category</th>
+                  <th className="px-4 py-3 text-left font-bold whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-ink-100">
                 {deleted.map(cat => (
-                  <tr key={cat.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-400 line-through">{cat.name}</td>
+                  <tr key={cat.id} className="hover:bg-ink-50 transition-colors">
+                    <td className="px-4 py-3 text-ink-400 line-through">{cat.name}</td>
                     <td className="px-4 py-3">
                       <button
                         onClick={() => handleRestore(cat.id)}
-                        className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
+                        className="flex items-center gap-1 text-xs text-primary-500 hover:text-primary-700 font-medium"
                         title="Restore category"
                       >
                         <RotateCcw size={13} /> Restore

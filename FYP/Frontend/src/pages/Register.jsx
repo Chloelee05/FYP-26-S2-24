@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingCart, DollarSign } from 'lucide-react';
+import { Gavel, AlertCircle, ShoppingCart, DollarSign } from 'lucide-react';
 import { register } from '../api/auth';
 import PasswordField from '../components/PasswordField';
 import SuccessModal from '../components/SuccessModal';
 
 export default function Register() {
   const navigate = useNavigate();
-  const [role, setRole] = useState('BUYER');
   const [form, setForm] = useState({ username: '', email: '', password: '', confirmPassword: '', termsAccept: false });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,7 +18,8 @@ export default function Register() {
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
     setError(''); setLoading(true);
     try {
-      await register({ ...form, role, termsAccept: 'on' });
+      // One account type: everyone starts as a buyer and can enable selling later.
+      await register({ ...form, termsAccept: 'on' });
       setShowSuccess(true);
     } catch (err) {
       if (!err.response) {
@@ -36,109 +36,132 @@ export default function Register() {
     }
   };
 
-  const roleLabel = role === 'BUYER' ? 'Buyer' : 'Seller';
-
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center px-4 py-10">
       {showSuccess && (
         <SuccessModal
           title="Account created successfully!"
-          message={`Your ${roleLabel} account has been created. You can now sign in with your email and password.`}
+          message="You can now sign in. Want to sell as well? Turn on selling any time from Account Settings — no second account needed."
           buttonLabel="Go to Sign In"
           onClose={() => navigate('/login?registered=1')}
         />
       )}
-      <div className="bg-white rounded-3xl shadow-sm p-8 w-full max-w-md">
-        <p className="text-right text-sm text-gray-500 mb-2">
-          Already have an account?{' '}
-          <Link to="/login" className="text-blue-500 font-medium hover:underline">Sign in</Link>
-        </p>
-        <h1 className="text-3xl font-bold text-center mb-1">
-          Welcome to <span className="text-blue-500">AuctionHub</span>
-        </h1>
-        <p className="text-center text-gray-600 mb-6">I want to:</p>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          {[
-            { value: 'BUYER', icon: ShoppingCart, label: 'Buy Items', sub: 'Register as Buyer' },
-            { value: 'SELLER', icon: DollarSign, label: 'Sell Items', sub: 'Register as Seller' },
-          ].map(({ value, icon: Icon, label, sub }) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setRole(value)}
-              className={`flex flex-col items-center gap-2 p-5 rounded-2xl border-2 transition-all ${role === value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
-            >
-              <Icon size={28} className={role === value ? 'text-blue-500' : 'text-gray-400'} />
-              <span className="font-bold text-sm">{label}</span>
-              <span className="text-xs text-gray-500">{sub}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="bg-blue-50 text-blue-700 text-sm text-center py-2 rounded-lg mb-5">
-          Selected Account Type: <strong>{role === 'BUYER' ? 'Buyer' : 'Seller'}</strong>
-        </div>
-
-        <h2 className="font-bold text-xl mb-4">Create an account</h2>
-
-        {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            placeholder="Full Name"
-            value={form.username}
-            onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-            required
-            className="input-field"
-          />
-          <input
-            type="email"
-            placeholder="Email address"
-            value={form.email}
-            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-            required
-            className="input-field"
-          />
-          <PasswordField
-            placeholder="Password"
-            value={form.password}
-            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-            required
-            autoComplete="new-password"
-          />
-          <p className="text-xs text-gray-500 -mt-1">
-            8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&* etc.)
-          </p>
-          <PasswordField
-            placeholder="Confirm Password"
-            value={form.confirmPassword}
-            onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
-            required
-            autoComplete="new-password"
-          />
-          <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.termsAccept}
-              onChange={e => setForm(f => ({ ...f, termsAccept: e.target.checked }))}
-              className="mt-0.5 rounded"
-            />
-            <span>
-              I agree to the{' '}
-              <Link to="/terms" className="text-blue-500 underline">User Agreement</Link>{' '}
-              and{' '}
-              <Link to="/privacy" className="text-blue-500 underline">Privacy Notices</Link>
+      <div className="w-full max-w-lg animate-fade-up">
+        <div className="flex items-center justify-between mb-6">
+          <Link to="/" className="flex items-center gap-2.5">
+            <span className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-sm">
+              <Gavel size={19} />
             </span>
-          </label>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-400 hover:bg-blue-500 text-white font-medium py-3 rounded-full transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Creating account…' : 'Create Account'}
-          </button>
-        </form>
+            <span className="font-display font-extrabold text-lg text-ink-900">
+              Auction<span className="text-primary-600">Hub</span>
+            </span>
+          </Link>
+          <p className="text-sm text-ink-500">
+            Have an account?{' '}
+            <Link to="/login" className="link-subtle">Sign in</Link>
+          </p>
+        </div>
+
+        <div className="card p-7 sm:p-9">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-ink-900 text-center">
+            Create your account
+          </h1>
+          <p className="text-center text-sm text-ink-500 mt-2 mb-6">
+            One account for buying and selling.
+          </p>
+
+          {/* One account type. Selling is an opt-in capability, not a second account. */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-primary-50/70 ring-1 ring-inset ring-primary-100">
+              <ShoppingCart size={22} className="text-primary-600" />
+              <span className="font-bold text-sm text-ink-900">Bid &amp; buy</span>
+              <span className="text-xs text-ink-500 text-center">Ready the moment you sign in</span>
+            </div>
+            <div className="flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-ink-50 ring-1 ring-inset ring-ink-200">
+              <DollarSign size={22} className="text-ink-400" />
+              <span className="font-bold text-sm text-ink-900">Sell items</span>
+              <span className="text-xs text-ink-500 text-center">Switch on later in Settings</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="alert-error mb-4">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="field-label" htmlFor="reg-name">Full name</label>
+              <input
+                id="reg-name"
+                placeholder="Jane Tan"
+                value={form.username}
+                onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                required
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="reg-email">Email address</label>
+              <input
+                id="reg-email"
+                type="email"
+                placeholder="you@example.com"
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                required
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="reg-password">Password</label>
+              <PasswordField
+                id="reg-password"
+                placeholder="Create a password"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                required
+                autoComplete="new-password"
+              />
+              <p className="field-hint">
+                8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+              </p>
+            </div>
+            <div>
+              <label className="field-label" htmlFor="reg-confirm">Confirm password</label>
+              <PasswordField
+                id="reg-confirm"
+                placeholder="Re-enter your password"
+                value={form.confirmPassword}
+                onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                required
+                autoComplete="new-password"
+              />
+            </div>
+
+            <label className="flex items-start gap-2.5 text-sm text-ink-600 cursor-pointer select-none pt-1">
+              <input
+                type="checkbox"
+                checked={form.termsAccept}
+                onChange={e => setForm(f => ({ ...f, termsAccept: e.target.checked }))}
+                className="mt-0.5 w-4 h-4 rounded border-ink-300 text-primary-600 focus:ring-primary-500/40"
+              />
+              <span>
+                I agree to the{' '}
+                <Link to="/terms" className="link-subtle">User Agreement</Link>{' '}
+                and{' '}
+                <Link to="/privacy" className="link-subtle">Privacy Notices</Link>
+              </span>
+            </label>
+
+            <button type="submit" disabled={loading} className="btn-primary btn-block btn-lg">
+              {loading ? 'Creating account…' : 'Create Account'}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
