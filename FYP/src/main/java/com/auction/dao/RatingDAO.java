@@ -314,6 +314,41 @@ public class RatingDAO {
         return out;
     }
 
+    /**
+     * Highly-rated reviews with real comments, for the public landing-page
+     * testimonials section. Data comes straight from {@code user_reviews} so the
+     * marketing content is never hand-written.
+     */
+    public java.util.List<java.util.Map<String, Object>> listTestimonials(int limit) {
+        String sql = "SELECT r.rating, r.comment, r.created_at, "
+                + "ru.username AS reviewer_name, ad.title "
+                + "FROM user_reviews r "
+                + "JOIN users ru ON ru.id = r.reviewer_user_id "
+                + "LEFT JOIN auction_details ad ON ad.id = r.auction_id "
+                + "WHERE r.rating >= 4 AND r.comment IS NOT NULL AND LENGTH(TRIM(r.comment)) >= 10 "
+                + "ORDER BY r.rating DESC, r.created_at DESC LIMIT ?";
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("reviewerName", rs.getString("reviewer_name"));
+                    m.put("auctionTitle", rs.getString("title"));
+                    m.put("rating", rs.getInt("rating"));
+                    m.put("comment", rs.getString("comment"));
+                    java.sql.Timestamp ts = rs.getTimestamp("created_at");
+                    m.put("createdAt", ts != null ? ts.toInstant().toString() : null);
+                    out.add(m);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return out;
+    }
+
     /** Admin removal of an inappropriate review (no time window). */
     public boolean adminDeleteReview(long reviewId) {
         String sql = "DELETE FROM user_reviews WHERE id = ?";

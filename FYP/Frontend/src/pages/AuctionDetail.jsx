@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard } from 'lucide-react';
+import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
 import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, checkWatching, askQuestion, getSellerProfile, getSimilarAuctions } from '../api/auction';
@@ -391,8 +391,9 @@ export default function AuctionDetail() {
             </div>
 
             <div className="flex gap-2 shrink-0">
-              {/* Watchlisting your own listing is rejected server-side (OWN_AUCTION). */}
-              {!auction.isOwner && (
+              {/* Guests browse read-only: no watchlist control until they sign in.
+                  Watchlisting your own listing is rejected server-side (OWN_AUCTION). */}
+              {user && !auction.isOwner && (
                 <button
                   onClick={handleToggleWatch}
                   title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
@@ -639,6 +640,27 @@ export default function AuctionDetail() {
                 )}
               </div>
               )
+            ) : !user ? (
+              /* Guests browse read-only (assessor feedback): no bid / auto-bid /
+                 sealed-bid forms — just a clear path to register or sign in. */
+              <div className="card p-6">
+                <div className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 mb-4">
+                  <LogIn size={22} />
+                </div>
+                <h3 className="section-title text-base mb-2">Sign in to bid</h3>
+                <p className="text-sm text-ink-500 leading-relaxed mb-4">
+                  Watching is free — bidding needs an account. Create one in under a
+                  minute to place bids, set auto-bids and build a watchlist.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <Link to="/register" className="btn-primary btn-block">
+                    Create free account
+                  </Link>
+                  <Link to="/login" className="btn-secondary btn-block">
+                    <LogIn size={16} /> Sign in
+                  </Link>
+                </div>
+              </div>
             ) : auction.isOwner ? (
               /* Your own listing — the server rejects self-bids, so don't offer the form. */
               <div className="card p-6">

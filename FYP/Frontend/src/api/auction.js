@@ -7,6 +7,9 @@ const form = (obj) => {
 };
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
+// Public platform stats (landing page): live counts, fee schedule, testimonials
+export const getPlatformStats = () => api.get('/stats');
+
 // Search / browse
 export const searchAuctions = (params) => api.get('/search', { params });
 export const getCategories   = ()       => api.get('/categories');
