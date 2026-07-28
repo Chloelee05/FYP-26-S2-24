@@ -94,7 +94,7 @@ public class UserDAO {
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, password, role_id, status_id, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted, profile_image_url "
+                    + "phone_encrypted, address_encrypted, profile_image_url, can_sell "
                     + "FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setString(1, email);
@@ -115,7 +115,7 @@ public class UserDAO {
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, role_id, status_id, date_created, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted, profile_image_url "
+                    + "phone_encrypted, address_encrypted, profile_image_url, can_sell "
                     + "FROM users WHERE id = ? LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setInt(1, id);
@@ -151,7 +151,38 @@ public class UserDAO {
         user.setPhoneEncrypted(rs.getString("phone_encrypted"));
         user.setAddressEncrypted(rs.getString("address_encrypted"));
         user.setProfileImageUrl(rs.getString("profile_image_url"));
+        user.setCanSell(readCanSell(rs));
         return user;
+    }
+
+    /**
+     * Reads the {@code can_sell} capability flag, tolerating result sets that do not
+     * carry the column (older queries, or a database where
+     * {@code migration_seller_capability.sql} has not been applied yet). In that case
+     * {@link User#canSell()} still falls back to the legacy SELLER role.
+     */
+    private static boolean readCanSell(ResultSet rs) {
+        try {
+            return rs.getBoolean("can_sell");
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Grants the selling capability to a buyer (SCRUM merged buyer/seller accounts).
+     *
+     * @return {@code true} when the row was updated; {@code false} when no such user
+     */
+    public boolean enableSelling(int userId) {
+        String sql = "UPDATE users SET can_sell = TRUE WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public boolean enableTwoFactor(String email, String encryptedSecret) {
@@ -321,7 +352,7 @@ public class UserDAO {
 
     public List<AdminUserSummary> listUsersForAdminTable() {
         try (Connection conn = DBUtil.connectDB()) {
-            String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created, "
+            String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created, u.can_sell, "
                     + "(SELECT COUNT(*)::int FROM bids b WHERE b.user_id = u.id) AS bid_count, "
                     + "(SELECT COUNT(*)::int FROM auction a WHERE a.seller_id = u.id) AS listing_count "
                     + "FROM users u "
@@ -342,7 +373,8 @@ public class UserDAO {
                                 rs.getInt("status_id"),
                                 joined,
                                 rs.getInt("bid_count"),
-                                rs.getInt("listing_count")));
+                                rs.getInt("listing_count"),
+                                readCanSell(rs)));
                     }
                 }
             }

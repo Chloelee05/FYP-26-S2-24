@@ -65,7 +65,9 @@ public class SellerProfileDAO {
                 + "          AND a.date_end > CURRENT_TIMESTAMP) AS active_listings "
                 + "FROM users u "
                 + "WHERE u.id = ? "
-                + "  AND u.role_id = ? "
+                // Selling is a capability now; the role check keeps pre-merge
+                // seller accounts resolvable on an un-migrated database.
+                + "  AND (u.can_sell = TRUE OR u.role_id = ?) "
                 + "  AND u.status_id = ?";
 
         try (Connection conn = DBUtil.connectDB();

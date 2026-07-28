@@ -82,4 +82,7 @@
 \echo '== linked third-party accounts (Google sign-in) =='
 \ir migration_linked_accounts.sql
 
+\echo '== merged buyer/seller accounts (can_sell capability) =='
+\ir migration_seller_capability.sql
+
 \echo 'All migrations applied.'

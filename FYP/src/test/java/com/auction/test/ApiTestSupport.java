@@ -44,10 +44,21 @@ public final class ApiTestSupport {
         return s;
     }
 
+    /** Legacy pre-merge account that still carries the SELLER role. */
     public static AuthSession newSellerSession(int userId) {
         AuthSession s = TokenStore.getInstance().create();
         s.setAttribute("userId", userId);
         s.setAttribute("userRole", Role.SELLER.name());
+        return s;
+    }
+
+    /**
+     * Merged buyer/seller account: keeps the BUYER role (so buying works) and holds
+     * the {@code canSell} capability (so seller endpoints accept it).
+     */
+    public static AuthSession newSellingBuyerSession(int userId) {
+        AuthSession s = newBuyerSession(userId);
+        s.setAttribute("canSell", Boolean.TRUE);
         return s;
     }
 

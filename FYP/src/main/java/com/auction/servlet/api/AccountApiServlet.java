@@ -66,8 +66,50 @@ public class AccountApiServlet extends ApiBase {
             case "update":          handleUpdate(req, resp, userId); break;
             case "delete":          handleDelete(req, resp, userId); break;
             case "payment-methods": handlePaymentMethodWrite(req, resp, userId); break;
+            case "enable-selling":  handleEnableSelling(req, resp, userId); break;
             default: error(resp, 404, "Unknown account endpoint"); break;
         }
+    }
+
+    /**
+     * POST /api/account/enable-selling — turns on the selling capability for the
+     * signed-in buyer. Buying and selling share one account, so this is an opt-in
+     * rather than a separate registration.
+     *
+     * <p>Admins are rejected: the admin console is a separate surface and an admin
+     * listing their own items would muddy moderation.</p>
+     */
+    private void handleEnableSelling(HttpServletRequest req, HttpServletResponse resp, int userId)
+            throws IOException {
+        AuthSession session = authSession(req);
+        if (isAdmin(session)) {
+            error(resp, 403, "Admin accounts cannot list items for sale.");
+            return;
+        }
+
+        User user = userDAO.getUserById(userId);
+        if (user == null) { error(resp, 404, "Account not found."); return; }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (user.canSell()) {
+            // Idempotent: re-enabling is a no-op rather than an error.
+            body.put("canSell", true);
+            body.put("message", "Selling is already enabled on this account.");
+            ok(resp, body);
+            return;
+        }
+
+        if (!userDAO.enableSelling(userId)) {
+            serverError(resp, "Could not enable selling. Please try again.");
+            return;
+        }
+
+        // Reflect it on the live session so seller endpoints accept the very next call.
+        if (session != null) session.setAttribute("canSell", Boolean.TRUE);
+
+        body.put("canSell", true);
+        body.put("message", "Selling enabled. You can now create listings.");
+        ok(resp, body);
     }
 
     /** POST /api/account/payment-methods  action=add|delete|default */
@@ -180,6 +222,7 @@ public class AccountApiServlet extends ApiBase {
         body.put("username", user.getUsername());
         body.put("email",    user.getEmail());
         body.put("role",     user.getRole() != null ? user.getRole().name() : null);
+        body.put("canSell",     user.canSell());
         body.put("profileImageUrl", user.getProfileImageUrl());
         body.put("memberSince",     user.getMemberSince() != null ? user.getMemberSince().toString() : null);
         body.put("twoFactorEnabled", user.isTwoFactorEnabled());

@@ -348,7 +348,7 @@ public class AdminApiServlet extends ApiBase {
         try {
             if ("true".equalsIgnoreCase(sendAll)) {
                 for (AdminUserSummary u : userDAO.listUsersForAdminTable()) {
-                    if (u.getRole() != Role.SELLER || u.getStatusId() != Status.ACTIVE.getId()) continue;
+                    if (!u.canSell() || u.getStatusId() != Status.ACTIVE.getId()) continue;
                     if (emailSellerAnalytics(u.getId(), u.getUsername(), u.getEmail())) sent++;
                     else failed++;
                 }
@@ -356,7 +356,7 @@ public class AdminApiServlet extends ApiBase {
                 if (sellerIdStr == null) { badRequest(resp, "sellerId or all=true is required."); return; }
                 int sellerId = Integer.parseInt(sellerIdStr.trim());
                 User seller = userDAO.getUserById(sellerId);
-                if (seller == null || seller.getRole() != Role.SELLER) {
+                if (seller == null || !seller.canSell()) {
                     error(resp, 404, "Seller not found."); return;
                 }
                 if (emailSellerAnalytics(sellerId, seller.getUsername(), seller.getEmail())) {

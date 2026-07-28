@@ -50,6 +50,7 @@ public class SessionApiServlet extends ApiBase {
         body.put("username", user.getUsername());
         body.put("email",    user.getEmail());
         body.put("role",     user.getRole() != null ? user.getRole().name() : null);
+        body.put("canSell",     user.canSell());
         body.put("profileImageUrl", user.getProfileImageUrl());
         body.put("twoFactorEnabled", user.isTwoFactorEnabled());
         ok(resp, body);

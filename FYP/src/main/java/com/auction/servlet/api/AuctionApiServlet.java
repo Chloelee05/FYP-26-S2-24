@@ -268,9 +268,7 @@ public class AuctionApiServlet extends ApiBase {
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024L; // 5 MB
 
     private void handleUploadImage(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!requireAuth(req, resp)) return;
-        String role = sessionRole(req);
-        if (!"SELLER".equalsIgnoreCase(role)) { forbidden(resp); return; }
+        if (!requireSeller(req, resp)) return;
 
         String contentType = req.getContentType();
         if (contentType == null) contentType = "";

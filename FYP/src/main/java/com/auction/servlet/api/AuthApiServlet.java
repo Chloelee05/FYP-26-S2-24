@@ -133,6 +133,7 @@ public class AuthApiServlet extends ApiBase {
         session.setMaxInactiveInterval(60 * 30);
         session.setAttribute("userId",           user.getId());
         session.setAttribute("userRole",         user.getRole().name());
+        session.setAttribute("canSell",         user.canSell());
         session.setAttribute("sessionEmail",     user.getEmail());
         session.setAttribute("twoFactorEnabled", false);
         session.setAttribute("maskedEmail",      SecurityUtil.maskEmail(user.getEmail()));
@@ -144,6 +145,7 @@ public class AuthApiServlet extends ApiBase {
         body.put("username", user.getUsername());
         body.put("email",    user.getEmail());
         body.put("role",     user.getRole().name());
+        body.put("canSell",     user.canSell());
         body.put("profileImageUrl", user.getProfileImageUrl());
         body.put("twoFactorEnabled", false);
         ok(resp, body);
@@ -181,11 +183,11 @@ public class AuthApiServlet extends ApiBase {
         }
         if (!termsAccept) { badRequest(resp, "You must accept the terms to continue."); return; }
 
-        Role role;
-        try {
-            role = (roleParam != null) ? Role.valueOf(roleParam.toUpperCase()) : Role.BUYER;
-            if (role == Role.ADMIN) { badRequest(resp, "Invalid role."); return; }
-        } catch (IllegalArgumentException e) {
+        // Buying and selling share one account: everyone registers as a Buyer and
+        // turns selling on later via POST /api/account/enable-selling. A legacy
+        // `role` parameter is accepted but ignored so older clients keep working.
+        Role role = Role.BUYER;
+        if (roleParam != null && "ADMIN".equalsIgnoreCase(roleParam.trim())) {
             badRequest(resp, "Invalid role."); return;
         }
 
