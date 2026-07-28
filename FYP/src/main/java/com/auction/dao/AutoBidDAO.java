@@ -187,6 +187,11 @@ public class AutoBidDAO {
      */
     public int processAutoBids(Connection conn, long auctionId) throws SQLException {
         BigDecimal startingPrice = fetchStartingPrice(conn, auctionId);
+        // A seller must never bid on their own listing. This engine inserts into
+        // `bids` directly rather than going through BidDAO.placeBid, so it does not
+        // inherit that guard — enforce it here too. Also neutralises any auto-bid row
+        // that predates the check.
+        int sellerId = fetchSellerId(conn, auctionId);
         int placed = 0;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
@@ -207,8 +212,11 @@ public class AutoBidDAO {
             }
             BigDecimal floor = (topAmount == null) ? startingPrice : topAmount.max(startingPrice);
 
-            // Decrypt all auto-bids
-            List<AutoBidRow> allBids = fetchAllDecrypted(conn, auctionId);
+            // Decrypt all auto-bids, dropping the seller's own row if one exists.
+            List<AutoBidRow> allBids = new ArrayList<>();
+            for (AutoBidRow row : fetchAllDecrypted(conn, auctionId)) {
+                if (row.getUserId() != sellerId) allBids.add(row);
+            }
 
             CounterBid next = resolveNextAutoBid(allBids, floor, topBidderId);
             if (next == null) break;
@@ -339,6 +347,30 @@ public class AutoBidDAO {
             }
         }
         return BigDecimal.ZERO;
+    }
+
+    /** Owner of the listing, or {@code -1} when the auction does not exist. */
+    private int fetchSellerId(Connection conn, long auctionId) throws SQLException {
+        String sql = "SELECT seller_id FROM auction WHERE auction_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt("seller_id");
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Whether {@code userId} owns this listing — a seller may not auto-bid on their
+     * own auction. Resolved server-side from {@code auction.seller_id} (IDOR prevention).
+     */
+    public boolean isOwnAuction(long auctionId, int userId) {
+        try (Connection conn = DBUtil.connectDB()) {
+            return fetchSellerId(conn, auctionId) == userId;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     // -------------------------------------------------------------------------

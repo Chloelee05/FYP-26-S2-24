@@ -46,6 +46,39 @@ class TestAutoBidApiServlet {
     }
 
     @Test
+    @DisplayName("seller cannot auto-bid on their own auction → 403")
+    void ownAuctionForbidden() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("maxAmount")).thenReturn("500");
+        when(req.getParameter("action")).thenReturn("SET");
+        when(mockDAO.isOwnAuction(10L, 2)).thenReturn(true);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(403);
+        verify(mockDAO, never()).upsert(anyLong(), anyInt(), any(), any());
+        verify(mockDAO, never()).upsert(anyLong(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("owner may still CANCEL a pre-existing auto-bid row")
+    void ownerMayCancel() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("action")).thenReturn("CANCEL");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp, never()).setStatus(403);
+        verify(mockDAO).delete(10L, 2);
+    }
+
+    @Test
     @DisplayName("SET upserts auto-bid")
     void setAutoBid() throws Exception {
         AuthSession s = ApiTestSupport.newBuyerSession(2);
