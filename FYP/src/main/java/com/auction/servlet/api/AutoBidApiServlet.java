@@ -74,7 +74,14 @@ public class AutoBidApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
+        // A seller may not auto-bid on their own listing. Checked before the CANCEL
+        // branch so an owner can still clear a row created before this guard existed.
         String action = param(req, "action");
+        if (!"CANCEL".equalsIgnoreCase(action) && autoBidDAO.isOwnAuction(auctionId, buyerId)) {
+            error(resp, 403, "You cannot set an auto-bid on your own auction.");
+            return;
+        }
+
         if ("CANCEL".equalsIgnoreCase(action)) {
             autoBidDAO.delete(auctionId, buyerId);
             okMsg(resp, "Auto-bid cancelled.");
