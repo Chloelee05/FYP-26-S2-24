@@ -59,33 +59,33 @@ export default function AdminDatabase() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Database Management</h1>
-      <p className="text-gray-400 text-sm mb-6">Backup, restore, and inspect database status</p>
+      <h1 className="page-title">Database Management</h1>
+      <p className="page-subtitle mb-6">Backup, restore, and inspect database status</p>
 
-      {msg && <div className="text-sm text-blue-600 mb-4">{msg}</div>}
+      {msg && <div className="text-sm text-primary-600 mb-4">{msg}</div>}
 
       <div className="grid md:grid-cols-2 gap-6 mb-8">
         <div className="card p-5">
-          <h2 className="font-bold text-gray-900 mb-3">Backup</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <h2 className="section-title text-base mb-3">Backup</h2>
+          <p className="text-sm text-ink-500 mb-4">
             Export all tables as a SQL file. Use this before major changes or for archival.
           </p>
           <button
             type="button"
             onClick={handleBackup}
             disabled={busy}
-            className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:opacity-50"
+            className="btn-primary"
           >
             Download backup (.sql)
           </button>
         </div>
 
         <div className="card p-5">
-          <h2 className="font-bold text-gray-900 mb-3">Restore</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <h2 className="section-title text-base mb-3">Restore</h2>
+          <p className="text-sm text-ink-500 mb-4">
             Upload a previously exported backup file. Only INSERT statements are applied.
           </p>
-          <label className="inline-block px-4 py-2 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-900 cursor-pointer disabled:opacity-50">
+          <label className="btn-dark inline-flex cursor-pointer">
             Upload backup file
             <input type="file" accept=".sql,text/plain" onChange={handleRestore} disabled={busy} className="hidden" />
           </label>
@@ -94,24 +94,24 @@ export default function AdminDatabase() {
 
       {status ? (
         <div className="card p-5">
-          <h2 className="font-bold text-gray-900 mb-3">Database Status</h2>
-          <div className="text-sm text-gray-600 mb-4 space-y-1">
-            <p><span className="text-gray-400">Database:</span> {status.database}</p>
-            <p><span className="text-gray-400">Tables:</span> {status.tableCount}</p>
+          <h2 className="section-title text-base mb-3">Database Status</h2>
+          <div className="text-sm text-ink-600 mb-4 space-y-1">
+            <p><span className="text-ink-400">Database:</span> {status.database}</p>
+            <p><span className="text-ink-400">Tables:</span> {status.tableCount}</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-400 border-b border-gray-100">
+                <tr className="text-left text-ink-400 border-b border-ink-100">
                   <th className="py-2 pr-4">Table</th>
                   <th className="py-2">Rows</th>
                 </tr>
               </thead>
               <tbody>
                 {(status.tables ?? []).map(t => (
-                  <tr key={t.name} className="border-b border-gray-50">
-                    <td className="py-2 pr-4 font-mono text-gray-700">{t.name}</td>
-                    <td className="py-2 text-gray-600">{t.rows?.toLocaleString?.() ?? t.rows}</td>
+                  <tr key={t.name} className="border-b border-ink-50">
+                    <td className="py-2 pr-4 font-mono text-ink-700">{t.name}</td>
+                    <td className="py-2 text-ink-600">{t.rows?.toLocaleString?.() ?? t.rows}</td>
                   </tr>
                 ))}
               </tbody>
@@ -119,7 +119,7 @@ export default function AdminDatabase() {
           </div>
         </div>
       ) : (
-        <div className="text-center py-12 text-gray-400">Loading database status…</div>
+        <div className="text-center py-12 text-ink-400">Loading database status…</div>
       )}
     </div>
   );

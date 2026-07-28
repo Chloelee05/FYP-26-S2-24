@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Phone, MapPin, Edit3, CreditCard, Trash2, Plus, Package, Star, Truck, MessageCircle, RotateCcw } from 'lucide-react';
+import {
+  Mail, Phone, MapPin, Edit3, CreditCard, Trash2, Plus, Package, Star, Truck,
+  MessageCircle, RotateCcw, ClipboardList, Flag, Calendar, Check,
+} from 'lucide-react';
 import {
   getProfile, getTransactionHistory, getMyReviews,
   getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
@@ -13,11 +16,20 @@ import OrderTrackingModal from '../components/OrderTrackingModal';
 import RateBuyerModal from '../components/RateBuyerModal';
 import OrderMessageModal from '../components/OrderMessageModal';
 import OrderRefundModal from '../components/OrderRefundModal';
+import Modal from '../components/Modal';
 
 // Backend fields:
 // profile: { id, username, email, role, profileImageUrl, memberSince, phone, address, rating: RatingSummary, transactions: [...] }
 // RatingSummary: { average, reviewCount, starCountsHighToLow[5] }
 // ProfileTransactionRow: { displayId, transactionDate, itemTitle, transactionType, amount, status }
+
+const PROFILE_TABS = [
+  { key: 'transactions', label: 'Transactions', icon: ClipboardList },
+  { key: 'orders',       label: 'Orders',       icon: Package },
+  { key: 'reviews',      label: 'Reviews',      icon: Star },
+  { key: 'payment',      label: 'Payment',      icon: CreditCard },
+  { key: 'reports',      label: 'Reports',      icon: Flag },
+];
 
 export default function UserProfile() {
   const [profile, setProfile] = useState(null);
@@ -57,6 +69,8 @@ export default function UserProfile() {
 
   const loadCards = () => getPaymentMethods().then(r => setCards(r.data ?? [])).catch(() => {});
   const loadOrders = () => getOrders().then(r => setOrders(r.data ?? [])).catch(() => {});
+  const loadWrittenReviews = () =>
+    getMyWrittenReviews().then(r => setWrittenReviews(Array.isArray(r.data) ? r.data : [])).catch(() => {});
 
   useEffect(() => {
     getProfile().then(r => setProfile(r.data)).catch(() => {});
@@ -67,9 +81,6 @@ export default function UserProfile() {
     loadCards();
     loadOrders();
   }, []);
-
-  const loadWrittenReviews = () =>
-    getMyWrittenReviews().then(r => setWrittenReviews(Array.isArray(r.data) ? r.data : [])).catch(() => {});
 
   const openEditReview = (rev) => {
     setEditingReview(rev);
@@ -184,7 +195,18 @@ export default function UserProfile() {
   };
 
   if (!profile) {
-    return <div className="max-w-5xl mx-auto px-4 py-16 text-center text-gray-400">Loading profile…</div>;
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="skeleton h-9 w-52 mb-6" />
+        <div className="grid md:grid-cols-3 gap-6">
+          <div className="space-y-4">
+            <div className="skeleton h-72 rounded-2xl" />
+            <div className="skeleton h-56 rounded-2xl" />
+          </div>
+          <div className="md:col-span-2 skeleton h-96 rounded-2xl" />
+        </div>
+      </div>
+    );
   }
 
   const roleDisplay = getRoleDisplay(profile.role);
@@ -205,56 +227,59 @@ export default function UserProfile() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">User Profile</h1>
-        <div className="flex gap-2">
-          <Link to="/profile/settings" className="border border-gray-200 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">Settings</Link>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="page-title">User Profile</h1>
+          <p className="page-subtitle">Your account, orders, reviews and payment methods.</p>
         </div>
+        <Link to="/profile/settings" className="btn-secondary">Settings</Link>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
         {/* Left: Profile */}
         <div className="space-y-4">
           <div className="card p-6 text-center">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-400 to-primary-600 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3 shadow-sm">
               {profile.username?.[0] ?? 'U'}
             </div>
-            <h2 className="font-bold text-lg text-gray-900">{profile.username}</h2>
-            <span className={`inline-block mt-1 mb-2 px-2.5 py-0.5 rounded-full text-xs font-semibold ${roleDisplay.className}`}>
-              {roleDisplay.label}
-            </span>
-            <p className="text-sm text-gray-400 mb-4">
+            <h2 className="font-display font-bold text-lg text-ink-900">{profile.username}</h2>
+            <div className="mt-2 mb-2 flex flex-wrap justify-center gap-1.5">
+              <span className={roleDisplay.className}>{roleDisplay.label}</span>
+              {profile.canSell && <span className="badge bg-purple-50 text-purple-700 ring-purple-200">Seller</span>}
+            </div>
+            <p className="text-sm text-ink-400 mb-5">
               Member since {profile.memberSince ? new Date(profile.memberSince).toLocaleDateString('en-SG', { month: 'long', year: 'numeric' }) : '—'}
             </p>
-            <div className="space-y-2 text-sm text-gray-600 text-left">
-              <div className="flex items-center gap-2"><Mail size={14} className="text-gray-400" />{profile.email}</div>
-              {profile.phone && <div className="flex items-center gap-2"><Phone size={14} className="text-gray-400" />{profile.phone}</div>}
-              {profile.address && <div className="flex items-center gap-2"><MapPin size={14} className="text-gray-400" />{profile.address}</div>}
+            <div className="space-y-2.5 text-sm text-ink-600 text-left">
+              <div className="flex items-center gap-2.5 min-w-0"><Mail size={15} className="text-ink-400 shrink-0" /><span className="truncate">{profile.email}</span></div>
+              {profile.phone && <div className="flex items-center gap-2.5"><Phone size={15} className="text-ink-400 shrink-0" />{profile.phone}</div>}
+              {profile.address && <div className="flex items-center gap-2.5 min-w-0"><MapPin size={15} className="text-ink-400 shrink-0" /><span className="truncate">{profile.address}</span></div>}
             </div>
-            <Link to="/profile/edit" className="mt-4 flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">
+            <Link to="/profile/edit" className="btn-secondary btn-block mt-5">
               <Edit3 size={14} /> Edit Profile
             </Link>
           </div>
 
-          <div className="card p-5">
-            <h3 className="font-bold text-gray-900 mb-3">Rating Summary</h3>
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-3xl font-bold text-gray-900">{avgRating.toFixed(1)}</span>
+          <div className="card p-6">
+            <h3 className="section-title text-base mb-4">Rating Summary</h3>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="font-display text-4xl font-extrabold text-ink-900 tabular-nums">{avgRating.toFixed(1)}</span>
               <div>
-                <StarRating value={Math.round(avgRating)} />
-                <p className="text-xs text-gray-400 mt-0.5">{reviewCount} reviews</p>
+                <StarRating value={Math.round(avgRating)} size={16} />
+                <p className="text-xs text-ink-400 mt-1">{reviewCount} reviews</p>
               </div>
             </div>
             {[5, 4, 3, 2, 1].map((star, idx) => (
-              <div key={star} className="flex items-center gap-2 mb-1">
-                <span className="text-xs w-4">{star}★</span>
-                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div key={star} className="flex items-center gap-2.5 mb-1.5">
+                <span className="text-xs font-medium text-ink-500 w-3 text-right">{star}</span>
+                <Star size={11} className="text-amber-400 fill-amber-400 shrink-0" />
+                <div className="flex-1 h-2 bg-ink-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-yellow-400 rounded-full"
+                    className="h-full bg-amber-400 rounded-full transition-all duration-500"
                     style={{ width: `${reviewCount > 0 ? (starCounts[idx] / Math.max(reviewCount, 1)) * 100 : 0}%` }}
                   />
                 </div>
-                <span className="text-xs text-gray-400">{starCounts[idx] ?? 0}</span>
+                <span className="text-xs text-ink-400 w-5 text-right tabular-nums">{starCounts[idx] ?? 0}</span>
               </div>
             ))}
           </div>
@@ -263,14 +288,18 @@ export default function UserProfile() {
         {/* Right: Transactions */}
         <div className="md:col-span-2">
           <div className="card overflow-hidden">
-            <div className="flex border-b border-gray-100">
-              {['transactions', 'orders', 'reviews', 'payment', 'reports'].map(t => (
+            <div className="flex border-b border-ink-100 overflow-x-auto">
+              {PROFILE_TABS.map(({ key, label, icon: TabIcon }) => (
                 <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${tab === t ? 'text-blue-500 border-b-2 border-blue-500 bg-blue-50' : 'text-gray-500 hover:bg-gray-50'}`}
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`flex-1 min-w-fit whitespace-nowrap px-4 py-3.5 text-sm font-semibold transition-colors border-b-2 inline-flex items-center justify-center gap-1.5 ${
+                    tab === key
+                      ? 'text-primary-600 border-primary-600 bg-primary-50/60'
+                      : 'text-ink-500 border-transparent hover:text-ink-800 hover:bg-ink-50'
+                  }`}
                 >
-                  {t === 'transactions' ? '📋 Transactions' : t === 'orders' ? '📦 Orders' : t === 'reviews' ? '⭐ Reviews' : t === 'payment' ? '💳 Payment' : '🚩 Reports'}
+                  <TabIcon size={15} /> {label}
                 </button>
               ))}
             </div>
@@ -278,11 +307,11 @@ export default function UserProfile() {
             {tab === 'transactions' && (
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-gray-900">Recent Transactions</h3>
+                  <h3 className="font-bold text-ink-900">Recent Transactions</h3>
                   <select
                     value={filter}
                     onChange={e => setFilter(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+                    className="border border-ink-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none"
                   >
                     {['All', 'Purchase', 'Sale'].map(f => <option key={f}>{f}</option>)}
                   </select>
@@ -290,7 +319,7 @@ export default function UserProfile() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-gray-400 text-xs text-left border-b border-gray-100">
+                      <tr className="text-ink-400 text-xs text-left border-b border-ink-100">
                         <th className="pb-2">ID</th>
                         <th className="pb-2">Date</th>
                         <th className="pb-2">Item</th>
@@ -299,16 +328,18 @@ export default function UserProfile() {
                         <th className="pb-2">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody className="divide-y divide-ink-100">
                       {filtered.map(t => (
                         <tr key={t.displayId}>
-                          <td className="py-3 text-gray-500">{t.displayId}</td>
-                          <td className="py-3 text-gray-500 flex items-center gap-1">
-                            <span className="text-gray-400">📅</span>{t.transactionDate}
+                          <td className="py-3 text-ink-500">{t.displayId}</td>
+                          <td className="py-3 text-ink-500">
+                            <span className="flex items-center gap-1.5">
+                              <Calendar size={13} className="text-ink-400 shrink-0" />{t.transactionDate}
+                            </span>
                           </td>
                           <td className="py-3 font-medium">{t.itemTitle}</td>
                           <td className="py-3">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${t.transactionType === 'purchase' ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600'}`}>
+                            <span className={`badge ${t.transactionType === 'purchase' ? 'bg-primary-50 text-primary-700 ring-primary-200' : 'bg-emerald-50 text-emerald-700 ring-emerald-200'}`}>
                               {t.transactionType}
                             </span>
                           </td>
@@ -327,13 +358,13 @@ export default function UserProfile() {
                     </tbody>
                   </table>
                   {filtered.length === 0 && (
-                    <div className="text-center py-8 text-gray-400 text-sm">No transactions.</div>
+                    <div className="text-center py-8 text-ink-400 text-sm">No transactions.</div>
                   )}
                 </div>
-                <div className="flex gap-6 pt-4 border-t border-gray-100 mt-4">
-                  <div className="text-center"><span className="block text-xl font-bold text-blue-500">{totalPurchases}</span><span className="text-xs text-gray-400">Total Purchases</span></div>
-                  <div className="text-center"><span className="block text-xl font-bold text-green-500">{totalSales}</span><span className="text-xs text-gray-400">Total Sales</span></div>
-                  <div className="text-center"><span className="block text-xl font-bold text-purple-500">${totalVolume.toLocaleString()}</span><span className="text-xs text-gray-400">Total Volume</span></div>
+                <div className="flex gap-6 pt-4 border-t border-ink-100 mt-4">
+                  <div className="text-center"><span className="block text-xl font-bold text-primary-500">{totalPurchases}</span><span className="text-xs text-ink-400">Total Purchases</span></div>
+                  <div className="text-center"><span className="block text-xl font-bold text-green-500">{totalSales}</span><span className="text-xs text-ink-400">Total Sales</span></div>
+                  <div className="text-center"><span className="block text-xl font-bold text-purple-500">${totalVolume.toLocaleString()}</span><span className="text-xs text-ink-400">Total Volume</span></div>
                 </div>
               </div>
             )}
@@ -341,18 +372,21 @@ export default function UserProfile() {
             {tab === 'orders' && (
               <div className="p-5">
                 {payingOrder && (
-                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-                      <h3 className="font-bold text-gray-900 mb-1">Choose payment method</h3>
-                      <p className="text-xs text-gray-400 mb-4">
-                        Paying {formatCurrency(payingOrder.amount)} for “{payingOrder.auctionTitle}”.
-                      </p>
+                  <Modal
+                    title="Choose payment method"
+                    subtitle={`Paying ${formatCurrency(payingOrder.amount)} for “${payingOrder.auctionTitle}”`}
+                    icon={CreditCard}
+                    size="md"
+                    dismissOnBackdrop={false}
+                    onClose={() => setPayingOrder(null)}
+                  >
+                    <div className="p-6">
                       <div className="space-y-2 mb-5 max-h-64 overflow-y-auto">
                         {cards.map(c => (
                           <label
                             key={c.id}
                             className={`flex items-center gap-3 border rounded-lg px-4 py-3 cursor-pointer transition-colors ${
-                              payMethodId === c.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
+                              payMethodId === c.id ? 'border-primary-500 bg-primary-50' : 'border-ink-200 hover:bg-ink-50'
                             }`}
                           >
                             <input
@@ -361,14 +395,14 @@ export default function UserProfile() {
                               checked={payMethodId === c.id}
                               onChange={() => setPayMethodId(c.id)}
                             />
-                            <CreditCard size={18} className="text-gray-400" />
+                            <CreditCard size={18} className="text-ink-400" />
                             <div className="flex-1">
-                              <p className="text-sm font-medium text-gray-800">
+                              <p className="text-sm font-medium text-ink-800">
                                 {c.displayLabel}
-                                {c.default && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Default</span>}
+                                {c.default && <span className="ml-2 text-xs bg-primary-50 text-primary-700 ring-primary-200 px-2 py-0.5 rounded-full">Default</span>}
                               </p>
                               {c.methodType === 'CARD' && (
-                                <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                                <p className="text-xs text-ink-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
                               )}
                             </div>
                           </label>
@@ -378,19 +412,19 @@ export default function UserProfile() {
                         <button
                           onClick={handlePayOrder}
                           disabled={!payMethodId}
-                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-50"
+                          className="btn-primary flex-1"
                         >
                           Pay {formatCurrency(payingOrder.amount)}
                         </button>
                         <button
                           onClick={() => setPayingOrder(null)}
-                          className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-lg hover:bg-gray-50"
+                          className="btn-secondary flex-1"
                         >
                           Cancel
                         </button>
                       </div>
                     </div>
-                  </div>
+                  </Modal>
                 )}
                 {trackOrder && <OrderTrackingModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
                 {rateOrder && (
@@ -413,27 +447,27 @@ export default function UserProfile() {
                     onSubmitted={() => { setOrderMsg('Refund request submitted.'); loadOrders(); }}
                   />
                 )}
-                <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
-                  <Package size={16} className="text-gray-400" /> Orders
+                <h3 className="font-bold text-ink-900 mb-1 flex items-center gap-2">
+                  <Package size={16} className="text-ink-400" /> Orders
                 </h3>
-                <p className="text-xs text-gray-400 mb-4">
+                <p className="text-xs text-ink-400 mb-4">
                   Pay as buyer · sellers ship · you confirm receipt · rate after complete · message the other party or request a refund (the seller decides) if needed.
                 </p>
-                {orderMsg && <div className="text-sm text-blue-600 mb-3">{orderMsg}</div>}
+                {orderMsg && <div className="text-sm text-primary-600 mb-3">{orderMsg}</div>}
                 {orders.length === 0 ? (
-                  <div className="text-center text-gray-400 text-sm py-8">No orders yet.</div>
+                  <div className="text-center text-ink-400 text-sm py-8">No orders yet.</div>
                 ) : (
                   <div className="space-y-2">
                     {orders.map(o => (
-                      <div key={o.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                      <div key={o.id} className="border border-ink-200 rounded-lg px-4 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium text-gray-800">{o.auctionTitle}</p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-sm font-medium text-ink-800">{o.auctionTitle}</p>
+                            <p className="text-xs text-ink-400">
                               {o.role === 'buyer' ? 'Bought from' : 'Sold to'} {o.counterparty} · {formatCurrency(o.amount)}
                             </p>
                             {o.shippingStatus && o.status === 'PAID' && (
-                              <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
+                              <p className="text-xs text-primary-500 mt-0.5 flex items-center gap-1">
                                 <Truck size={12} /> {o.shippingStatus.replace('_', ' ').toLowerCase()}
                               </p>
                             )}
@@ -444,7 +478,7 @@ export default function UserProfile() {
                               </p>
                             )}
                             {o.refundStatus === 'REQUESTED' && o.role === 'seller' && o.refundReason && (
-                              <p className="text-xs text-gray-500 mt-0.5 italic">“{o.refundReason}”</p>
+                              <p className="text-xs text-ink-500 mt-0.5 italic">“{o.refundReason}”</p>
                             )}
                             {o.refundStatus === 'APPROVED' && (
                               <p className="text-xs text-green-600 mt-0.5 flex items-center gap-1">
@@ -452,7 +486,7 @@ export default function UserProfile() {
                               </p>
                             )}
                             {o.refundStatus === 'REJECTED' && (
-                              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                              <p className="text-xs text-ink-500 mt-0.5 flex items-center gap-1">
                                 <RotateCcw size={12} /> Refund declined by seller
                               </p>
                             )}
@@ -461,10 +495,10 @@ export default function UserProfile() {
                             )}
                           </div>
                           <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
-                            o.status === 'COMPLETED' ? 'bg-green-100 text-green-600'
-                            : o.status === 'PAID' ? 'bg-blue-100 text-blue-600'
-                            : o.status === 'CANCELLED' ? 'bg-red-100 text-red-600'
-                            : 'bg-yellow-100 text-yellow-700'}`}>
+                            o.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                            : o.status === 'PAID' ? 'bg-primary-50 text-primary-700 ring-primary-200'
+                            : o.status === 'CANCELLED' ? 'bg-red-50 text-red-700 ring-red-200'
+                            : 'bg-amber-50 text-amber-700 ring-amber-200'}`}>
                             {o.status.replace('_', ' ')}
                           </span>
                         </div>
@@ -472,13 +506,13 @@ export default function UserProfile() {
                           {o.role === 'buyer' && o.status !== 'PENDING_PAYMENT' && (
                             <button
                               onClick={() => setTrackOrder(o)}
-                              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                              className="text-xs border border-ink-200 px-3 py-1.5 rounded-lg hover:bg-ink-50"
                             >
                               Track order
                             </button>
                           )}
                           {o.role === 'buyer' && o.status === 'PENDING_PAYMENT' && (
-                            <button onClick={() => openPayChooser(o)} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg">
+                            <button onClick={() => openPayChooser(o)} className="btn-primary btn-sm">
                               Pay now
                             </button>
                           )}
@@ -495,7 +529,7 @@ export default function UserProfile() {
                           {o.status !== 'PENDING_PAYMENT' && o.status !== 'CANCELLED' && (
                             <button
                               onClick={() => setContactOrder(o)}
-                              className="text-xs flex items-center gap-1 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                              className="btn-secondary btn-sm"
                             >
                               <MessageCircle size={12} /> {o.role === 'buyer' ? 'Contact seller' : 'Message buyer'}
                             </button>
@@ -541,7 +575,9 @@ export default function UserProfile() {
                             </button>
                           )}
                           {o.status === 'COMPLETED' && o.hasRated && (
-                            <span className="text-xs text-gray-400 px-2 py-1.5">Rated ✓</span>
+                            <span className="inline-flex items-center gap-1 text-xs text-ink-400 px-2 py-1.5">
+                              <Check size={13} /> Rated
+                            </span>
                           )}
                         </div>
                       </div>
@@ -553,43 +589,43 @@ export default function UserProfile() {
 
             {tab === 'payment' && (
               <div className="p-5">
-                <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
-                  <CreditCard size={16} className="text-gray-400" /> Payment Methods
+                <h3 className="font-bold text-ink-900 mb-1 flex items-center gap-2">
+                  <CreditCard size={16} className="text-ink-400" /> Payment Methods
                 </h3>
-                <p className="text-xs text-gray-400 mb-4">
+                <p className="text-xs text-ink-400 mb-4">
                   Card numbers are encrypted (AES-GCM) before storage. We never store your CVV.
                 </p>
 
                 <div className="space-y-2 mb-6">
                   {cards.length === 0 ? (
-                    <div className="text-center text-gray-400 text-sm py-6">No saved payment methods.</div>
+                    <div className="text-center text-ink-400 text-sm py-6">No saved payment methods.</div>
                   ) : cards.map(c => (
-                    <div key={c.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
+                    <div key={c.id} className="flex items-center justify-between border border-ink-200 rounded-lg px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <CreditCard size={20} className="text-gray-400" />
+                        <CreditCard size={20} className="text-ink-400" />
                         <div>
-                          <p className="text-sm font-medium text-gray-800">
+                          <p className="text-sm font-medium text-ink-800">
                             {c.displayLabel ?? `${c.cardBrand} •••• ${c.last4}`}
-                            {c.default && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Default</span>}
+                            {c.default && <span className="ml-2 text-xs bg-primary-50 text-primary-700 ring-primary-200 px-2 py-0.5 rounded-full">Default</span>}
                           </p>
                           {c.methodType === 'CARD' && (
-                            <p className="text-xs text-gray-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
+                            <p className="text-xs text-ink-400">{c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}</p>
                           )}
                           {c.methodType === 'BANK_TRANSFER' && c.cardHolder && (
-                            <p className="text-xs text-gray-400">{c.cardHolder}</p>
+                            <p className="text-xs text-ink-400">{c.cardHolder}</p>
                           )}
                           {c.methodType === 'PAYPAL' && (
-                            <p className="text-xs text-gray-400">PayPal account</p>
+                            <p className="text-xs text-ink-400">PayPal account</p>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         {!c.default && (
-                          <button onClick={() => handleDefaultCard(c.id)} className="text-xs text-blue-500 hover:underline">
+                          <button onClick={() => handleDefaultCard(c.id)} className="link-subtle text-xs">
                             Set default
                           </button>
                         )}
-                        <button onClick={() => handleDeleteCard(c.id)} className="text-gray-400 hover:text-red-500">
+                        <button onClick={() => handleDeleteCard(c.id)} className="text-ink-400 hover:text-red-500">
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -597,8 +633,8 @@ export default function UserProfile() {
                   ))}
                 </div>
 
-                <form onSubmit={handleAddMethod} className="border-t border-gray-100 pt-4 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-1"><Plus size={14} /> Add a payment method</h4>
+                <form onSubmit={handleAddMethod} className="border-t border-ink-100 pt-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-ink-800 flex items-center gap-1"><Plus size={14} /> Add a payment method</h4>
                   {cardMsg && <div className="text-green-600 text-xs">{cardMsg}</div>}
                   {cardErr && <div className="text-red-500 text-xs">{cardErr}</div>}
 
@@ -614,8 +650,8 @@ export default function UserProfile() {
                         onClick={() => { setMethodType(key); setCardErr(''); setCardMsg(''); }}
                         className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
                           methodType === key
-                            ? 'bg-blue-500 border-blue-500 text-white'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-primary-500 border-primary-500 text-white'
+                            : 'border-ink-200 text-ink-600 hover:bg-ink-50'
                         }`}
                       >
                         {label}
@@ -629,28 +665,28 @@ export default function UserProfile() {
                         type="text" required placeholder="Cardholder name"
                         value={cardForm.cardHolder}
                         onChange={e => setCardForm(f => ({ ...f, cardHolder: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        className="input-field"
                       />
                       <input
                         type="text" required inputMode="numeric" placeholder="Card number"
                         value={cardForm.cardNumber}
                         onChange={e => setCardForm(f => ({ ...f, cardNumber: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        className="input-field"
                       />
                       <div className="flex gap-3">
                         <input
                           type="number" required min="1" max="12" placeholder="MM"
                           value={cardForm.expMonth}
                           onChange={e => setCardForm(f => ({ ...f, expMonth: e.target.value }))}
-                          className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          className="input-field w-20"
                         />
                         <input
                           type="number" required min="2024" placeholder="YYYY"
                           value={cardForm.expYear}
                           onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
-                          className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          className="input-field w-28"
                         />
-                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                        <label className="flex items-center gap-2 text-sm text-ink-600">
                           <input
                             type="checkbox"
                             checked={cardForm.makeDefault}
@@ -668,9 +704,9 @@ export default function UserProfile() {
                         type="email" required placeholder="PayPal email"
                         value={paypalForm.paypalEmail}
                         onChange={e => setPaypalForm(f => ({ ...f, paypalEmail: e.target.value }))}
-                        className="flex-1 min-w-[220px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        className="input-field flex-1 min-w-[220px]"
                       />
-                      <label className="flex items-center gap-2 text-sm text-gray-600">
+                      <label className="flex items-center gap-2 text-sm text-ink-600">
                         <input
                           type="checkbox"
                           checked={paypalForm.makeDefault}
@@ -687,22 +723,22 @@ export default function UserProfile() {
                         type="text" required placeholder="Account holder name"
                         value={bankForm.accountHolder}
                         onChange={e => setBankForm(f => ({ ...f, accountHolder: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        className="input-field"
                       />
                       <div className="flex flex-wrap gap-3">
                         <input
                           type="text" required inputMode="numeric" placeholder="Account number"
                           value={bankForm.accountNumber}
                           onChange={e => setBankForm(f => ({ ...f, accountNumber: e.target.value }))}
-                          className="flex-1 min-w-[180px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          className="input-field flex-1 min-w-[180px]"
                         />
                         <input
                           type="text" required placeholder="Bank name"
                           value={bankForm.bankName}
                           onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))}
-                          className="flex-1 min-w-[140px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          className="input-field flex-1 min-w-[140px]"
                         />
-                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                        <label className="flex items-center gap-2 text-sm text-ink-600">
                           <input
                             type="checkbox"
                             checked={bankForm.makeDefault}
@@ -714,7 +750,7 @@ export default function UserProfile() {
                     </>
                   )}
 
-                  <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                  <button type="submit" className="btn-primary">
                     {methodType === 'paypal' ? 'Link PayPal' : methodType === 'bank' ? 'Add Bank Account' : 'Add Card'}
                   </button>
                 </form>
@@ -723,39 +759,39 @@ export default function UserProfile() {
 
             {tab === 'reports' && (
               <div className="p-5">
-                <h3 className="font-bold text-gray-900 mb-1">My Reports</h3>
-                <p className="text-xs text-gray-400 mb-4">
+                <h3 className="font-bold text-ink-900 mb-1">My Reports</h3>
+                <p className="text-xs text-ink-400 mb-4">
                   Reports you submitted about listings or users, with their status and any reply from our moderation team.
                 </p>
                 {myReports.length === 0 ? (
-                  <div className="text-center text-gray-400 text-sm py-8">You haven't submitted any reports.</div>
+                  <div className="text-center text-ink-400 text-sm py-8">You haven't submitted any reports.</div>
                 ) : (
                   <div className="space-y-3">
                     {myReports.map(r => (
-                      <div key={`${r.type}-${r.id}`} className="border border-gray-200 rounded-lg px-4 py-3">
+                      <div key={`${r.type}-${r.id}`} className="border border-ink-200 rounded-lg px-4 py-3">
                         <div className="flex items-start justify-between gap-3 mb-1">
                           <div>
-                            <p className="text-sm font-medium text-gray-800">{r.reason}</p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-sm font-medium text-ink-800">{r.reason}</p>
+                            <p className="text-xs text-ink-400">
                               {r.type === 'listing' ? 'Listing report' : 'User report'}
                               {r.target_name ? ` · against ${r.target_name}` : ''}
                               {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ''}
                             </p>
                           </div>
                           <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
-                            r.resolved ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-700'
+                            r.resolved ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'
                           }`}>
                             {r.resolved ? 'Resolved' : 'Under review'}
                           </span>
                         </div>
-                        {r.comment && <p className="text-sm text-gray-600 mt-1">“{decodeHtmlEntities(r.comment)}”</p>}
+                        {r.comment && <p className="text-sm text-ink-600 mt-1">“{decodeHtmlEntities(r.comment)}”</p>}
                         {r.admin_reply ? (
-                          <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                            <p className="text-xs font-semibold text-blue-700 mb-0.5">Reply from moderation team</p>
-                            <p className="text-sm text-gray-700">{decodeHtmlEntities(r.admin_reply)}</p>
+                          <div className="mt-2 bg-primary-50 border border-primary-100 rounded-lg px-3 py-2">
+                            <p className="text-xs font-semibold text-primary-700 mb-0.5">Reply from moderation team</p>
+                            <p className="text-sm text-ink-700">{decodeHtmlEntities(r.admin_reply)}</p>
                           </div>
                         ) : (
-                          <p className="text-xs text-gray-400 mt-2">No reply from the moderation team yet.</p>
+                          <p className="text-xs text-ink-400 mt-2">No reply from the moderation team yet.</p>
                         )}
                       </div>
                     ))}
@@ -767,13 +803,14 @@ export default function UserProfile() {
             {tab === 'reviews' && (
               <div className="p-5">
                 {editingReview && (
-                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-                      <h3 className="font-bold text-gray-900 mb-1">Edit Review</h3>
-                      <p className="text-xs text-gray-400 mb-4">
-                        {editingReview.auctionTitle ? `on ${editingReview.auctionTitle} · ` : ''}
-                        about {editingReview.revieweeName}
-                      </p>
+                  <Modal
+                    title="Edit Review"
+                    subtitle={`${editingReview.auctionTitle ? `on ${editingReview.auctionTitle} · ` : ''}about ${editingReview.revieweeName}`}
+                    icon={Star}
+                    size="md"
+                    onClose={() => setEditingReview(null)}
+                  >
+                    <div className="p-6">
                       <div className="flex justify-center mb-3">
                         <StarRating value={editScore} onChange={setEditScore} size={30} />
                       </div>
@@ -782,48 +819,48 @@ export default function UserProfile() {
                         onChange={e => setEditComment(e.target.value.slice(0, 300))}
                         rows={3}
                         placeholder="Update your comment (optional)…"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none mb-1"
+                        className="textarea-field mb-1"
                       />
-                      <p className="text-xs text-gray-400 text-right mb-3">{editComment.length} / 300</p>
+                      <p className="text-xs text-ink-400 text-right mb-3">{editComment.length} / 300</p>
                       {reviewMsg && <div className="text-xs text-red-500 mb-2">{reviewMsg}</div>}
                       <div className="flex gap-3">
                         <button onClick={handleSaveReview}
-                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 rounded-lg">
+                          className="btn-primary flex-1">
                           Save
                         </button>
                         <button onClick={() => setEditingReview(null)}
-                          className="flex-1 border border-gray-200 text-gray-600 text-sm py-2 rounded-lg hover:bg-gray-50">
+                          className="btn-secondary flex-1">
                           Cancel
                         </button>
                       </div>
                     </div>
-                  </div>
+                  </Modal>
                 )}
 
-                <h3 className="font-bold text-gray-900 mb-1">Reviews I wrote</h3>
-                <p className="text-xs text-gray-400 mb-3">
+                <h3 className="font-bold text-ink-900 mb-1">Reviews I wrote</h3>
+                <p className="text-xs text-ink-400 mb-3">
                   You can edit or delete a review within 24 hours of posting it.
                 </p>
-                {reviewMsg && !editingReview && <div className="text-sm text-blue-600 mb-2">{reviewMsg}</div>}
+                {reviewMsg && !editingReview && <div className="text-sm text-primary-600 mb-2">{reviewMsg}</div>}
                 {writtenReviews.length === 0 ? (
-                  <div className="text-gray-400 text-sm mb-6">You haven't written any reviews yet.</div>
+                  <div className="page-subtitle mb-6">You haven't written any reviews yet.</div>
                 ) : (
                   <div className="space-y-2 mb-6">
                     {writtenReviews.map(rev => (
-                      <div key={rev.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                      <div key={rev.id} className="border border-ink-200 rounded-lg px-4 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="flex items-center gap-2">
                               <StarRating value={rev.rating ?? 0} size={14} />
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs text-ink-400">
                                 about {rev.revieweeName}
                                 {rev.auctionTitle ? ` · on ${rev.auctionTitle}` : ''}
                               </span>
                             </div>
                             {rev.comment && (
-                              <p className="text-sm text-gray-600 mt-1">{decodeHtmlEntities(rev.comment)}</p>
+                              <p className="text-sm text-ink-600 mt-1">{decodeHtmlEntities(rev.comment)}</p>
                             )}
-                            <p className="text-xs text-gray-400 mt-1">
+                            <p className="text-xs text-ink-400 mt-1">
                               {rev.createdAt ? new Date(rev.createdAt).toLocaleDateString() : ''}
                             </p>
                           </div>
@@ -831,7 +868,7 @@ export default function UserProfile() {
                             {rev.editable ? (
                               <>
                                 <button onClick={() => openEditReview(rev)}
-                                  className="text-xs text-blue-500 hover:underline">
+                                  className="link-subtle text-xs">
                                   Edit
                                 </button>
                                 <button onClick={() => handleDeleteReview(rev.id)}
@@ -840,7 +877,7 @@ export default function UserProfile() {
                                 </button>
                               </>
                             ) : (
-                              <span className="text-xs text-gray-300">Edit window closed</span>
+                              <span className="text-xs text-ink-300">Edit window closed</span>
                             )}
                           </div>
                         </div>
@@ -849,30 +886,26 @@ export default function UserProfile() {
                   </div>
                 )}
 
-                <h3 className="font-bold text-gray-900 mb-3 pt-4 border-t border-gray-100">Reviews about me</h3>
+                <h3 className="font-bold text-ink-900 mb-3 pt-4 border-t border-ink-100">Reviews about me</h3>
                 {reviews.length === 0 ? (
-                  <div className="text-center text-gray-400 py-12">No reviews yet.</div>
+                  <div className="text-center text-ink-400 py-12">No reviews yet.</div>
                 ) : (
-                  <div className="divide-y divide-gray-100">
+                  <div className="divide-y divide-ink-100">
                     {reviews.map((rev, i) => (
                       <div key={i} className="py-4 flex gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center shrink-0 text-gray-600 font-semibold text-sm">
+                        <div className="w-10 h-10 rounded-full bg-ink-200 flex items-center justify-center shrink-0 text-ink-600 font-semibold text-sm">
                           {(rev.reviewerMaskedName ?? 'U').charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-sm text-gray-800">{rev.reviewerMaskedName ?? 'User'}</span>
-                            <span className="text-xs text-gray-400">
+                            <span className="font-semibold text-sm text-ink-800">{rev.reviewerMaskedName ?? 'User'}</span>
+                            <span className="text-xs text-ink-400">
                               {rev.reviewDate ? new Date(rev.reviewDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
                             </span>
                           </div>
-                          <div className="flex">
-                            {[1, 2, 3, 4, 5].map(s => (
-                              <span key={s} className={s <= (rev.rating ?? 0) ? 'text-yellow-400' : 'text-gray-200'}>★</span>
-                            ))}
-                          </div>
-                          {rev.auctionTitle && <p className="text-xs text-gray-400 mt-0.5">on {rev.auctionTitle}</p>}
-                          {rev.comment && <p className="text-sm text-gray-600 mt-1.5">{decodeHtmlEntities(rev.comment)}</p>}
+                          <StarRating value={rev.rating ?? 0} size={14} />
+                          {rev.auctionTitle && <p className="text-xs text-ink-400 mt-0.5">on {rev.auctionTitle}</p>}
+                          {rev.comment && <p className="text-sm text-ink-600 mt-1.5">{decodeHtmlEntities(rev.comment)}</p>}
                         </div>
                       </div>
                     ))}

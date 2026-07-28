@@ -91,9 +91,9 @@ export default function EditAuction() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Edit Auction</h1>
+      <h1 className="page-title mb-6">Edit Auction</h1>
       <div className="card p-8">
-        {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+        {error && <div className="alert-error mb-4">{error}</div>}
         {hasBids && (
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm px-4 py-2 rounded-lg mb-4">
             Bids have been placed. Only the end date can be updated.
@@ -101,33 +101,33 @@ export default function EditAuction() {
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <label className="field-label">Title</label>
             <input
               value={form.title}
               onChange={e => update('title', e.target.value)}
               disabled={hasBids}
-              className={`input-field ${hasBids ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              className={`input-field ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="field-label">Description</label>
             <textarea
               value={form.description}
               onChange={e => update('description', e.target.value)}
               disabled={hasBids}
               rows={5}
-              className={`w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none ${hasBids ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              className={`w-full border border-ink-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 resize-none ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <label className="field-label">Category</label>
               <select
                 value={form.category}
                 onChange={e => update('category', e.target.value)}
                 disabled={hasBids}
-                className={`w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${hasBids ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                className={`w-full border border-ink-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
               >
                 <option value="">-- Select a category --</option>
                 {categories.map(c => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)}
@@ -135,12 +135,12 @@ export default function EditAuction() {
               {categoryError && <p className="text-xs text-amber-600 mt-1">{categoryError}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+              <label className="field-label">Condition</label>
               <select
                 value={form.itemCondition}
                 onChange={e => update('itemCondition', e.target.value)}
                 disabled={hasBids}
-                className={`w-full border border-gray-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${hasBids ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                className={`w-full border border-ink-200 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
               >
                 {CONDITIONS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
@@ -148,7 +148,7 @@ export default function EditAuction() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+            <label className="field-label">End Time</label>
             <input
               type="datetime-local"
               value={form.endDate}
@@ -159,7 +159,7 @@ export default function EditAuction() {
 
           {!hasBids && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Photos</label>
+              <label className="field-label">Photos</label>
               {dataLoaded && (
                 <ImageUploader
                   existingImages={existingImages}
@@ -171,11 +171,11 @@ export default function EditAuction() {
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg disabled:opacity-50">
+              className="btn-primary flex-1 btn-lg">
               {loading ? 'Saving…' : 'Save Changes'}
             </button>
             <button type="button" onClick={() => navigate('/seller/dashboard')}
-              className="flex-1 border border-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-50">
+              className="flex-1 border border-ink-200 text-ink-700 py-3 rounded-lg hover:bg-ink-50">
               Cancel
             </button>
           </div>

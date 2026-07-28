@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { UploadCloud, X } from 'lucide-react';
 import { uploadAuctionImage } from '../api/seller';
 import { publicPath } from '../utils/appBase';
 
@@ -78,15 +79,22 @@ export default function ImageUploader({ existingImages = [], onChange }) {
       {/* Thumbnails */}
       {allImages.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {allImages.map(img => (
-            <div key={img.key} className="relative w-20 h-20 shrink-0">
-              <img src={img.src} alt="" className="w-full h-full object-cover rounded-lg border border-gray-200" />
+          {allImages.map((img, i) => (
+            <div key={img.key} className="relative w-20 h-20 shrink-0 group">
+              <img src={img.src} alt="" className="w-full h-full object-cover rounded-xl border border-ink-200" />
+              {i === 0 && (
+                <span className="absolute bottom-1 left-1 rounded bg-ink-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  Cover
+                </span>
+              )}
               <button
                 type="button"
                 onClick={img.onRemove}
-                className="absolute -top-1.5 -right-1.5 bg-white border border-gray-200 rounded-full w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-500 hover:border-red-300 transition-colors shadow-sm text-xs"
+                aria-label="Remove image"
+                className="absolute -top-1.5 -right-1.5 bg-white border border-ink-200 rounded-full w-6 h-6 flex items-center justify-center
+                           text-ink-500 hover:text-red-500 hover:border-red-300 hover:scale-110 transition-all shadow-sm"
               >
-                ✕
+                <X size={13} />
               </button>
             </div>
           ))}
@@ -98,19 +106,23 @@ export default function ImageUploader({ existingImages = [], onChange }) {
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
         onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-6 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-colors"
+        className="border-2 border-dashed border-ink-300 rounded-2xl px-4 py-8 text-center cursor-pointer
+                   hover:border-primary-400 hover:bg-primary-50/60 transition-colors group"
       >
         {uploading ? (
-          <p className="text-sm text-blue-500">Uploading…</p>
+          <p className="text-sm font-semibold text-primary-600">Uploading…</p>
         ) : (
           <>
-            <p className="text-sm text-gray-500">Click or drag images here</p>
-            <p className="text-xs text-gray-400 mt-0.5">JPEG, PNG or WebP · Max 5 MB each</p>
+            <span className="grid place-items-center w-11 h-11 rounded-xl bg-ink-100 text-ink-400 mx-auto mb-3 transition-colors group-hover:bg-primary-100 group-hover:text-primary-600">
+              <UploadCloud size={20} />
+            </span>
+            <p className="text-sm font-semibold text-ink-700">Click or drag images here</p>
+            <p className="text-xs text-ink-400 mt-1">JPEG, PNG or WebP · Max 5 MB each</p>
           </>
         )}
       </div>
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
 
       <input
         ref={fileInputRef}

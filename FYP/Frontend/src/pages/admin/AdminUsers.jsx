@@ -5,10 +5,10 @@ import { getAdminUsers, banUser, unbanUser, approveUser, rejectUser } from '../.
 //   statusId (1=active, 2=suspended, 4=pending, 5=rejected), joined, bidCount, listingCount
 
 const STATUS = {
-  1: { label: 'active',   className: 'bg-green-100 text-green-600' },
-  2: { label: 'banned',   className: 'bg-red-100 text-red-600' },
-  4: { label: 'pending',  className: 'bg-yellow-100 text-yellow-700' },
-  5: { label: 'rejected', className: 'bg-gray-200 text-gray-600' },
+  1: { label: 'active',   className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  2: { label: 'banned',   className: 'bg-red-50 text-red-700 ring-red-200' },
+  4: { label: 'pending',  className: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  5: { label: 'rejected', className: 'bg-ink-100 text-ink-600 ring-ink-200' },
 };
 
 const isActive = (user) => user.statusId === 1;
@@ -49,64 +49,64 @@ export default function AdminUsers() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">User Moderation</h1>
-      <p className="text-gray-400 text-sm mb-6">
+      <h1 className="page-title">User Moderation</h1>
+      <p className="page-subtitle mb-6">
         Manage users and enforce platform policies
         {pendingCount > 0 && (
-          <span className="ml-2 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">
+          <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-amber-200 text-xs font-medium">
             {pendingCount} awaiting approval
           </span>
         )}
       </p>
 
       <div className="card overflow-hidden">
-        <div className="p-4 border-b border-gray-100">
+        <div className="p-4 border-b border-ink-100">
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search users…"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="input-field w-64"
           />
         </div>
         <table className="w-full text-sm">
-          <thead className="text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
+          <thead className="text-xs text-ink-500 uppercase tracking-wider bg-ink-50 border-b border-ink-200">
             <tr>
               {['User', 'Email', 'Role', 'Activity', 'Status', 'Actions'].map(h => (
-                <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
+                <th key={h} className="px-4 py-3 text-left font-bold whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-ink-100">
             {filtered.map(user => {
               const active = isActive(user);
               const pending = isPending(user);
               const roleLower = (user.role ?? '').toLowerCase();
-              const status = STATUS[user.statusId] ?? { label: 'unknown', className: 'bg-gray-100 text-gray-500' };
+              const status = STATUS[user.statusId] ?? { label: 'unknown', className: 'bg-ink-100 text-ink-600 ring-ink-200' };
               const isAdmin = roleLower === 'admin';
               return (
-                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={user.id} className="hover:bg-ink-50 transition-colors">
                   <td className="px-4 py-4">
-                    <p className="font-medium text-gray-900">{user.username}</p>
-                    <p className="text-xs text-gray-400">Joined {user.joined}</p>
+                    <p className="font-medium text-ink-900">{user.username}</p>
+                    <p className="text-xs text-ink-400">Joined {user.joined}</p>
                   </td>
-                  <td className="px-4 py-4 text-gray-600">{user.email}</td>
+                  <td className="px-4 py-4 text-ink-600">{user.email}</td>
                   <td className="px-4 py-4">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${roleLower === 'buyer' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                    <span className={`badge ${roleLower === 'buyer' ? 'bg-primary-50 text-primary-700 ring-primary-200' : 'bg-purple-50 text-purple-700 ring-purple-200'}`}>
                       {roleLower}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-gray-600">
+                  <td className="px-4 py-4 text-ink-600">
                     <p>Bids: {user.bidCount ?? 0}</p>
                     <p>Listings: {user.listingCount ?? 0}</p>
                   </td>
                   <td className="px-4 py-4">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${status.className}`}>
+                    <span className={`badge ${status.className}`}>
                       {status.label}
                     </span>
                   </td>
                   <td className="px-4 py-4">
                     {isAdmin ? (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-ink-400">—</span>
                     ) : pending ? (
                       <div className="flex gap-2">
                         <button
@@ -117,13 +117,13 @@ export default function AdminUsers() {
                         </button>
                         <button
                           onClick={() => handleReject(user)}
-                          className="px-3 py-1.5 rounded text-sm font-medium text-white bg-gray-500 hover:bg-gray-600 transition-colors"
+                          className="px-3 py-1.5 rounded text-sm font-medium text-white bg-ink-500 hover:bg-ink-600 transition-colors"
                         >
                           Reject
                         </button>
                       </div>
                     ) : user.statusId === 5 ? (
-                      <span className="text-xs text-gray-400">Rejected</span>
+                      <span className="text-xs text-ink-400">Rejected</span>
                     ) : (
                       <button
                         onClick={() => handleBan(user)}
@@ -139,7 +139,7 @@ export default function AdminUsers() {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="text-center py-10 text-gray-400">No users found.</div>
+          <div className="text-center py-10 text-ink-400">No users found.</div>
         )}
       </div>
     </div>

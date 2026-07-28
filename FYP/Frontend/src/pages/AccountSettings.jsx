@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount } from '../api/user';
+import { Store, Check, AlertCircle, LayoutDashboard } from 'lucide-react';
+import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount, enableSelling } from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
 import { getNotificationPreferences, saveNotificationPreferences } from '../api/notifications';
 import { getLinkedAccounts, linkOAuthAccount, unlinkOAuthAccount } from '../api/auth';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import { useAuth } from '../context/AuthContext';
+import { apiErrorMessage } from '../utils/apiError';
 import { publicPath } from '../utils/appBase';
 
 const TABS = [
   { key: 'profile', label: 'Edit Profile' },
+  { key: 'selling', label: 'Selling' },
   { key: 'password', label: 'Change Password' },
   { key: '2fa', label: 'Two-Factor Auth' },
   { key: 'notifications', label: 'Notifications' },
@@ -88,8 +91,8 @@ function EditProfileSection() {
 
   return (
     <div className="card p-8">
-      {message && <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-lg mb-4">{message}</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+      {message && <div className="alert-success mb-4">{message}</div>}
+      {error   && <div className="alert-error mb-4">{error}</div>}
 
       {/* Photo upload */}
       <div className="flex items-center gap-5 mb-6">
@@ -98,17 +101,17 @@ function EditProfileSection() {
             <img
               src={displayImage}
               alt="Profile"
-              className="w-20 h-20 rounded-full object-cover border border-gray-200"
+              className="w-20 h-20 rounded-full object-cover border border-ink-200"
             />
           ) : (
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex items-center justify-center text-white text-2xl font-bold">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-primary-500 flex items-center justify-center text-white text-2xl font-bold">
               {initials}
             </div>
           )}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="absolute -bottom-1 -right-1 bg-blue-500 hover:bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center shadow transition-colors"
+            className="absolute -bottom-1 -right-1 bg-primary-600 hover:bg-primary-700 text-white rounded-full w-7 h-7 flex items-center justify-center shadow-lift transition-all hover:scale-110"
             title="Change photo"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -120,13 +123,13 @@ function EditProfileSection() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="text-sm font-medium text-blue-500 hover:underline"
+            className="link-subtle text-sm"
           >
             {uploading ? 'Uploading…' : 'Upload new photo'}
           </button>
-          <p className="text-xs text-gray-400 mt-0.5">JPEG, PNG, GIF or WebP · Max 5 MB</p>
+          <p className="text-xs text-ink-400 mt-0.5">JPEG, PNG, GIF or WebP · Max 5 MB</p>
           {selectedFile && (
-            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[200px]">{selectedFile.name}</p>
+            <p className="text-xs text-ink-500 mt-0.5 truncate max-w-[200px]">{selectedFile.name}</p>
           )}
         </div>
         <input
@@ -146,7 +149,7 @@ function EditProfileSection() {
           { key: 'address',  label: 'Address',       type: 'text',  placeholder: 'Street, City, Country' },
         ].map(({ key, label, type, placeholder }) => (
           <div key={key}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+            <label className="field-label">{label}</label>
             <input
               type={type}
               value={form[key]}
@@ -160,12 +163,12 @@ function EditProfileSection() {
           <button
             type="submit"
             disabled={uploading}
-            className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+            className="btn-primary flex-1 btn-lg"
           >
             {uploading ? 'Uploading photo…' : 'Save Changes'}
           </button>
           <button type="button" onClick={() => navigate('/profile')}
-            className="flex-1 border border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors">
+            className="btn-secondary flex-1 btn-lg">
             Cancel
           </button>
         </div>
@@ -199,8 +202,8 @@ function ChangePasswordSection() {
 
   return (
     <div className="card p-8 max-w-md">
-      {message && <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-lg mb-4">{message}</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+      {message && <div className="alert-success mb-4">{message}</div>}
+      {error   && <div className="alert-error mb-4">{error}</div>}
       <form onSubmit={handleSubmit} className="space-y-4">
         {[
           { key: 'currentPassword', label: 'Current Password' },
@@ -208,7 +211,7 @@ function ChangePasswordSection() {
           { key: 'confirmPassword', label: 'Confirm New Password' },
         ].map(({ key, label }) => (
           <div key={key}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+            <label className="field-label">{label}</label>
             <input
               type="password"
               value={form[key]}
@@ -221,7 +224,7 @@ function ChangePasswordSection() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+          className="btn-primary btn-block btn-lg"
         >
           {loading ? 'Changing…' : 'Change Password'}
         </button>
@@ -293,51 +296,51 @@ function TwoFactorSection() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <p className="text-gray-500 text-sm">
+      <p className="text-ink-500 text-sm">
         Add an extra layer of security by requiring a code from your authenticator app when signing in.
       </p>
 
-      {message && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">{message}</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
+      {message && <div className="alert-success">{message}</div>}
+      {error   && <div className="alert-error">{error}</div>}
 
       <div className="card p-5 flex items-center justify-between">
         <div>
-          <p className="font-medium text-gray-900">Status</p>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="font-medium text-ink-900">Status</p>
+          <p className="text-sm text-ink-500 mt-0.5">
             {is2FAEnabled ? 'Two-factor authentication is enabled.' : 'Two-factor authentication is disabled.'}
           </p>
         </div>
-        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${is2FAEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${is2FAEnabled ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-ink-100 text-ink-600 ring-ink-200'}`}>
           {is2FAEnabled ? 'Enabled' : 'Disabled'}
         </span>
       </div>
 
       {!is2FAEnabled && step === 'idle' && (
         <button onClick={handleStartSetup} disabled={loading}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50">
+          className="btn-primary btn-block btn-lg">
           {loading ? 'Setting up…' : 'Enable Two-Factor Authentication'}
         </button>
       )}
 
       {!is2FAEnabled && step === 'setup' && (
         <div className="card p-6 space-y-5">
-          <h2 className="font-bold text-gray-900">Step 1 — Scan the QR code</h2>
-          <p className="text-sm text-gray-500">Open Google Authenticator, Authy, or any TOTP app and scan the QR code below.</p>
-          <div className="flex justify-center p-4 bg-white border border-gray-200 rounded-xl">
+          <h2 className="font-bold text-ink-900">Step 1 — Scan the QR code</h2>
+          <p className="text-sm text-ink-500">Open Google Authenticator, Authy, or any TOTP app and scan the QR code below.</p>
+          <div className="flex justify-center p-4 bg-white border border-ink-200 rounded-xl">
             <QRCodeSVG value={totpUri} size={180} />
           </div>
           <div>
-            <p className="text-xs text-gray-400 mb-1">Can't scan? Enter this key manually:</p>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 text-sm font-mono text-gray-700 break-all flex items-center justify-between gap-2">
+            <p className="text-xs text-ink-400 mb-1">Can't scan? Enter this key manually:</p>
+            <div className="bg-ink-50 border border-ink-200 rounded-lg px-4 py-2 text-sm font-mono text-ink-700 break-all flex items-center justify-between gap-2">
               <span>{totpSecret}</span>
               <button type="button"
                 onClick={() => navigator.clipboard.writeText(totpSecret).then(() => setMessage('Key copied!'))}
-                className="text-blue-500 text-xs whitespace-nowrap hover:underline">
+                className="text-primary-500 text-xs whitespace-nowrap hover:underline">
                 Copy
               </button>
             </div>
           </div>
-          <h2 className="font-bold text-gray-900">Step 2 — Enter the verification code</h2>
+          <h2 className="font-bold text-ink-900">Step 2 — Enter the verification code</h2>
           <form onSubmit={handleConfirm} className="space-y-3">
             <input type="text" inputMode="numeric" placeholder="000000"
               value={confirmCode}
@@ -350,7 +353,7 @@ function TwoFactorSection() {
               {loading ? 'Verifying…' : 'Confirm & Enable'}
             </button>
             <button type="button" onClick={() => { setStep('idle'); clearMessages(); }}
-              className="w-full border border-gray-200 text-gray-600 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors">
+              className="btn-secondary btn-block btn-lg">
               Cancel
             </button>
           </form>
@@ -366,8 +369,8 @@ function TwoFactorSection() {
             </button>
           ) : (
             <div className="card p-6 border-red-200 space-y-4">
-              <h2 className="font-bold text-gray-900">Disable 2FA</h2>
-              <p className="text-sm text-gray-500">Enter your current password to confirm.</p>
+              <h2 className="font-bold text-ink-900">Disable 2FA</h2>
+              <p className="text-sm text-ink-500">Enter your current password to confirm.</p>
               <form onSubmit={handleDisable} className="space-y-3">
                 <input type="password" placeholder="Current password"
                   value={disableCode}
@@ -380,7 +383,7 @@ function TwoFactorSection() {
                   {loading ? 'Disabling…' : 'Confirm Disable'}
                 </button>
                 <button type="button" onClick={() => { setShowDisable(false); setDisableCode(''); clearMessages(); }}
-                  className="w-full border border-gray-200 text-gray-600 font-medium py-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  className="btn-secondary btn-block btn-lg">
                   Cancel
                 </button>
               </form>
@@ -432,23 +435,23 @@ function NotificationPreferencesSection() {
     }
   };
 
-  if (loading) return <div className="card p-8 text-gray-400 text-sm">Loading preferences…</div>;
+  if (loading) return <div className="card p-8 text-ink-400 text-sm">Loading preferences…</div>;
 
   return (
     <div className="max-w-lg space-y-4">
-      <p className="text-gray-500 text-sm">
+      <p className="text-ink-500 text-sm">
         Choose which events you want to be notified about (in-app and by email when configured).
       </p>
 
-      {message && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">{message}</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
+      {message && <div className="alert-success">{message}</div>}
+      {error   && <div className="alert-error">{error}</div>}
 
-      <div className="card divide-y divide-gray-100">
+      <div className="card divide-y divide-ink-100">
         {PREF_ITEMS.map(({ key, label, desc }) => (
           <div key={key} className="p-5 flex items-center justify-between gap-4">
             <div>
-              <p className="font-medium text-gray-900">{label}</p>
-              <p className="text-sm text-gray-500 mt-0.5">{desc}</p>
+              <p className="font-medium text-ink-900">{label}</p>
+              <p className="text-sm text-ink-500 mt-0.5">{desc}</p>
             </div>
             <button
               type="button"
@@ -457,7 +460,7 @@ function NotificationPreferencesSection() {
               disabled={saving}
               onClick={() => handleToggle(key)}
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-                prefs[key] ? 'bg-blue-500' : 'bg-gray-300'
+                prefs[key] ? 'bg-primary-500' : 'bg-ink-300'
               }`}
             >
               <span
@@ -519,29 +522,29 @@ function LinkedAccountsSection() {
     }
   };
 
-  if (loading) return <div className="card p-8 text-gray-400 text-sm">Loading linked accounts…</div>;
+  if (loading) return <div className="card p-8 text-ink-400 text-sm">Loading linked accounts…</div>;
 
   return (
     <div className="max-w-lg space-y-4">
-      <p className="text-gray-500 text-sm">
+      <p className="text-ink-500 text-sm">
         Link a third-party account so you can sign in with your preferred method.
         Your password keeps working either way.
       </p>
 
-      {message && <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">{message}</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>}
+      {message && <div className="alert-success">{message}</div>}
+      {error   && <div className="alert-error">{error}</div>}
 
       <div className="card p-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="font-medium text-gray-900">Google</p>
+            <p className="font-medium text-ink-900">Google</p>
             {google ? (
-              <p className="text-sm text-gray-500 mt-0.5">
+              <p className="text-sm text-ink-500 mt-0.5">
                 Linked{google.email ? ` as ${google.email}` : ''}
                 {google.linkedAt ? ` on ${new Date(google.linkedAt).toLocaleDateString()}` : ''}
               </p>
             ) : (
-              <p className="text-sm text-gray-500 mt-0.5">Not linked</p>
+              <p className="text-sm text-ink-500 mt-0.5">Not linked</p>
             )}
           </div>
           {google && (
@@ -564,7 +567,7 @@ function LinkedAccountsSection() {
                 onAvailabilityChange={setGoogleAvailable}
               />
             ) : (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-ink-400">
                 Google sign-in is not configured on this server (GOOGLE_CLIENT_ID missing).
               </p>
             )}
@@ -572,7 +575,7 @@ function LinkedAccountsSection() {
         )}
       </div>
 
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-ink-400">
         Facebook and Twitter/X sign-in are not offered yet.
       </p>
     </div>
@@ -600,8 +603,8 @@ function DeleteAccountSection() {
   };
 
   return (
-    <div className="mt-8 pt-6 border-t border-gray-200">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Delete Account</h3>
+    <div className="mt-8 pt-6 border-t border-ink-200">
+      <h3 className="text-sm font-medium text-ink-700 mb-3">Delete Account</h3>
       {!expanded ? (
         <button
           onClick={() => setExpanded(true)}
@@ -611,8 +614,8 @@ function DeleteAccountSection() {
         </button>
       ) : (
         <div className="card p-5 space-y-3 max-w-md">
-          <p className="text-sm text-gray-600">Are you sure? This will permanently delete your account and cannot be undone.</p>
-          {error && <div className="bg-red-50 text-red-600 text-sm px-3 py-2 rounded-lg">{error}</div>}
+          <p className="text-sm text-ink-600">Are you sure? This will permanently delete your account and cannot be undone.</p>
+          {error && <div className="alert-error">{error}</div>}
           <div className="flex gap-3">
             <button
               onClick={handleDelete}
@@ -623,7 +626,7 @@ function DeleteAccountSection() {
             </button>
             <button
               onClick={() => { setExpanded(false); setError(''); }}
-              className="flex-1 border border-gray-200 text-sm text-gray-600 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              className="btn-secondary flex-1"
             >
               Cancel
             </button>
@@ -634,23 +637,125 @@ function DeleteAccountSection() {
   );
 }
 
+// ── Selling section ───────────────────────────────────────────────────────────
+/**
+ * Buying and selling live on one account. Buyers opt into selling here rather than
+ * registering a second account.
+ */
+function SellingSection() {
+  const navigate = useNavigate();
+  const { user, refreshUser } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const alreadySelling = Boolean(user?.canSell);
+
+  const handleEnable = async () => {
+    setError(''); setLoading(true);
+    try {
+      await enableSelling();
+      await refreshUser();
+      navigate('/seller/dashboard');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not enable selling. Please try again.'));
+      setLoading(false);
+    }
+  };
+
+  if (alreadySelling) {
+    return (
+      <div className="card p-8">
+        <div className="flex items-start gap-4">
+          <span className="grid place-items-center w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 shrink-0">
+            <Store size={22} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="section-title text-base">Selling is enabled</h2>
+            <p className="text-sm text-ink-500 mt-1 leading-relaxed">
+              You can list items and manage orders from your seller dashboard. Your
+              buying, bidding and watchlist all stay on this same account.
+            </p>
+            <div className="flex flex-wrap gap-3 mt-5">
+              <button onClick={() => navigate('/seller/dashboard')} className="btn-primary">
+                <LayoutDashboard size={16} /> Seller dashboard
+              </button>
+              <button onClick={() => navigate('/seller/create')} className="btn-secondary">
+                Create a listing
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-8">
+      <div className="flex items-start gap-4">
+        <span className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 shrink-0">
+          <Store size={22} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="section-title text-base">Start selling</h2>
+          <p className="text-sm text-ink-500 mt-1 leading-relaxed">
+            Turn on selling to list your own items. You keep the same account — your
+            bids, watchlist and order history are unaffected.
+          </p>
+
+          <ul className="mt-5 space-y-2.5">
+            {[
+              'List items with ascending, Dutch or sealed-bid auctions',
+              'Track bids, orders and shipping from a seller dashboard',
+              'Answer buyer questions and rate the buyers you sell to',
+            ].map(point => (
+              <li key={point} className="flex items-start gap-2.5 text-sm text-ink-600">
+                <Check size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+                {point}
+              </li>
+            ))}
+          </ul>
+
+          {error && (
+            <div className="alert-error mt-5">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button onClick={handleEnable} disabled={loading} className="btn-primary btn-lg mt-6">
+            {loading ? 'Enabling…' : 'Enable selling on my account'}
+          </button>
+          <p className="field-hint">You can start listing straight away — nothing to pay up front.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main settings page ────────────────────────────────────────────────────────
 export default function AccountSettings() {
-  const [tab, setTab] = useState('profile');
+  const [searchParams] = useSearchParams();
+  // /profile/settings?tab=selling — where ProtectedRoute sends a buyer who tried
+  // to open a seller page without the capability.
+  const initialTab = TABS.some(t => t.key === searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : 'profile';
+  const [tab, setTab] = useState(initialTab);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Account Settings</h1>
+      <h1 className="page-title">Account Settings</h1>
+      <p className="page-subtitle mb-6">Manage your profile, selling, security and notification preferences.</p>
 
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+      <div className="flex gap-1 border-b border-ink-200 mb-6 overflow-x-auto">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-3 text-sm font-semibold whitespace-nowrap transition-colors border-b-2 -mb-px ${
               tab === t.key
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-ink-500 hover:text-ink-800'
             }`}
           >
             {t.label}
@@ -659,6 +764,7 @@ export default function AccountSettings() {
       </div>
 
       {tab === 'profile'       && <EditProfileSection />}
+      {tab === 'selling'       && <SellingSection />}
       {tab === 'password'      && <ChangePasswordSection />}
       {tab === '2fa'           && <TwoFactorSection />}
       {tab === 'notifications' && <NotificationPreferencesSection />}

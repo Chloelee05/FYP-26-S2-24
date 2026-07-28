@@ -9,11 +9,14 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
 export const getProfile             = ()     => api.get('/account');
 export const getTransactionHistory  = (filter) => api.get('/account/transactions', { params: { filter } });
-export const getRatingSummary       = ()     => api.get('/account/rating');
 export const getMyReviews           = ()     => api.get('/account/reviews');
 
 export const updateProfile = (data) =>
   api.post('/account/update', form(data), F);
+
+/** Turns on the selling capability for the signed-in buyer (one merged account). */
+export const enableSelling = () =>
+  api.post('/account/enable-selling', form({}), F);
 
 export const uploadProfilePhoto = (file) => {
   return api.post('/account/upload-photo', file, {

@@ -11,15 +11,15 @@ export default function ChatMessage({ message, currentUserId, peerLabel = 'Suppo
     <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
         {!isMe && (
-          <span className="text-[11px] text-gray-400 mb-0.5 px-1">
+          <span className="text-[11px] text-ink-400 mb-0.5 px-1">
             {message.senderName || peerLabel}
           </span>
         )}
         <div
-          className={`rounded-2xl px-3 py-2 text-sm shadow-sm ${
+          className={`rounded-2xl px-3.5 py-2 text-sm shadow-sm leading-relaxed ${
             isMe
-              ? 'bg-blue-500 text-white rounded-br-sm'
-              : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm'
+              ? 'bg-primary-600 text-white rounded-br-md'
+              : 'bg-white border border-ink-200 text-ink-800 rounded-bl-md'
           }`}
         >
           {message.attachmentUrl && (
@@ -32,11 +32,11 @@ export default function ChatMessage({ message, currentUserId, peerLabel = 'Suppo
             </a>
           )}
           {message.body ? (
-            <p className={`whitespace-pre-wrap ${isMe ? '' : ''}`}>{message.body}</p>
+            <p className="whitespace-pre-wrap">{message.body}</p>
           ) : null}
         </div>
         {time && (
-          <span className="text-[10px] text-gray-400 mt-0.5 px-1">{time}</span>
+          <span className="text-[10px] text-ink-400 mt-0.5 px-1">{time}</span>
         )}
       </div>
     </div>

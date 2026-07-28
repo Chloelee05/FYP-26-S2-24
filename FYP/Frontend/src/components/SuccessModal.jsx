@@ -1,23 +1,24 @@
+import { Check } from 'lucide-react';
+import Modal from './Modal';
+
 /**
  * Simple success dialog (e.g. after registration).
  */
 export default function SuccessModal({ title, message, buttonLabel = 'OK', onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-        <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-green-500 text-2xl">✓</span>
+    <Modal title={title} onClose={onClose} size="sm" hideHeader dismissOnBackdrop={false}>
+      <div className="p-7 text-center">
+        <div className="w-16 h-16 rounded-full bg-emerald-50 ring-8 ring-emerald-50/60 flex items-center justify-center mx-auto mb-5">
+          <span className="grid place-items-center w-10 h-10 rounded-full bg-emerald-500 text-white">
+            <Check size={22} strokeWidth={3} />
+          </span>
         </div>
-        <h2 className="font-bold text-lg text-gray-900 mb-2">{title}</h2>
-        {message && <p className="text-sm text-gray-500 mb-5">{message}</p>}
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2.5 rounded-full transition-colors"
-        >
+        <h2 className="font-display font-bold text-lg text-ink-900 mb-2">{title}</h2>
+        {message && <p className="text-sm text-ink-500 mb-6 leading-relaxed">{message}</p>}
+        <button type="button" onClick={onClose} className="btn-primary btn-block">
           {buttonLabel}
         </button>
       </div>
-    </div>
+    </Modal>
   );
 }

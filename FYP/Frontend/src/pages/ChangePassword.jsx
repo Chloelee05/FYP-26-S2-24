@@ -26,10 +26,10 @@ export default function ChangePassword() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Change Password</h1>
+      <h1 className="page-title mb-6">Change Password</h1>
       <div className="card p-8">
-        {message && <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-lg mb-4">{message}</div>}
-        {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-lg mb-4">{error}</div>}
+        {message && <div className="alert-success mb-4">{message}</div>}
+        {error && <div className="alert-error mb-4">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           {[
             { key: 'currentPassword', label: 'Current Password' },
@@ -37,7 +37,7 @@ export default function ChangePassword() {
             { key: 'confirmPassword', label: 'Confirm New Password' },
           ].map(({ key, label }) => (
             <div key={key}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+              <label className="field-label">{label}</label>
               <input
                 type="password"
                 value={form[key]}
@@ -50,7 +50,7 @@ export default function ChangePassword() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+            className="btn-primary btn-block btn-lg"
           >
             {loading ? 'Changing…' : 'Change Password'}
           </button>

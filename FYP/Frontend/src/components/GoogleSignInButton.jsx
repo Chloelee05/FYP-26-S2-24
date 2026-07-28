@@ -27,9 +27,13 @@ export default function GoogleSignInButton({ onCredential, onAvailabilityChange,
   const divRef = useRef(null);
   const [hidden, setHidden] = useState(false);
   const callbackRef = useRef(onCredential);
-  callbackRef.current = onCredential;
   const availabilityRef = useRef(onAvailabilityChange);
-  availabilityRef.current = onAvailabilityChange;
+
+  // Keep the latest callbacks without re-running the script/render effect below.
+  useEffect(() => {
+    callbackRef.current = onCredential;
+    availabilityRef.current = onAvailabilityChange;
+  });
 
   useEffect(() => {
     let cancelled = false;
