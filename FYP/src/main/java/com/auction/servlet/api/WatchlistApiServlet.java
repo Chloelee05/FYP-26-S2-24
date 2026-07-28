@@ -8,10 +8,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.util.Collections;
 
 /**
- * GET  /api/watchlist         — list buyer's watchlist
- * POST /api/watchlist         — params: auctionId, action (add|remove)
+ * GET  /api/watchlist              — list buyer's watchlist
+ * GET  /api/watchlist?auctionId=X  — {@code {"watching": true|false}} for one auction
+ * POST /api/watchlist              — params: auctionId, action (add|remove)
  * Requires BUYER role.
  */
 @WebServlet("/api/watchlist")
@@ -31,6 +33,19 @@ public class WatchlistApiServlet extends ApiBase {
         AuthSession session = authSession(req);
         if (!isBuyer(session)) { forbidden(resp); return; }
         int userId = ((Number) session.getAttribute("userId")).intValue();
+
+        // Single-auction check: the detail page only needs to know whether one item is
+        // watched, so answer that directly instead of making it download the whole list.
+        String auctionIdStr = param(req, "auctionId");
+        if (auctionIdStr != null) {
+            long auctionId;
+            try { auctionId = Long.parseLong(auctionIdStr); }
+            catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
+            ok(resp, Collections.singletonMap(
+                    "watching", watchlistDAO.existsByUserAndAuction(userId, auctionId)));
+            return;
+        }
+
         ok(resp, watchlistDAO.listByUser(userId));
     }
 

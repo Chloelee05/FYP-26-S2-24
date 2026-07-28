@@ -36,6 +36,9 @@ class TestRecommendationApiServlet {
     @BeforeEach
     void setUp() {
         mockDAO = mock(RecommendationDAO.class);
+        // The servlet reads getSettings().itemsShown to pick a default limit; without
+        // this stub the mock returns null and every request NPEs.
+        when(mockDAO.getSettings()).thenReturn(new RecommendationDAO.Settings(8, 0.1));
         servlet = new Wrapper();
         servlet.setRecommendationDAO(mockDAO);
         req  = mock(HttpServletRequest.class);
@@ -73,5 +76,41 @@ class TestRecommendationApiServlet {
         JsonNode body = ApiTestSupport.parse(sw);
         verify(resp).setStatus(200);
         assertTrue(body.get("personalised").asBoolean());
+    }
+
+    @Test
+    @DisplayName("/trending is never personalised, even for a signed-in user")
+    void trendingIsNeverPersonalised() throws Exception {
+        // The home page needs a genuine "what's hot" list next to personalised picks,
+        // so this route must ignore the session entirely.
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/trending");
+        when(mockDAO.trending(eq(8), eq(Collections.emptySet()), isNull()))
+                .thenReturn(Collections.emptyList());
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        verify(resp).setStatus(200);
+        assertFalse(body.get("personalised").asBoolean());
+        verify(mockDAO).trending(eq(8), eq(Collections.emptySet()), isNull());
+        verify(mockDAO, never()).recommendForUser(anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("/trending honours an explicit limit")
+    void trendingHonoursLimit() throws Exception {
+        when(req.getPathInfo()).thenReturn("/trending");
+        when(req.getParameter("limit")).thenReturn("4");
+        when(mockDAO.trending(eq(4), eq(Collections.emptySet()), isNull()))
+                .thenReturn(Collections.emptyList());
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).trending(eq(4), eq(Collections.emptySet()), isNull());
     }
 }
