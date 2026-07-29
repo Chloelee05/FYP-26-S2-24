@@ -10,6 +10,10 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 // Public platform stats (landing page): live counts, fee schedule, testimonials
 export const getPlatformStats = () => api.get('/stats');
 
+// Public landing page copy, admin-editable: a flat { contentKey: text } map.
+// Fails soft server-side — an empty object means "use the built-in defaults".
+export const getLandingContent = () => api.get('/landing-content');
+
 // Search / browse
 export const searchAuctions = (params) => api.get('/search', { params });
 export const getCategories   = ()       => api.get('/categories');

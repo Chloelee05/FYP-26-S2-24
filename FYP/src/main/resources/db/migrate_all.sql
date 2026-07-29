@@ -85,4 +85,7 @@
 \echo '== merged buyer/seller accounts (can_sell capability) =='
 \ir migration_seller_capability.sql
 
+\echo '== admin-editable landing page copy =='
+\ir migration_landing_content.sql
+
 \echo 'All migrations applied.'

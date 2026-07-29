@@ -77,12 +77,24 @@ export default {
           '0%, 100%': { opacity: '1', transform: 'scale(1)' },
           '50%': { opacity: '0.45', transform: 'scale(0.82)' },
         },
+        // Single light sweep across a dark surface, triggered on hover.
+        sheen: {
+          from: { transform: 'translateX(-120%) skewX(-12deg)' },
+          to: { transform: 'translateX(220%) skewX(-12deg)' },
+        },
+        // Soft expanding halo behind the "live auctions" indicator.
+        'halo-pulse': {
+          '0%': { opacity: '0.55', transform: 'scale(1)' },
+          '70%, 100%': { opacity: '0', transform: 'scale(2.6)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 0.25s ease-out both',
         'fade-up': 'fade-up 0.32s cubic-bezier(0.22, 1, 0.36, 1) both',
         'scale-in': 'scale-in 0.18s cubic-bezier(0.22, 1, 0.36, 1) both',
         'pulse-dot': 'pulse-dot 1.6s ease-in-out infinite',
+        sheen: 'sheen 0.9s cubic-bezier(0.22, 1, 0.36, 1)',
+        'halo-pulse': 'halo-pulse 2.4s ease-out infinite',
       },
     },
   },

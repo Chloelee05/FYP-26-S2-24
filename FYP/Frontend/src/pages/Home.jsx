@@ -8,49 +8,66 @@ import {
 } from 'lucide-react';
 import { apiErrorMessage } from '../utils/apiError';
 import AuctionCard from '../components/AuctionCard';
+import Reveal from '../components/Reveal';
+import CountUp from '../components/CountUp';
 import {
   getTrendingAuctions, getCategories, getRecommendations, getFeaturedListings,
   dismissRecommendation, recordRecommendationImpressions, recordRecommendationClick,
-  getPlatformStats,
+  getPlatformStats, getLandingContent,
 } from '../api/auction';
 import { useAuth } from '../context/AuthContext';
 import { decodeHtmlEntities } from '../utils/helpers';
 
 const HERO_TILES = [Watch, Headphones, Car, Smartphone, HomeIcon, Camera];
 
+// Copy lives in the landing_content table (admin-editable). The strings kept here are the
+// fallbacks used when /api/landing-content returns nothing, so the page never renders blank.
 const TRUST_POINTS = [
-  { icon: ShieldCheck, title: 'Verified sellers', text: 'Ratings and reviews on every listing.' },
-  { icon: Gavel, title: 'Three auction types', text: 'Ascending, Dutch and sealed-bid listings.' },
-  { icon: Sparkles, title: 'Smart picks', text: 'Recommendations tuned to what you bid on.' },
+  { icon: ShieldCheck, key: 'trust1', title: 'Verified sellers', text: 'Ratings and reviews on every listing.' },
+  { icon: Gavel, key: 'trust2', title: 'Three auction types', text: 'Ascending, Dutch and sealed-bid listings.' },
+  { icon: Sparkles, key: 'trust3', title: 'Smart picks', text: 'Recommendations tuned to what you bid on.' },
 ];
 
 /** Why AuctionHub vs typical fixed-price / classifieds competitors. */
 const WHY_AUCTIONHUB = [
   {
     icon: Scale,
+    key: 'card1',
     title: 'True price discovery',
     body: 'Bids compete in the open — you don’t guess a “Buy Now” number or settle for the first offer.',
     contrast: 'Fixed-price apps lock you into one sticker price.',
   },
   {
     icon: Timer,
+    key: 'card2',
     title: 'Timed urgency that works',
     body: 'Live countdowns, ending-soon sorts and auto-bid mean serious buyers show up before the clock hits zero.',
     contrast: 'Listings on classifieds can sit for weeks with no momentum.',
   },
   {
     icon: LockKeyhole,
+    key: 'card3',
     title: 'Built for trust',
     body: 'Masked bidder names, encrypted personal data, seller ratings and report tools — PDPA-aware by design.',
     contrast: 'Many peer-to-peer chats leave you negotiating in DMs with little protection.',
   },
   {
     icon: LineChart,
+    key: 'card4',
     title: 'Formats for every item',
     body: 'Ascending, Dutch and sealed-bid auctions — plus Buy It Now when you want an instant sale.',
     contrast: 'One listing style fits every category elsewhere.',
   },
 ];
+
+/**
+ * The hero headline is a single content row ("Bid smart, buy") but renders across two lines,
+ * so the presentational break after the comma is re-applied here rather than stored in the DB.
+ */
+function splitHeadline(text) {
+  const at = text.indexOf(', ');
+  return at < 0 ? [text, ''] : [text.slice(0, at + 1), text.slice(at + 2)];
+}
 
 function SectionHeader({ title, subtitle, action, icon: Icon }) {
   return (
@@ -90,6 +107,7 @@ export default function Home() {
   const [personalised, setPersonalised] = useState(false);
   const [featured, setFeatured] = useState([]);
   const [stats, setStats] = useState(null);
+  const [content, setContent] = useState({});
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -110,6 +128,8 @@ export default function Home() {
     getPlatformStats()
       .then(r => setStats(r.data && Object.keys(r.data).length ? r.data : null))
       .catch(() => setStats(null));
+    // Admin-editable marketing copy; an empty map falls back to the defaults below.
+    getLandingContent().then(r => setContent(r.data ?? {})).catch(() => setContent({}));
   }, [reloadKey]);
 
   useEffect(() => {
@@ -131,6 +151,9 @@ export default function Home() {
     try { await dismissRecommendation(auctionId); } catch { /* keep hidden locally */ }
   };
 
+  const c = (key, fallback) => content[key] ?? fallback;
+  const [headlineTop, headlineRest] = splitHeadline(c('hero.headline', 'Bid smart, buy'));
+
   return (
     <div className="min-h-screen">
       {/* Hero */}
@@ -145,15 +168,17 @@ export default function Home() {
         <div className="relative max-w-7xl mx-auto px-4 py-16 md:py-24 grid md:grid-cols-2 items-center gap-12">
           <div className="animate-fade-up">
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 text-xs font-semibold backdrop-blur-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse-dot" />
-              Live auctions running right now
+              <span className="live-dot" />
+              {c('hero.eyebrow', 'Live auctions running right now')}
             </span>
             <h1 className="font-display text-4xl md:text-6xl font-extrabold mt-5 leading-[1.05] tracking-tight">
-              Bid smart,<br />buy&nbsp;
-              <span className="bg-gradient-to-r from-accent-300 to-accent-500 bg-clip-text text-transparent">right.</span>
+              {headlineTop}{headlineRest && <><br />{headlineRest}</>}&nbsp;
+              <span className="bg-gradient-to-r from-accent-300 to-accent-500 bg-clip-text text-transparent">
+                {c('hero.headlineAccent', 'right.')}
+              </span>
             </h1>
             <p className="text-base md:text-lg text-white/70 mt-5 max-w-md leading-relaxed">
-              List your items, bid on your favourites, and find the perfect deal — with live pricing and no surprises.
+              {c('hero.subheading', 'List your items, bid on your favourites, and find the perfect deal — with live pricing and no surprises.')}
             </p>
 
             <div className="flex flex-wrap gap-3 mt-8">
@@ -166,20 +191,21 @@ export default function Home() {
               {!user && (
                 <Link
                   to="/register"
-                  className="inline-flex items-center gap-2 border border-white/25 bg-white/5 backdrop-blur-sm px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 transition-colors"
+                  className="group inline-flex items-center gap-2 border border-white/25 bg-white/5 backdrop-blur-sm px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 hover:border-white/40 transition-all"
                 >
-                  Start selling <ArrowRight size={16} />
+                  Start selling
+                  <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
                 </Link>
               )}
             </div>
 
             <div className="flex flex-wrap gap-x-8 gap-y-3 mt-10 pt-8 border-t border-white/10">
-              {TRUST_POINTS.map(({ icon: Icon, title, text }) => (
-                <div key={title} className="flex items-start gap-2.5">
+              {TRUST_POINTS.map(({ icon: Icon, key, title, text }) => (
+                <div key={key} className="flex items-start gap-2.5">
                   <Icon size={16} className="text-accent-300 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold">{title}</p>
-                    <p className="text-xs text-white/55">{text}</p>
+                    <p className="text-sm font-semibold">{c(`hero.${key}.title`, title)}</p>
+                    <p className="text-xs text-white/55">{c(`hero.${key}.text`, text)}</p>
                   </div>
                 </div>
               ))}
@@ -187,7 +213,7 @@ export default function Home() {
 
             {/* Live platform metrics straight from the database */}
             {stats && (
-              <div className="flex flex-wrap gap-x-10 gap-y-4 mt-8">
+              <div className="flex flex-wrap gap-x-10 gap-y-4 mt-8 animate-fade-up">
                 {[
                   { label: 'Live auctions', value: stats.activeListings },
                   { label: 'Registered users', value: stats.totalUsers },
@@ -195,7 +221,7 @@ export default function Home() {
                 ].filter(s => s.value != null).map(s => (
                   <div key={s.label}>
                     <p className="font-display text-3xl font-extrabold tabular-nums">
-                      {Number(s.value).toLocaleString()}
+                      <CountUp value={s.value} />
                     </p>
                     <p className="text-xs text-white/55 mt-0.5">{s.label}</p>
                   </div>
@@ -205,14 +231,15 @@ export default function Home() {
           </div>
 
           <div className="hidden md:grid grid-cols-3 gap-3 max-w-sm ml-auto">
+            {/* Idle drift sits on the wrapper so it never clobbers the hover scale. */}
             {HERO_TILES.map((Icon, i) => (
-              <div
-                key={i}
-                className="aspect-square rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm flex items-center justify-center text-white/80
-                           shadow-pop transition-all duration-300 hover:scale-105 hover:bg-white/15 hover:text-white"
-                style={{ animation: `fade-up 0.5s cubic-bezier(0.22,1,0.36,1) ${i * 0.06}s both` }}
-              >
-                <Icon size={30} strokeWidth={1.5} />
+              <div key={i} className="hero-tile group aspect-square" style={{ '--i': i }}>
+                <div
+                  className="w-full h-full rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm flex items-center justify-center text-white/80
+                             shadow-pop transition-all duration-300 group-hover:scale-105 group-hover:bg-white/15 group-hover:text-white"
+                >
+                  <Icon size={30} strokeWidth={1.5} />
+                </div>
               </div>
             ))}
           </div>
@@ -221,7 +248,7 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-4 py-12 space-y-14">
         {/* Why AuctionHub — differentiation vs fixed-price / classified competitors */}
-        <section className="relative overflow-hidden rounded-[2rem] border border-ink-200/80 bg-white shadow-sm">
+        <Reveal as="section" className="relative overflow-hidden rounded-[2rem] border border-ink-200/80 bg-white shadow-sm">
           <div
             className="pointer-events-none absolute inset-0 opacity-90"
             style={{
@@ -232,49 +259,47 @@ export default function Home() {
           <div className="relative px-6 py-10 md:px-10 md:py-12">
             <div className="max-w-2xl">
               <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-primary-600">
-                <Users size={14} /> Why bid here
+                <Users size={14} /> {c('why.eyebrow', 'Why bid here')}
               </p>
               <h2 className="font-display text-3xl md:text-4xl font-extrabold text-ink-900 mt-3 tracking-tight leading-[1.1]">
-                Not another marketplace.&nbsp;
-                <span className="text-primary-600">A real auction floor.</span>
+                {c('why.heading', 'Not another marketplace.')}&nbsp;
+                <span className="text-primary-600">{c('why.headingAccent', 'A real auction floor.')}</span>
               </h2>
               <p className="text-sm md:text-base text-ink-500 mt-3 leading-relaxed">
-                Carousell, Facebook Marketplace and big listing sites are great for fixed prices.
-                AuctionHub is for when you want competition, fair discovery and a clock that
-                actually closes the deal.
+                {c('why.intro', 'Carousell, Facebook Marketplace and big listing sites are great for fixed prices. AuctionHub is for when you want competition, fair discovery and a clock that actually closes the deal.')}
               </p>
             </div>
 
             <div className="mt-8 grid md:grid-cols-2 gap-4">
-              {WHY_AUCTIONHUB.map(({ icon: Icon, title, body, contrast }, i) => (
-                <article
-                  key={title}
-                  className="group rounded-2xl border border-ink-100 bg-white/80 backdrop-blur-sm p-5 md:p-6
-                             transition-all duration-300 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
-                  style={{ animation: `fade-up 0.45s cubic-bezier(0.22,1,0.36,1) ${0.05 + i * 0.05}s both` }}
-                >
-                  <div className="flex items-start gap-4">
-                    <span className="grid place-items-center w-11 h-11 rounded-xl bg-ink-900 text-white shrink-0
-                                     transition-colors group-hover:bg-primary-600">
-                      <Icon size={20} strokeWidth={1.75} />
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="font-display text-lg font-bold text-ink-900">{title}</h3>
-                      <p className="text-sm text-ink-600 mt-1.5 leading-relaxed">{body}</p>
-                      <p className="text-xs text-ink-400 mt-3 leading-relaxed border-t border-ink-100 pt-3">
-                        <span className="font-semibold text-ink-500">Elsewhere: </span>
-                        {contrast}
-                      </p>
+              {WHY_AUCTIONHUB.map(({ icon: Icon, key, title, body, contrast }, i) => (
+                <Reveal key={key} delay={80 + i * 70}>
+                  <article
+                    className="group h-full rounded-2xl border border-ink-100 bg-white/80 backdrop-blur-sm p-5 md:p-6
+                               transition-all duration-300 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
+                  >
+                    <div className="flex items-start gap-4">
+                      <span className="grid place-items-center w-11 h-11 rounded-xl bg-ink-900 text-white shrink-0
+                                       transition-all duration-300 group-hover:bg-primary-600 group-hover:scale-105">
+                        <Icon size={20} strokeWidth={1.75} />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="font-display text-lg font-bold text-ink-900">{c(`why.${key}.title`, title)}</h3>
+                        <p className="text-sm text-ink-600 mt-1.5 leading-relaxed">{c(`why.${key}.body`, body)}</p>
+                        <p className="text-xs text-ink-400 mt-3 leading-relaxed border-t border-ink-100 pt-3">
+                          <span className="font-semibold text-ink-500">Elsewhere: </span>
+                          {c(`why.${key}.contrast`, contrast)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </article>
+                  </article>
+                </Reveal>
               ))}
             </div>
 
-            <div className="mt-8 rounded-2xl bg-ink-900 text-white px-5 py-5 md:px-7 md:py-6 flex flex-col md:flex-row md:items-center gap-5">
+            <div className="sheen-host mt-8 rounded-2xl bg-ink-900 text-white px-5 py-5 md:px-7 md:py-6 flex flex-col md:flex-row md:items-center gap-5">
               <div className="flex-1">
                 <p className="font-display text-lg md:text-xl font-bold leading-snug">
-                  Free to browse. Free to bid. Sellers only pay when something sells.
+                  {c('why.ctaHeadline', 'Free to browse. Free to bid. Sellers only pay when something sells.')}
                 </p>
                 <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
                   {['Live ascending bids', 'Dutch & sealed formats', 'Auto-bid proxy', 'Seller ratings'].map(item => (
@@ -285,69 +310,74 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                <Link to="/search" className="btn bg-white text-ink-900 hover:bg-ink-100 shadow-sm">
+              <div className="relative flex flex-wrap gap-2 shrink-0">
+                <Link to="/search" className="btn bg-white text-ink-900 hover:bg-ink-100 hover:-translate-y-0.5 hover:shadow-lift shadow-sm">
                   Explore live auctions
                 </Link>
                 {!user && (
-                  <Link to="/register" className="btn border border-white/25 bg-white/5 hover:bg-white/15 text-white">
-                    Create free account <ArrowRight size={15} />
+                  <Link
+                    to="/register"
+                    className="group btn border border-white/25 bg-white/5 hover:bg-white/15 hover:border-white/40 text-white"
+                  >
+                    Create free account
+                    <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
                   </Link>
                 )}
               </div>
             </div>
           </div>
-        </section>
+        </Reveal>
 
         {/* Categories — ranked by real listing counts, not a hand-picked order */}
         {categories.length > 0 && (
-          <section>
+          <Reveal as="section">
             <SectionHeader
-              title="Popular Categories"
-              subtitle="Ranked by live listing count across the marketplace."
+              title={c('section.categories.title', 'Popular Categories')}
+              subtitle={c('section.categories.subtitle', 'Ranked by live listing count across the marketplace.')}
             />
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
               {[...categories]
                 .sort((a, b) => (b.auctionCount ?? 0) - (a.auctionCount ?? 0))
                 .slice(0, 8)
-                .map((cat) => (
-                <Link
-                  key={cat.name}
-                  to={`/search?category=${encodeURIComponent(cat.name)}`}
-                  className="card card-hover flex flex-col items-center gap-2 py-5 px-2 text-center group"
-                >
-                  <span className="grid place-items-center w-14 h-14 rounded-2xl bg-ink-100 text-ink-500 transition-colors group-hover:bg-primary-50 group-hover:text-primary-600">
-                    <Tag size={22} strokeWidth={1.75} />
-                  </span>
-                  <span className="text-xs font-semibold text-ink-700 leading-tight line-clamp-2 group-hover:text-primary-600 transition-colors">
-                    {cat.name}
-                  </span>
-                  {cat.auctionCount > 0 && (
-                    <span className="text-[11px] text-ink-400">{cat.auctionCount} listings</span>
-                  )}
-                </Link>
+                .map((cat, i) => (
+                <Reveal key={cat.name} delay={i * 45}>
+                  <Link
+                    to={`/search?category=${encodeURIComponent(cat.name)}`}
+                    className="card card-hover h-full flex flex-col items-center gap-2 py-5 px-2 text-center group"
+                  >
+                    <span className="grid place-items-center w-14 h-14 rounded-2xl bg-ink-100 text-ink-500 transition-all duration-300 group-hover:bg-primary-50 group-hover:text-primary-600 group-hover:scale-105">
+                      <Tag size={22} strokeWidth={1.75} />
+                    </span>
+                    <span className="text-xs font-semibold text-ink-700 leading-tight line-clamp-2 group-hover:text-primary-600 transition-colors">
+                      {cat.name}
+                    </span>
+                    {cat.auctionCount > 0 && (
+                      <span className="text-[11px] text-ink-400">{cat.auctionCount} listings</span>
+                    )}
+                  </Link>
+                </Reveal>
               ))}
             </div>
-          </section>
+          </Reveal>
         )}
 
         {/* Featured listings */}
         {featured.length > 0 && (
-          <section>
+          <Reveal as="section">
             <SectionHeader
               icon={Sparkles}
-              title="Featured Listings"
-              subtitle="Promoted auctions from our sellers."
+              title={c('section.featured.title', 'Featured Listings')}
+              subtitle={c('section.featured.subtitle', 'Promoted auctions from our sellers.')}
             />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5">
               {featured.map(a => <AuctionCard key={`f-${a.auctionId}`} auction={a} />)}
             </div>
-          </section>
+          </Reveal>
         )}
 
         {/* Recommendations */}
         {recommended.length > 0 && (
-          <section>
+          <Reveal as="section">
             <SectionHeader
               title={personalised ? 'Recommended for You' : 'Popular Right Now'}
               subtitle={personalised
@@ -380,18 +410,19 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          </section>
+          </Reveal>
         )}
 
         {/* Trending Auctions */}
-        <section>
+        <Reveal as="section">
           <SectionHeader
             icon={TrendingUp}
-            title="Trending Auctions"
-            subtitle="The listings collecting the most bids today."
+            title={c('section.trending.title', 'Trending Auctions')}
+            subtitle={c('section.trending.subtitle', 'The listings collecting the most bids today.')}
             action={
-              <Link to="/search" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-primary-600 hover:text-primary-700 transition-colors">
-                View all <ArrowRight size={15} />
+              <Link to="/search" className="group hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-primary-600 hover:text-primary-700 transition-colors">
+                View all
+                <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
               </Link>
             }
           />
@@ -427,82 +458,90 @@ export default function Home() {
               {auctions.map(a => <AuctionCard key={a.auctionId ?? a.id} auction={a} />)}
             </div>
           )}
-        </section>
+        </Reveal>
 
         {/* Fee schedule — values come from the billing constants via /api/stats */}
         {stats?.fees && (
-          <section>
+          <Reveal as="section">
             <SectionHeader
               icon={BadgeDollarSign}
-              title="Simple, Transparent Costs"
-              subtitle="No surprises — this is everything AuctionHub charges."
+              title={c('section.fees.title', 'Simple, Transparent Costs')}
+              subtitle={c('section.fees.subtitle', 'No surprises — this is everything AuctionHub charges.')}
             />
             <div className="grid sm:grid-cols-3 gap-4">
-              <div className="card p-6">
-                <p className="font-display text-3xl font-extrabold text-emerald-600">Free</p>
-                <p className="text-sm font-semibold text-ink-800 mt-2">Browsing &amp; bidding</p>
-                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
-                  Creating an account, watching and bidding never cost anything.
-                </p>
-              </div>
-              <div className="card p-6">
-                <p className="font-display text-3xl font-extrabold text-primary-600">
-                  {stats.fees.commissionPercent}%
-                </p>
-                <p className="text-sm font-semibold text-ink-800 mt-2">Commission on sales</p>
-                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
-                  Sellers pay a small commission only when an item actually sells.
-                </p>
-              </div>
-              <div className="card p-6">
-                <p className="font-display text-3xl font-extrabold text-accent-600">
-                  ${Number(stats.fees.featuredListingFee).toFixed(2)}
-                </p>
-                <p className="text-sm font-semibold text-ink-800 mt-2">Featured listing (optional)</p>
-                <p className="text-xs text-ink-500 mt-1 leading-relaxed">
-                  Promote a listing to the front page for extra visibility.
-                </p>
-              </div>
+              <Reveal delay={60}>
+                <div className="card card-hover h-full p-6">
+                  <p className="font-display text-3xl font-extrabold text-emerald-600">Free</p>
+                  <p className="text-sm font-semibold text-ink-800 mt-2">Browsing &amp; bidding</p>
+                  <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                    Creating an account, watching and bidding never cost anything.
+                  </p>
+                </div>
+              </Reveal>
+              <Reveal delay={130}>
+                <div className="card card-hover h-full p-6">
+                  <p className="font-display text-3xl font-extrabold text-primary-600">
+                    {stats.fees.commissionPercent}%
+                  </p>
+                  <p className="text-sm font-semibold text-ink-800 mt-2">Commission on sales</p>
+                  <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                    Sellers pay a small commission only when an item actually sells.
+                  </p>
+                </div>
+              </Reveal>
+              <Reveal delay={200}>
+                <div className="card card-hover h-full p-6">
+                  <p className="font-display text-3xl font-extrabold text-accent-600">
+                    ${Number(stats.fees.featuredListingFee).toFixed(2)}
+                  </p>
+                  <p className="text-sm font-semibold text-ink-800 mt-2">Featured listing (optional)</p>
+                  <p className="text-xs text-ink-500 mt-1 leading-relaxed">
+                    Promote a listing to the front page for extra visibility.
+                  </p>
+                </div>
+              </Reveal>
             </div>
-          </section>
+          </Reveal>
         )}
 
         {/* Testimonials — real buyer reviews pulled from the reviews table */}
         {stats?.testimonials?.length > 0 && (
-          <section>
+          <Reveal as="section">
             <SectionHeader
               icon={Quote}
-              title="What Buyers Say"
-              subtitle="Real reviews left by buyers after completed orders."
+              title={c('section.testimonials.title', 'What Buyers Say')}
+              subtitle={c('section.testimonials.subtitle', 'Real reviews left by buyers after completed orders.')}
             />
             <div className="grid md:grid-cols-3 gap-4">
               {stats.testimonials.map((t, i) => (
-                <figure key={i} className="card p-6 flex flex-col">
-                  <div className="flex items-center gap-0.5 mb-3">
-                    {Array.from({ length: 5 }, (_, s) => (
-                      <Star
-                        key={s}
-                        size={14}
-                        className={s < t.rating ? 'text-amber-400 fill-amber-400' : 'text-ink-200'}
-                      />
-                    ))}
-                  </div>
-                  <blockquote className="text-sm text-ink-700 leading-relaxed flex-1">
-                    “{decodeHtmlEntities(t.comment)}”
-                  </blockquote>
-                  <figcaption className="text-xs text-ink-400 mt-4">
-                    <span className="font-semibold text-ink-600">{t.reviewerName}</span>
-                    {t.auctionTitle && <> · bought “{t.auctionTitle}”</>}
-                  </figcaption>
-                </figure>
+                <Reveal key={i} delay={60 + i * 70}>
+                  <figure className="card card-hover h-full p-6 flex flex-col">
+                    <div className="flex items-center gap-0.5 mb-3">
+                      {Array.from({ length: 5 }, (_, s) => (
+                        <Star
+                          key={s}
+                          size={14}
+                          className={s < t.rating ? 'text-amber-400 fill-amber-400' : 'text-ink-200'}
+                        />
+                      ))}
+                    </div>
+                    <blockquote className="text-sm text-ink-700 leading-relaxed flex-1">
+                      “{decodeHtmlEntities(t.comment)}”
+                    </blockquote>
+                    <figcaption className="text-xs text-ink-400 mt-4">
+                      <span className="font-semibold text-ink-600">{t.reviewerName}</span>
+                      {t.auctionTitle && <> · bought “{t.auctionTitle}”</>}
+                    </figcaption>
+                  </figure>
+                </Reveal>
               ))}
             </div>
-          </section>
+          </Reveal>
         )}
 
         {/* Guest sign-up band */}
         {!user && (
-          <section className="rounded-3xl bg-ink-900 text-white px-8 py-12 text-center relative overflow-hidden">
+          <Reveal as="section" className="sheen-host rounded-3xl bg-ink-900 text-white px-8 py-12 text-center">
             <div
               className="absolute inset-0 opacity-80"
               style={{
@@ -511,27 +550,29 @@ export default function Home() {
               }}
             />
             <div className="relative">
-              <h2 className="font-display text-2xl md:text-3xl font-extrabold">Ready to place your first bid?</h2>
+              <h2 className="font-display text-2xl md:text-3xl font-extrabold">
+                {c('guest.heading', 'Ready to place your first bid?')}
+              </h2>
               <p className="text-sm text-white/65 mt-2 max-w-md mx-auto">
-                Join {stats?.totalUsers ? Number(stats.totalUsers).toLocaleString() : 'our'} registered
-                users — create a free account to bid, watch and sell.
+                {c('guest.subtext', 'Join {users} registered users — create a free account to bid, watch and sell.')
+                  .replace('{users}', stats?.totalUsers ? Number(stats.totalUsers).toLocaleString() : 'our')}
               </p>
               <div className="flex justify-center gap-3 mt-6">
                 <Link
                   to="/register"
-                  className="inline-flex items-center gap-2 bg-white text-ink-900 px-6 py-3 rounded-xl font-semibold text-sm shadow-lift hover:bg-ink-100 transition-colors"
+                  className="inline-flex items-center gap-2 bg-white text-ink-900 px-6 py-3 rounded-xl font-semibold text-sm shadow-lift hover:bg-ink-100 hover:-translate-y-0.5 transition-all"
                 >
                   <UserPlus size={16} /> Create free account
                 </Link>
                 <Link
                   to="/login"
-                  className="inline-flex items-center gap-2 border border-white/25 bg-white/5 px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 transition-colors"
+                  className="inline-flex items-center gap-2 border border-white/25 bg-white/5 px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 hover:border-white/40 hover:-translate-y-0.5 transition-all"
                 >
                   Sign in
                 </Link>
               </div>
             </div>
-          </section>
+          </Reveal>
         )}
       </div>
     </div>

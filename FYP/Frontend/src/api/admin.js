@@ -56,6 +56,17 @@ export const deleteCategory = (categoryId) =>
 export const restoreCategory = (categoryId) =>
   api.post('/admin/categories', form({ categoryId, action: 'RESTORE' }), F);
 
+// Landing page content (hero copy, section headings, CTA text).
+// saveLandingContent takes a { contentKey: text } object — each key is sent as its own
+// form field, and the server rejects any key that is not a seeded content row.
+export const getAdminLandingContent = () => api.get('/admin/landing-content');
+export const saveLandingContent = (values) =>
+  api.post('/admin/landing-content', form(values), F);
+export const resetLandingContentField = (key) =>
+  api.post('/admin/landing-content', form({ action: 'RESET', key }), F);
+export const resetLandingContentGroup = (group) =>
+  api.post('/admin/landing-content', form({ action: 'RESET', group }), F);
+
 // Reports
 export const getAdminReports  = () => api.get('/admin/reports');
 export const resolveReport    = (reportId, type) => api.post('/admin/reports', form({ reportId, type, action: 'resolve' }), F);

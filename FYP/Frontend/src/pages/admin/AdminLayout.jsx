@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe, Star, Gavel } from 'lucide-react';
+import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe, Star, Gavel, Type } from 'lucide-react';
 import NotificationBell from '../../components/NotificationBell';
 import { useAuth } from '../../context/AuthContext';
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/admin/analytics', icon: BarChart2, label: 'Analytics' },
   { to: '/admin/database', icon: Database, label: 'Database' },
   { to: '/admin/categories', icon: Tag, label: 'Categories' },
+  { to: '/admin/landing-content', icon: Type, label: 'Landing Page' },
   { to: '/admin/reports', icon: AlertCircle, label: 'User Reports' },
   { to: '/admin/reviews', icon: Star, label: 'Reviews' },
   { to: '/admin/chat', icon: MessageCircle, label: 'Support Chat' },
