@@ -86,7 +86,13 @@ public class AuctionDAO {
     }
 
     public int countListingsModerationActive() {
-        return countQuery("SELECT COUNT(*) FROM auction WHERE moderation_state = 'active'");
+        // Live / bid-able listings only — matches search & trending filters so the
+        // landing-page hero metric never over-counts ended or pending lots.
+        return countQuery(
+                "SELECT COUNT(*) FROM auction "
+                        + "WHERE moderation_state = 'active' "
+                        + "AND status_id = 1 "
+                        + "AND date_end > now()");
     }
 
     public int countListingsFlagged() {

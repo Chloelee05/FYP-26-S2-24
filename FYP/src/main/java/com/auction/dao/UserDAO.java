@@ -88,14 +88,18 @@ public class UserDAO {
         }
     }
 
+    /** Cached: whether {@code users.can_sell} exists (null = not probed yet). */
+    private static volatile Boolean canSellColumnPresent;
+
     /**
      * Loads a user row for login (includes password hash).
      */
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, password, role_id, status_id, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted, profile_image_url, can_sell "
-                    + "FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1";
+                    + "phone_encrypted, address_encrypted, profile_image_url"
+                    + (hasCanSellColumn(conn) ? ", can_sell" : "")
+                    + " FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setString(1, email);
             try (ResultSet rs = ps.executeQuery()) {
@@ -115,8 +119,9 @@ public class UserDAO {
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT id, username, email, role_id, status_id, date_created, two_factor_enabled, two_factor_secret, "
-                    + "phone_encrypted, address_encrypted, profile_image_url, can_sell "
-                    + "FROM users WHERE id = ? LIMIT 1";
+                    + "phone_encrypted, address_encrypted, profile_image_url"
+                    + (hasCanSellColumn(conn) ? ", can_sell" : "")
+                    + " FROM users WHERE id = ? LIMIT 1";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setInt(1, id);
             try (ResultSet rs = ps.executeQuery()) {
@@ -132,6 +137,31 @@ public class UserDAO {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * True when the production/local schema has {@code users.can_sell}.
+     * Deployed DBs that missed {@code migration_seller_capability.sql} still allow login;
+     * {@link User#canSell()} falls back to the legacy SELLER role.
+     */
+    private static boolean hasCanSellColumn(Connection conn) throws SQLException {
+        Boolean cached = canSellColumnPresent;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (UserDAO.class) {
+            if (canSellColumnPresent != null) {
+                return canSellColumnPresent;
+            }
+            String sql = "SELECT 1 FROM information_schema.columns "
+                    + "WHERE table_schema = current_schema() AND table_name = 'users' "
+                    + "AND column_name = 'can_sell' LIMIT 1";
+            try (PreparedStatement ps = conn.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                canSellColumnPresent = rs.next();
+            }
+            return canSellColumnPresent;
         }
     }
 
@@ -175,11 +205,16 @@ public class UserDAO {
      * @return {@code true} when the row was updated; {@code false} when no such user
      */
     public boolean enableSelling(int userId) {
-        String sql = "UPDATE users SET can_sell = TRUE WHERE id = ?";
-        try (Connection conn = DBUtil.connectDB();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, userId);
-            return ps.executeUpdate() > 0;
+        try (Connection conn = DBUtil.connectDB()) {
+            if (!hasCanSellColumn(conn)) {
+                // Schema lag: treat legacy Seller role as already enabled.
+                return true;
+            }
+            String sql = "UPDATE users SET can_sell = TRUE WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, userId);
+                return ps.executeUpdate() > 0;
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -352,8 +387,9 @@ public class UserDAO {
 
     public List<AdminUserSummary> listUsersForAdminTable() {
         try (Connection conn = DBUtil.connectDB()) {
-            String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created, u.can_sell, "
-                    + "(SELECT COUNT(*)::int FROM bids b WHERE b.user_id = u.id) AS bid_count, "
+            String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created"
+                    + (hasCanSellColumn(conn) ? ", u.can_sell" : "")
+                    + ", (SELECT COUNT(*)::int FROM bids b WHERE b.user_id = u.id) AS bid_count, "
                     + "(SELECT COUNT(*)::int FROM auction a WHERE a.seller_id = u.id) AS listing_count "
                     + "FROM users u "
                     + "WHERE u.status_id <> ? "

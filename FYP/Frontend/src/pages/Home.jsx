@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   X, ArrowRight, ShieldCheck, Gavel, Sparkles, TrendingUp, Search as SearchIcon,
   Watch, Headphones, Car, Smartphone, Home as HomeIcon, Camera, Tag, SearchX,
-  AlertCircle, RotateCcw, UserPlus, BadgeDollarSign, Star, Quote,
+  AlertCircle, RotateCcw, UserPlus, BadgeDollarSign, Star, Quote, Check, Scale,
+  Timer, LockKeyhole, LineChart, Users,
 } from 'lucide-react';
 import { apiErrorMessage } from '../utils/apiError';
 import AuctionCard from '../components/AuctionCard';
@@ -21,6 +22,34 @@ const TRUST_POINTS = [
   { icon: ShieldCheck, title: 'Verified sellers', text: 'Ratings and reviews on every listing.' },
   { icon: Gavel, title: 'Three auction types', text: 'Ascending, Dutch and sealed-bid listings.' },
   { icon: Sparkles, title: 'Smart picks', text: 'Recommendations tuned to what you bid on.' },
+];
+
+/** Why AuctionHub vs typical fixed-price / classifieds competitors. */
+const WHY_AUCTIONHUB = [
+  {
+    icon: Scale,
+    title: 'True price discovery',
+    body: 'Bids compete in the open — you don’t guess a “Buy Now” number or settle for the first offer.',
+    contrast: 'Fixed-price apps lock you into one sticker price.',
+  },
+  {
+    icon: Timer,
+    title: 'Timed urgency that works',
+    body: 'Live countdowns, ending-soon sorts and auto-bid mean serious buyers show up before the clock hits zero.',
+    contrast: 'Listings on classifieds can sit for weeks with no momentum.',
+  },
+  {
+    icon: LockKeyhole,
+    title: 'Built for trust',
+    body: 'Masked bidder names, encrypted personal data, seller ratings and report tools — PDPA-aware by design.',
+    contrast: 'Many peer-to-peer chats leave you negotiating in DMs with little protection.',
+  },
+  {
+    icon: LineChart,
+    title: 'Formats for every item',
+    body: 'Ascending, Dutch and sealed-bid auctions — plus Buy It Now when you want an instant sale.',
+    contrast: 'One listing style fits every category elsewhere.',
+  },
 ];
 
 function SectionHeader({ title, subtitle, action, icon: Icon }) {
@@ -191,6 +220,85 @@ export default function Home() {
       </section>
 
       <div className="max-w-7xl mx-auto px-4 py-12 space-y-14">
+        {/* Why AuctionHub — differentiation vs fixed-price / classified competitors */}
+        <section className="relative overflow-hidden rounded-[2rem] border border-ink-200/80 bg-white shadow-sm">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-90"
+            style={{
+              backgroundImage:
+                'radial-gradient(36rem 22rem at 0% 0%, rgba(29,77,216,0.08), transparent 55%), radial-gradient(28rem 18rem at 100% 100%, rgba(249,126,7,0.08), transparent 50%)',
+            }}
+          />
+          <div className="relative px-6 py-10 md:px-10 md:py-12">
+            <div className="max-w-2xl">
+              <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-primary-600">
+                <Users size={14} /> Why bid here
+              </p>
+              <h2 className="font-display text-3xl md:text-4xl font-extrabold text-ink-900 mt-3 tracking-tight leading-[1.1]">
+                Not another marketplace.&nbsp;
+                <span className="text-primary-600">A real auction floor.</span>
+              </h2>
+              <p className="text-sm md:text-base text-ink-500 mt-3 leading-relaxed">
+                Carousell, Facebook Marketplace and big listing sites are great for fixed prices.
+                AuctionHub is for when you want competition, fair discovery and a clock that
+                actually closes the deal.
+              </p>
+            </div>
+
+            <div className="mt-8 grid md:grid-cols-2 gap-4">
+              {WHY_AUCTIONHUB.map(({ icon: Icon, title, body, contrast }, i) => (
+                <article
+                  key={title}
+                  className="group rounded-2xl border border-ink-100 bg-white/80 backdrop-blur-sm p-5 md:p-6
+                             transition-all duration-300 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
+                  style={{ animation: `fade-up 0.45s cubic-bezier(0.22,1,0.36,1) ${0.05 + i * 0.05}s both` }}
+                >
+                  <div className="flex items-start gap-4">
+                    <span className="grid place-items-center w-11 h-11 rounded-xl bg-ink-900 text-white shrink-0
+                                     transition-colors group-hover:bg-primary-600">
+                      <Icon size={20} strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="font-display text-lg font-bold text-ink-900">{title}</h3>
+                      <p className="text-sm text-ink-600 mt-1.5 leading-relaxed">{body}</p>
+                      <p className="text-xs text-ink-400 mt-3 leading-relaxed border-t border-ink-100 pt-3">
+                        <span className="font-semibold text-ink-500">Elsewhere: </span>
+                        {contrast}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-8 rounded-2xl bg-ink-900 text-white px-5 py-5 md:px-7 md:py-6 flex flex-col md:flex-row md:items-center gap-5">
+              <div className="flex-1">
+                <p className="font-display text-lg md:text-xl font-bold leading-snug">
+                  Free to browse. Free to bid. Sellers only pay when something sells.
+                </p>
+                <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
+                  {['Live ascending bids', 'Dutch & sealed formats', 'Auto-bid proxy', 'Seller ratings'].map(item => (
+                    <li key={item} className="inline-flex items-center gap-1.5">
+                      <Check size={14} className="text-accent-400 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <Link to="/search" className="btn bg-white text-ink-900 hover:bg-ink-100 shadow-sm">
+                  Explore live auctions
+                </Link>
+                {!user && (
+                  <Link to="/register" className="btn border border-white/25 bg-white/5 hover:bg-white/15 text-white">
+                    Create free account <ArrowRight size={15} />
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Categories — ranked by real listing counts, not a hand-picked order */}
         {categories.length > 0 && (
           <section>
@@ -308,7 +416,10 @@ export default function Home() {
                 <SearchX size={26} />
               </span>
               <p className="font-semibold text-ink-800">No live auctions right now</p>
-              <p className="text-sm text-ink-500 mt-1">Check back soon, or browse everything on the market.</p>
+              <p className="text-sm text-ink-500 mt-1 max-w-sm mx-auto">
+                Active timed listings may have ended. Sellers can create a new auction once signed in —
+                or browse the full catalogue for recently closed lots.
+              </p>
               <Link to="/search" className="btn-primary mt-5">Browse all auctions</Link>
             </div>
           ) : (
