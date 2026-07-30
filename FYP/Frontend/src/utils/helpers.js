@@ -6,8 +6,13 @@ export function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-SG', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function timeRemaining(endTime) {
-  const diff = new Date(endTime) - new Date();
+/**
+ * @param endTime auction end date
+ * @param now     reference time — pass a ticking value (see useNow) to keep the
+ *                label counting down without a page refresh
+ */
+export function timeRemaining(endTime, now = Date.now()) {
+  const diff = new Date(endTime) - now;
   if (diff <= 0) return 'Ended';
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);

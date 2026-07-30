@@ -21,11 +21,19 @@ export default function AuctionSellerCard({ seller }) {
     <div className="card p-5 mb-4">
       <p className="eyebrow mb-4">Seller</p>
       <div className="flex gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden shadow-sm">
-          {seller.profileImageUrl
-            ? <img src={publicPath(seller.profileImageUrl)} alt="" className="w-full h-full object-cover" />
-            : (seller.username?.[0]?.toUpperCase() ?? 'S')}
-        </div>
+        {/* The gradient belongs to the initial fallback only — behind a photo with
+            transparency it would tint the image. */}
+        {seller.profileImageUrl ? (
+          <img
+            src={publicPath(seller.profileImageUrl)}
+            alt=""
+            className="w-14 h-14 rounded-2xl object-cover bg-white border border-ink-200 shrink-0"
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center text-white text-xl font-bold shrink-0 shadow-sm">
+            {seller.username?.[0]?.toUpperCase() ?? 'S'}
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <Link to={`/seller/${seller.id}`} className="font-bold text-ink-900 hover:text-primary-600 transition-colors">
             {seller.username}

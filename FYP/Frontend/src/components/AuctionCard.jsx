@@ -4,6 +4,7 @@ import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search } fr
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
 import { getLandingContent } from '../api/auction';
+import useNow from '../hooks/useNow';
 
 /** Auctions closing within this window get the urgent (amber) treatment. */
 const URGENT_MS = 6 * 60 * 60 * 1000;
@@ -98,7 +99,10 @@ export default function AuctionCard({ auction }) {
     return () => { cancelled = true; };
   }, []);
 
-  const msLeft = endDate ? new Date(endDate) - new Date() : null;
+  // Ticking clock so the chip counts down (and flips to Ended) in place, without
+  // needing a page refresh.
+  const now = useNow();
+  const msLeft = endDate ? new Date(endDate) - now : null;
   const ended = msLeft != null && msLeft <= 0;
   const urgent = msLeft != null && msLeft > 0 && msLeft < URGENT_MS;
   // Same label for guests and signed-in users — bidding stays on the detail page.
@@ -132,7 +136,7 @@ export default function AuctionCard({ auction }) {
           }`}
         >
           <Clock size={11} />
-          {ended ? 'Ended' : timeRemaining(endDate)}
+          {ended ? 'Ended' : timeRemaining(endDate, now)}
         </span>
 
         {category && (
