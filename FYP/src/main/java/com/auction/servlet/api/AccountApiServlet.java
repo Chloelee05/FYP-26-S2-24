@@ -261,13 +261,18 @@ public class AccountApiServlet extends ApiBase {
         if (current == null) { error(resp, 404, "User not found."); return; }
 
         String username        = param(req, "username");
-        String email           = param(req, "email");
         String phone           = param(req, "phone");
         String address         = param(req, "address");
         String profileImageUrl = param(req, "profileImageUrl");
 
         if (username == null) username = current.getUsername();
-        if (email    == null) email    = current.getEmail();
+        // The email address is the sign-in identity and is not editable from the
+        // profile form, so any submitted value is ignored rather than trusted.
+        String email = current.getEmail();
+        // updateProfile writes profile_image_url unconditionally, so an omitted
+        // parameter has to fall back to the stored value — otherwise saving the
+        // profile form wipes the photo that /upload-photo just stored.
+        if (profileImageUrl == null) profileImageUrl = current.getProfileImageUrl();
 
         String phoneEncrypted   = null;
         String addressEncrypted = null;

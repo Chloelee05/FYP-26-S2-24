@@ -1,52 +1,92 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Store, Check, AlertCircle, LayoutDashboard } from 'lucide-react';
+import {
+  Store, Check, AlertCircle, CheckCircle2, LayoutDashboard, User, KeyRound,
+  ShieldCheck, Bell, Trash2, Upload, ArrowLeft, Copy, Loader2, Lock,
+} from 'lucide-react';
 import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount, enableSelling } from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
 import { getNotificationPreferences, saveNotificationPreferences } from '../api/notifications';
-import { getLinkedAccounts, linkOAuthAccount, unlinkOAuthAccount } from '../api/auth';
-import GoogleSignInButton from '../components/GoogleSignInButton';
+import PasswordField from '../components/PasswordField';
+import CodeInput from '../components/CodeInput';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { publicPath } from '../utils/appBase';
 
 const TABS = [
-  { key: 'profile', label: 'Edit Profile' },
-  { key: 'selling', label: 'Selling' },
-  { key: 'password', label: 'Change Password' },
-  { key: '2fa', label: 'Two-Factor Auth' },
-  { key: 'notifications', label: 'Notifications' },
-  { key: 'linked', label: 'Linked Accounts' },
+  { key: 'profile',       label: 'Profile',          icon: User,        title: 'Profile details',      desc: 'How your account appears to other people on AuctionHub.' },
+  { key: 'selling',       label: 'Selling',          icon: Store,       title: 'Selling',              desc: 'One account covers buying and selling — switch selling on when you need it.' },
+  { key: 'password',      label: 'Password',         icon: KeyRound,    title: 'Change password',      desc: 'Use a password you don’t reuse anywhere else.' },
+  { key: '2fa',           label: 'Two-factor auth',  icon: ShieldCheck, title: 'Two-factor authentication', desc: 'Ask for a code from your authenticator app when signing in.' },
+  { key: 'notifications', label: 'Notifications',    icon: Bell,        title: 'Notifications',        desc: 'Choose which events we tell you about, in-app and by email.' },
+  { key: 'danger',        label: 'Delete account',   icon: Trash2,      title: 'Delete account',       desc: 'Permanently close your account and remove your personal data.', danger: true },
 ];
 
-// ── Edit Profile section ──────────────────────────────────────────────────────
-function EditProfileSection() {
+/** Inline success / error pair used by every section, so feedback always looks the same. */
+function Feedback({ message, error }) {
+  if (!message && !error) return null;
+  return error ? (
+    <div className="alert-error mb-4">
+      <AlertCircle size={16} className="mt-0.5 shrink-0" />
+      <span>{error}</span>
+    </div>
+  ) : (
+    <div className="alert-success mb-4">
+      <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+// ── Profile details section ───────────────────────────────────────────────────
+// The email address is the sign-in identity, so it is shown read-only here and
+// left out of the update payload — the server keeps whatever it already has.
+const PROFILE_FIELDS = [
+  { key: 'username', label: 'Display name', type: 'text',  placeholder: 'Your name',              hint: 'Shown on your bids, reviews and listings.' },
+  { key: 'email',    label: 'Email address', type: 'email', placeholder: 'you@example.com',        hint: 'Used for sign-in, receipts and verification codes. This cannot be changed.', locked: true },
+  { key: 'phone',    label: 'Phone',         type: 'tel',   placeholder: '+65 XXXX XXXX',          hint: 'Optional — helps sellers reach you about deliveries.' },
+  { key: 'address',  label: 'Address',       type: 'text',  placeholder: 'Street, City, Country',  hint: 'Optional — used as the default shipping address.' },
+];
+
+/** Fields the user can actually edit — drives both the dirty check and the payload. */
+const EDITABLE_FIELDS = PROFILE_FIELDS.filter(f => !f.locked);
+
+function ProfileSection() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
   const [form, setForm] = useState({ username: '', email: '', phone: '', address: '' });
+  const [initial, setInitial] = useState({ username: '', email: '', phone: '', address: '' });
   const [currentImageUrl, setCurrentImageUrl] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     getProfile().then(r => {
       const d = r.data;
-      setForm({
+      const loaded = {
         username: d.username || '',
         email:    d.email    || '',
         phone:    d.phone    || '',
         address:  d.address  || '',
-      });
+      };
+      setForm(loaded);
+      setInitial(loaded);
       setCurrentImageUrl(d.profileImageUrl || '');
-    }).catch(() => {});
+    }).catch(() => setError('Could not load your profile.'));
   }, []);
+
+  const dirty = useMemo(
+    () => Boolean(selectedFile) || EDITABLE_FIELDS.some(f => form[f.key] !== initial[f.key]),
+    [form, initial, selectedFile],
+  );
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -58,7 +98,7 @@ function EditProfileSection() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); setMessage('');
+    setError(''); setMessage(''); setSaving(true);
 
     try {
       // Upload photo first if a new file was selected
@@ -69,20 +109,24 @@ function EditProfileSection() {
           setCurrentImageUrl(res.data.profileImageUrl);
         } catch (err) {
           setError(err.response?.data?.error || 'Photo upload failed.');
-          setUploading(false);
           return;
         } finally {
           setUploading(false);
         }
       }
 
-      await updateProfile(form);
+      // Email is deliberately absent: the server keeps the address it already has.
+      await updateProfile({ username: form.username, phone: form.phone, address: form.address });
       const updated = await getProfile();
       setUser(updated.data);
-      setMessage('Profile updated successfully!');
+      setInitial(form);
+      setSelectedFile(null);
+      setMessage('Profile updated. Taking you to your profile…');
       setTimeout(() => navigate('/profile'), 1500);
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Update failed.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -90,47 +134,36 @@ function EditProfileSection() {
   const initials = (form.username?.[0] ?? 'U').toUpperCase();
 
   return (
-    <div className="card p-8">
-      {message && <div className="alert-success mb-4">{message}</div>}
-      {error   && <div className="alert-error mb-4">{error}</div>}
+    <div className="card card-pad">
+      <Feedback message={message} error={error} />
 
-      {/* Photo upload */}
-      <div className="flex items-center gap-5 mb-6">
-        <div className="relative shrink-0">
-          {displayImage ? (
-            <img
-              src={displayImage}
-              alt="Profile"
-              className="w-20 h-20 rounded-full object-cover border border-ink-200"
-            />
-          ) : (
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 to-primary-500 flex items-center justify-center text-white text-2xl font-bold">
-              {initials}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="absolute -bottom-1 -right-1 bg-primary-600 hover:bg-primary-700 text-white rounded-full w-7 h-7 flex items-center justify-center shadow-lift transition-all hover:scale-110"
-            title="Change photo"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-          </button>
-        </div>
-        <div>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="link-subtle text-sm"
-          >
-            {uploading ? 'Uploading…' : 'Upload new photo'}
-          </button>
-          <p className="text-xs text-ink-400 mt-0.5">JPEG, PNG, GIF or WebP · Max 5 MB</p>
-          {selectedFile && (
-            <p className="text-xs text-ink-500 mt-0.5 truncate max-w-[200px]">{selectedFile.name}</p>
-          )}
+      <div className="flex flex-wrap items-center gap-5 pb-6 mb-6 border-b border-ink-100">
+        {displayImage ? (
+          <img
+            src={displayImage}
+            alt=""
+            className="w-20 h-20 rounded-2xl object-cover border border-ink-200 shrink-0"
+          />
+        ) : (
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-400 to-primary-600 grid place-items-center text-white text-2xl font-bold shrink-0">
+            {initials}
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="font-semibold text-sm text-ink-900">Profile photo</p>
+          <p className="field-hint">JPEG, PNG, GIF or WebP · max 5 MB</p>
+          <div className="flex items-center gap-3 mt-2.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-secondary btn-sm"
+            >
+              <Upload size={13} /> Choose photo
+            </button>
+            {selectedFile && (
+              <span className="text-xs text-ink-500 truncate max-w-[180px]">{selectedFile.name}</span>
+            )}
+          </div>
         </div>
         <input
           ref={fileInputRef}
@@ -141,43 +174,51 @@ function EditProfileSection() {
         />
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {[
-          { key: 'username', label: 'Display Name', type: 'text',  placeholder: 'Your name' },
-          { key: 'email',    label: 'Email',         type: 'email', placeholder: 'email@example.com' },
-          { key: 'phone',    label: 'Phone',         type: 'tel',   placeholder: '+65 XXXX XXXX' },
-          { key: 'address',  label: 'Address',       type: 'text',  placeholder: 'Street, City, Country' },
-        ].map(({ key, label, type, placeholder }) => (
-          <div key={key}>
-            <label className="field-label">{label}</label>
-            <input
-              type={type}
-              value={form[key]}
-              onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-              placeholder={placeholder}
-              className="input-field"
-            />
-          </div>
-        ))}
-        <div className="flex gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={uploading}
-            className="btn-primary flex-1 btn-lg"
-          >
-            {uploading ? 'Uploading photo…' : 'Save Changes'}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid sm:grid-cols-2 gap-5">
+          {PROFILE_FIELDS.map(({ key, label, type, placeholder, hint, locked }) => (
+            <div key={key} className={key === 'address' ? 'sm:col-span-2' : undefined}>
+              <label className="field-label" htmlFor={`profile-${key}`}>
+                {label}
+                {locked && (
+                  <span className="ml-1.5 inline-flex items-center gap-1 font-medium text-ink-400">
+                    <Lock size={11} /> Locked
+                  </span>
+                )}
+              </label>
+              <input
+                id={`profile-${key}`}
+                type={type}
+                value={form[key]}
+                onChange={locked ? undefined : e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                placeholder={placeholder}
+                readOnly={locked}
+                aria-readonly={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                className={locked ? 'input-field bg-ink-50 text-ink-500 cursor-not-allowed' : 'input-field'}
+              />
+              <p className="field-hint">{hint}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button type="submit" disabled={!dirty || saving || uploading} className="btn-primary">
+            {uploading ? 'Uploading photo…' : saving ? 'Saving…' : 'Save changes'}
           </button>
-          <button type="button" onClick={() => navigate('/profile')}
-            className="btn-secondary flex-1 btn-lg">
+          <button type="button" onClick={() => navigate('/profile')} className="btn-secondary">
             Cancel
           </button>
+          <span className="text-xs text-ink-400">
+            {dirty ? 'You have unsaved changes.' : 'Everything is saved.'}
+          </span>
         </div>
       </form>
     </div>
   );
 }
 
-// ── Change Password section ───────────────────────────────────────────────────
+// ── Change password section ───────────────────────────────────────────────────
 function ChangePasswordSection() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -191,7 +232,7 @@ function ChangePasswordSection() {
     setError(''); setLoading(true);
     try {
       await changePassword(form);
-      setMessage('Password changed successfully!');
+      setMessage('Password changed. Taking you to your profile…');
       setTimeout(() => navigate('/profile'), 1500);
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to change password.');
@@ -200,33 +241,54 @@ function ChangePasswordSection() {
     }
   };
 
+  const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+  const mismatch = form.confirmPassword.length > 0 && form.newPassword !== form.confirmPassword;
+
   return (
-    <div className="card p-8 max-w-md">
-      {message && <div className="alert-success mb-4">{message}</div>}
-      {error   && <div className="alert-error mb-4">{error}</div>}
+    <div className="card card-pad max-w-lg">
+      <Feedback message={message} error={error} />
+
       <form onSubmit={handleSubmit} className="space-y-4">
-        {[
-          { key: 'currentPassword', label: 'Current Password' },
-          { key: 'newPassword',     label: 'New Password' },
-          { key: 'confirmPassword', label: 'Confirm New Password' },
-        ].map(({ key, label }) => (
-          <div key={key}>
-            <label className="field-label">{label}</label>
-            <input
-              type="password"
-              value={form[key]}
-              onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-              required
-              className="input-field"
-            />
-          </div>
-        ))}
-        <button
-          type="submit"
-          disabled={loading}
-          className="btn-primary btn-block btn-lg"
-        >
-          {loading ? 'Changing…' : 'Change Password'}
+        <div>
+          <label className="field-label" htmlFor="pw-current">Current password</label>
+          <PasswordField
+            id="pw-current"
+            value={form.currentPassword}
+            onChange={set('currentPassword')}
+            placeholder="Enter your current password"
+            autoComplete="current-password"
+            required
+          />
+        </div>
+        <div>
+          <label className="field-label" htmlFor="pw-new">New password</label>
+          <PasswordField
+            id="pw-new"
+            value={form.newPassword}
+            onChange={set('newPassword')}
+            placeholder="Create a password"
+            autoComplete="new-password"
+            required
+          />
+          <p className="field-hint">
+            8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+          </p>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="pw-confirm">Confirm new password</label>
+          <PasswordField
+            id="pw-confirm"
+            value={form.confirmPassword}
+            onChange={set('confirmPassword')}
+            placeholder="Re-enter your new password"
+            autoComplete="new-password"
+            required
+          />
+          {mismatch && <p className="text-xs text-red-600 mt-1">Both new passwords must match.</p>}
+        </div>
+
+        <button type="submit" disabled={loading || mismatch} className="btn-primary btn-block btn-lg">
+          {loading ? 'Changing…' : 'Change password'}
         </button>
       </form>
     </div>
@@ -296,116 +358,151 @@ function TwoFactorSection() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <p className="text-ink-500 text-sm">
-        Add an extra layer of security by requiring a code from your authenticator app when signing in.
-      </p>
+      <Feedback message={message} error={error} />
 
-      {message && <div className="alert-success">{message}</div>}
-      {error   && <div className="alert-error">{error}</div>}
-
-      <div className="card p-5 flex items-center justify-between">
-        <div>
-          <p className="font-medium text-ink-900">Status</p>
-          <p className="text-sm text-ink-500 mt-0.5">
-            {is2FAEnabled ? 'Two-factor authentication is enabled.' : 'Two-factor authentication is disabled.'}
-          </p>
+      <div className="card card-pad flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <span className={`grid place-items-center w-11 h-11 rounded-2xl shrink-0 ${
+            is2FAEnabled ? 'bg-emerald-50 text-emerald-600' : 'bg-ink-100 text-ink-400'
+          }`}>
+            <ShieldCheck size={20} />
+          </span>
+          <div className="min-w-0">
+            <p className="font-semibold text-sm text-ink-900">
+              {is2FAEnabled ? 'Two-factor authentication is on' : 'Two-factor authentication is off'}
+            </p>
+            <p className="text-sm text-ink-500 mt-0.5">
+              {is2FAEnabled
+                ? 'You enter a code from your authenticator app at every sign-in.'
+                : 'Your password is the only thing protecting this account.'}
+            </p>
+          </div>
         </div>
-        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${is2FAEnabled ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-ink-100 text-ink-600 ring-ink-200'}`}>
+        <span className={is2FAEnabled ? 'badge-success' : 'badge-neutral'}>
           {is2FAEnabled ? 'Enabled' : 'Disabled'}
         </span>
       </div>
 
       {!is2FAEnabled && step === 'idle' && (
-        <button onClick={handleStartSetup} disabled={loading}
-          className="btn-primary btn-block btn-lg">
-          {loading ? 'Setting up…' : 'Enable Two-Factor Authentication'}
+        <button onClick={handleStartSetup} disabled={loading} className="btn-primary btn-block btn-lg">
+          {loading ? 'Setting up…' : 'Set up two-factor authentication'}
         </button>
       )}
 
       {!is2FAEnabled && step === 'setup' && (
-        <div className="card p-6 space-y-5">
-          <h2 className="font-bold text-ink-900">Step 1 — Scan the QR code</h2>
-          <p className="text-sm text-ink-500">Open Google Authenticator, Authy, or any TOTP app and scan the QR code below.</p>
-          <div className="flex justify-center p-4 bg-white border border-ink-200 rounded-xl">
+        <div className="card card-pad space-y-5">
+          <div>
+            <p className="eyebrow">Step 1 of 2</p>
+            <h3 className="font-bold text-ink-900 mt-1">Scan the QR code</h3>
+            <p className="text-sm text-ink-500 mt-1">
+              Open Google Authenticator, Authy or any TOTP app and scan this code.
+            </p>
+          </div>
+
+          <div className="flex justify-center p-4 surface-muted bg-white">
             <QRCodeSVG value={totpUri} size={180} />
           </div>
+
           <div>
-            <p className="text-xs text-ink-400 mb-1">Can't scan? Enter this key manually:</p>
-            <div className="bg-ink-50 border border-ink-200 rounded-lg px-4 py-2 text-sm font-mono text-ink-700 break-all flex items-center justify-between gap-2">
+            <p className="field-label">Can’t scan? Enter this key manually</p>
+            <div className="surface-muted px-4 py-2.5 text-sm font-mono text-ink-700 break-all flex items-center justify-between gap-2">
               <span>{totpSecret}</span>
-              <button type="button"
-                onClick={() => navigator.clipboard.writeText(totpSecret).then(() => setMessage('Key copied!'))}
-                className="text-primary-500 text-xs whitespace-nowrap hover:underline">
-                Copy
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(totpSecret).then(() => setMessage('Setup key copied.'))}
+                className="btn-ghost btn-sm shrink-0"
+              >
+                <Copy size={13} /> Copy
               </button>
             </div>
           </div>
-          <h2 className="font-bold text-ink-900">Step 2 — Enter the verification code</h2>
-          <form onSubmit={handleConfirm} className="space-y-3">
-            <input type="text" inputMode="numeric" placeholder="000000"
-              value={confirmCode}
-              onChange={e => setConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              maxLength={6} required
-              className="input-field text-center text-xl tracking-[0.4em] font-mono"
-            />
-            <button type="submit" disabled={loading || confirmCode.length !== 6}
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50">
-              {loading ? 'Verifying…' : 'Confirm & Enable'}
-            </button>
-            <button type="button" onClick={() => { setStep('idle'); clearMessages(); }}
-              className="btn-secondary btn-block btn-lg">
-              Cancel
-            </button>
-          </form>
+
+          <div className="divider pt-5">
+            <p className="eyebrow">Step 2 of 2</p>
+            <h3 className="font-bold text-ink-900 mt-1">Enter the 6-digit code</h3>
+            <p className="text-sm text-ink-500 mt-1 mb-4">
+              Type the code your app is showing right now to finish enabling 2FA.
+            </p>
+
+            <form onSubmit={handleConfirm} className="space-y-4">
+              <CodeInput
+                id="twofa-confirm"
+                value={confirmCode}
+                onChange={next => { setConfirmCode(next); setError(''); }}
+                invalid={Boolean(error)}
+                label="Authenticator code"
+              />
+              <div className="flex gap-3">
+                <button type="submit" disabled={loading || confirmCode.length !== 6} className="btn-primary flex-1">
+                  {loading ? 'Verifying…' : 'Confirm and enable'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setStep('idle'); setConfirmCode(''); clearMessages(); }}
+                  className="btn-secondary flex-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
-      {is2FAEnabled && (
-        <div className="space-y-3">
-          {!showDisable ? (
-            <button onClick={() => { setShowDisable(true); clearMessages(); }}
-              className="w-full border border-red-300 text-red-600 font-medium py-3 rounded-lg hover:bg-red-50 transition-colors">
-              Disable Two-Factor Authentication
-            </button>
-          ) : (
-            <div className="card p-6 border-red-200 space-y-4">
-              <h2 className="font-bold text-ink-900">Disable 2FA</h2>
-              <p className="text-sm text-ink-500">Enter your current password to confirm.</p>
-              <form onSubmit={handleDisable} className="space-y-3">
-                <input type="password" placeholder="Current password"
-                  value={disableCode}
-                  onChange={e => setDisableCode(e.target.value)}
-                  required
-                  className="input-field"
-                />
-                <button type="submit" disabled={loading || !disableCode}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50">
-                  {loading ? 'Disabling…' : 'Confirm Disable'}
-                </button>
-                <button type="button" onClick={() => { setShowDisable(false); setDisableCode(''); clearMessages(); }}
-                  className="btn-secondary btn-block btn-lg">
-                  Cancel
-                </button>
-              </form>
+      {is2FAEnabled && (!showDisable ? (
+        <button
+          onClick={() => { setShowDisable(true); clearMessages(); }}
+          className="btn-secondary btn-block text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+        >
+          Turn off two-factor authentication
+        </button>
+      ) : (
+        <div className="card card-pad border-red-200 space-y-4">
+          <div>
+            <h3 className="font-bold text-ink-900">Turn off two-factor authentication?</h3>
+            <p className="text-sm text-ink-500 mt-1">
+              Sign-in will only need your password. Confirm with your current password to continue.
+            </p>
+          </div>
+          <form onSubmit={handleDisable} className="space-y-3">
+            <PasswordField
+              id="twofa-disable-password"
+              placeholder="Current password"
+              value={disableCode}
+              onChange={e => setDisableCode(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            <div className="flex gap-3">
+              <button type="submit" disabled={loading || !disableCode} className="btn-danger flex-1">
+                {loading ? 'Turning off…' : 'Turn off 2FA'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDisable(false); setDisableCode(''); clearMessages(); }}
+                className="btn-secondary flex-1"
+              >
+                Keep it on
+              </button>
             </div>
-          )}
+          </form>
         </div>
-      )}
+      ))}
     </div>
   );
 }
 
 // ── Notification preferences section ──────────────────────────────────────────
 const PREF_ITEMS = [
-  { key: 'outbid',     label: 'Outbid alerts',        desc: 'Notify me when someone outbids me on an auction.' },
-  { key: 'endingSoon', label: 'Watchlist ending soon', desc: 'Notify me when an auction on my watchlist is ending soon.' },
-  { key: 'wonAuction', label: 'Auction won',           desc: 'Notify me when I win an auction.' },
+  { key: 'outbid',     label: 'Outbid alerts',         desc: 'Tell me when someone outbids me on an auction.' },
+  { key: 'endingSoon', label: 'Watchlist ending soon', desc: 'Tell me when an auction on my watchlist is about to close.' },
+  { key: 'wonAuction', label: 'Auction won',           desc: 'Tell me when I win an auction.' },
 ];
 
 function NotificationPreferencesSection() {
   const [prefs, setPrefs] = useState({ outbid: true, endingSoon: true, wonAuction: true });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingKey, setSavingKey] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -423,7 +520,7 @@ function NotificationPreferencesSection() {
   const handleToggle = async (key) => {
     const next = { ...prefs, [key]: !prefs[key] };
     setPrefs(next);
-    setMessage(''); setError(''); setSaving(true);
+    setMessage(''); setError(''); setSavingKey(key);
     try {
       await saveNotificationPreferences(next);
       setMessage('Notification preferences saved.');
@@ -431,166 +528,73 @@ function NotificationPreferencesSection() {
       setPrefs(prefs); // revert on failure
       setError(err.response?.data?.error || 'Failed to save preferences.');
     } finally {
-      setSaving(false);
+      setSavingKey(null);
     }
   };
 
-  if (loading) return <div className="card p-8 text-ink-400 text-sm">Loading preferences…</div>;
+  if (loading) {
+    return (
+      <div className="card card-pad max-w-lg space-y-3" aria-busy="true">
+        {PREF_ITEMS.map(p => <div key={p.key} className="skeleton h-12" />)}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg space-y-4">
-      <p className="text-ink-500 text-sm">
-        Choose which events you want to be notified about (in-app and by email when configured).
-      </p>
-
-      {message && <div className="alert-success">{message}</div>}
-      {error   && <div className="alert-error">{error}</div>}
+      <Feedback message={message} error={error} />
 
       <div className="card divide-y divide-ink-100">
         {PREF_ITEMS.map(({ key, label, desc }) => (
           <div key={key} className="p-5 flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium text-ink-900">{label}</p>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-ink-900">{label}</p>
               <p className="text-sm text-ink-500 mt-0.5">{desc}</p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={prefs[key]}
-              disabled={saving}
-              onClick={() => handleToggle(key)}
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-                prefs[key] ? 'bg-primary-500' : 'bg-ink-300'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  prefs[key] ? 'translate-x-6' : 'translate-x-1'
+            <div className="flex items-center gap-2 shrink-0">
+              {savingKey === key && <Loader2 size={14} className="animate-spin text-ink-400" />}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={prefs[key]}
+                aria-label={label}
+                disabled={savingKey !== null}
+                onClick={() => handleToggle(key)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+                  prefs[key] ? 'bg-primary-500' : 'bg-ink-300'
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    prefs[key] ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// ── Linked accounts (third-party sign-in) section ─────────────────────────────
-function LinkedAccountsSection() {
-  const [linked, setLinked] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [googleAvailable, setGoogleAvailable] = useState(true);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-
-  const load = () => {
-    getLinkedAccounts()
-      .then(r => setLinked(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setError('Could not load linked accounts.'))
-      .finally(() => setLoading(false));
-  };
-  useEffect(load, []);
-
-  const google = linked.find(l => l.provider === 'google');
-
-  const handleGoogleCredential = async (credential) => {
-    setMessage(''); setError(''); setBusy(true);
-    try {
-      const r = await linkOAuthAccount('google', credential);
-      setMessage(r.data?.message ?? 'Google account linked.');
-      load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not link the Google account.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleUnlink = async () => {
-    if (!window.confirm('Unlink your Google account? You will still be able to sign in with your password.')) return;
-    setMessage(''); setError(''); setBusy(true);
-    try {
-      const r = await unlinkOAuthAccount('google');
-      setMessage(r.data?.message ?? 'Google account unlinked.');
-      load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not unlink the Google account.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loading) return <div className="card p-8 text-ink-400 text-sm">Loading linked accounts…</div>;
-
-  return (
-    <div className="max-w-lg space-y-4">
-      <p className="text-ink-500 text-sm">
-        Link a third-party account so you can sign in with your preferred method.
-        Your password keeps working either way.
-      </p>
-
-      {message && <div className="alert-success">{message}</div>}
-      {error   && <div className="alert-error">{error}</div>}
-
-      <div className="card p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="font-medium text-ink-900">Google</p>
-            {google ? (
-              <p className="text-sm text-ink-500 mt-0.5">
-                Linked{google.email ? ` as ${google.email}` : ''}
-                {google.linkedAt ? ` on ${new Date(google.linkedAt).toLocaleDateString()}` : ''}
-              </p>
-            ) : (
-              <p className="text-sm text-ink-500 mt-0.5">Not linked</p>
-            )}
-          </div>
-          {google && (
-            <button
-              type="button"
-              onClick={handleUnlink}
-              disabled={busy}
-              className="px-4 py-2 border border-red-200 text-red-500 text-sm rounded-lg hover:bg-red-50 disabled:opacity-50"
-            >
-              Unlink
-            </button>
-          )}
-        </div>
-        {!google && (
-          <div className="mt-4">
-            {googleAvailable ? (
-              <GoogleSignInButton
-                text="continue_with"
-                onCredential={handleGoogleCredential}
-                onAvailabilityChange={setGoogleAvailable}
-              />
-            ) : (
-              <p className="text-xs text-ink-400">
-                Google sign-in is not configured on this server (GOOGLE_CLIENT_ID missing).
-              </p>
-            )}
-          </div>
-        )}
-      </div>
 
       <p className="text-xs text-ink-400">
-        Facebook and Twitter/X sign-in are not offered yet.
+        Each switch saves on its own — there is no separate save button.
       </p>
     </div>
   );
 }
 
-// ── Delete Account section ────────────────────────────────────────────────────
+// ── Delete account section ────────────────────────────────────────────────────
 function DeleteAccountSection() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(false);
+  const [typed, setTyped] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleDelete = async () => {
+  const confirmed = typed.trim().toUpperCase() === 'DELETE';
+
+  const handleDelete = async (e) => {
+    e.preventDefault();
+    if (!confirmed) return;
     setError(''); setLoading(true);
     try {
       await deleteAccount();
@@ -603,36 +607,40 @@ function DeleteAccountSection() {
   };
 
   return (
-    <div className="mt-8 pt-6 border-t border-ink-200">
-      <h3 className="text-sm font-medium text-ink-700 mb-3">Delete Account</h3>
-      {!expanded ? (
-        <button
-          onClick={() => setExpanded(true)}
-          className="text-sm text-red-500 hover:underline"
-        >
-          Delete my account
-        </button>
-      ) : (
-        <div className="card p-5 space-y-3 max-w-md">
-          <p className="text-sm text-ink-600">Are you sure? This will permanently delete your account and cannot be undone.</p>
-          {error && <div className="alert-error">{error}</div>}
-          <div className="flex gap-3">
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              className="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Deleting…' : 'Yes, delete'}
-            </button>
-            <button
-              onClick={() => { setExpanded(false); setError(''); }}
-              className="btn-secondary flex-1"
-            >
-              Cancel
-            </button>
-          </div>
+    <div className="card card-pad max-w-lg border-red-200">
+      <Feedback error={error} />
+
+      <ul className="space-y-2 text-sm text-ink-600">
+        {[
+          'Your listings, bids and watchlist are removed.',
+          'Open orders and refunds can no longer be managed.',
+          'This cannot be undone — you would need to register again.',
+        ].map(point => (
+          <li key={point} className="flex items-start gap-2.5">
+            <AlertCircle size={15} className="text-red-500 mt-0.5 shrink-0" />
+            {point}
+          </li>
+        ))}
+      </ul>
+
+      <form onSubmit={handleDelete} className="mt-6 space-y-3">
+        <div>
+          <label className="field-label" htmlFor="delete-confirm">
+            Type DELETE to confirm
+          </label>
+          <input
+            id="delete-confirm"
+            value={typed}
+            onChange={e => { setTyped(e.target.value); setError(''); }}
+            placeholder="DELETE"
+            autoComplete="off"
+            className="input-field"
+          />
         </div>
-      )}
+        <button type="submit" disabled={!confirmed || loading} className="btn-danger">
+          <Trash2 size={15} /> {loading ? 'Deleting…' : 'Delete my account'}
+        </button>
+      </form>
     </div>
   );
 }
@@ -664,13 +672,16 @@ function SellingSection() {
 
   if (alreadySelling) {
     return (
-      <div className="card p-8">
+      <div className="card card-pad">
         <div className="flex items-start gap-4">
           <span className="grid place-items-center w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 shrink-0">
             <Store size={22} />
           </span>
           <div className="min-w-0">
-            <h2 className="section-title text-base">Selling is switched on</h2>
+            <div className="flex items-center gap-2.5">
+              <h2 className="section-title text-base">Selling is switched on</h2>
+              <span className="badge-success">Active</span>
+            </div>
             <p className="text-sm text-ink-500 mt-1 leading-relaxed">
               You can list items and manage orders from your seller dashboard. Buying,
               bidding and your watchlist run on this same account — there is only one.
@@ -690,7 +701,7 @@ function SellingSection() {
   }
 
   return (
-    <div className="card p-8">
+    <div className="card card-pad">
       <div className="flex items-start gap-4">
         <span className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 shrink-0">
           <Store size={22} />
@@ -698,9 +709,9 @@ function SellingSection() {
         <div className="min-w-0">
           <h2 className="section-title text-base">Start selling</h2>
           <p className="text-sm text-ink-500 mt-1 leading-relaxed">
-            Switch selling on to list your own items. It's the same account either
+            Switch selling on to list your own items. It’s the same account either
             way — your bids, watchlist and order history are unaffected. You can also
-            do this straight from Sell Items in the navigation bar.
+            do this straight from My listings in the navigation bar.
           </p>
 
           <ul className="mt-5 space-y-2.5">
@@ -735,41 +746,83 @@ function SellingSection() {
 
 // ── Main settings page ────────────────────────────────────────────────────────
 export default function AccountSettings() {
-  const [searchParams] = useSearchParams();
-  const initialTab = TABS.some(t => t.key === searchParams.get('tab'))
-    ? searchParams.get('tab')
-    : 'profile';
-  const [tab, setTab] = useState(initialTab);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get('tab');
+  const tab = TABS.some(t => t.key === requested) ? requested : 'profile';
+  const active = TABS.find(t => t.key === tab);
+
+  // The tab lives in the URL so a section can be linked to, bookmarked and
+  // survive a refresh.
+  const selectTab = (key) => setSearchParams(key === 'profile' ? {} : { tab: key }, { replace: true });
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="page-title">Account Settings</h1>
-      <p className="page-subtitle mb-6">Manage your profile, selling, security and notification preferences.</p>
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <Link
+        to="/profile"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors mb-4"
+      >
+        <ArrowLeft size={14} /> Back to profile
+      </Link>
 
-      <div className="flex gap-1 border-b border-ink-200 mb-6 overflow-x-auto">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-3 text-sm font-semibold whitespace-nowrap transition-colors border-b-2 -mb-px ${
-              tab === t.key
-                ? 'border-primary-600 text-primary-600'
-                : 'border-transparent text-ink-500 hover:text-ink-800'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <h1 className="page-title">Account settings</h1>
+      <p className="page-subtitle mb-7">
+        Manage your profile, selling, security and notification preferences.
+      </p>
+
+      <div className="grid lg:grid-cols-[13.5rem_1fr] gap-6 lg:gap-8 items-start">
+        {/* Section nav: a vertical list on desktop, a scrollable pill row on mobile. */}
+        <nav aria-label="Settings sections" className="lg:sticky lg:top-6">
+          <div className="hidden lg:flex flex-col gap-1">
+            {TABS.map(({ key, label, icon: Icon, danger }) => {
+              const isActive = tab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => selectTab(key)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-left transition-colors ${
+                    isActive
+                      ? danger ? 'bg-red-50 text-red-700' : 'bg-ink-900 text-white shadow-sm'
+                      : danger ? 'text-red-600 hover:bg-red-50' : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900'
+                  } ${danger ? 'mt-3' : ''}`}
+                >
+                  <Icon size={16} className="shrink-0" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex lg:hidden gap-2 overflow-x-auto pb-1 -mx-4 px-4">
+            {TABS.map(({ key, label, icon: Icon, danger }) => (
+              <button
+                key={key}
+                onClick={() => selectTab(key)}
+                aria-current={tab === key ? 'page' : undefined}
+                className={`tab-pill inline-flex items-center gap-1.5 shrink-0 ${
+                  tab === key ? 'tab-pill-active' : danger ? 'text-red-600' : ''
+                }`}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <div className="min-w-0">
+          <div className="mb-5">
+            <h2 className={`section-title ${active.danger ? 'text-red-700' : ''}`}>{active.title}</h2>
+            <p className="page-subtitle">{active.desc}</p>
+          </div>
+
+          {tab === 'profile'       && <ProfileSection />}
+          {tab === 'selling'       && <SellingSection />}
+          {tab === 'password'      && <ChangePasswordSection />}
+          {tab === '2fa'           && <TwoFactorSection />}
+          {tab === 'notifications' && <NotificationPreferencesSection />}
+          {tab === 'danger'        && <DeleteAccountSection />}
+        </div>
       </div>
-
-      {tab === 'profile'       && <EditProfileSection />}
-      {tab === 'selling'       && <SellingSection />}
-      {tab === 'password'      && <ChangePasswordSection />}
-      {tab === '2fa'           && <TwoFactorSection />}
-      {tab === 'notifications' && <NotificationPreferencesSection />}
-      {tab === 'linked'        && <LinkedAccountsSection />}
-
-      <DeleteAccountSection />
     </div>
   );
 }

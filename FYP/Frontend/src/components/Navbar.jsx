@@ -2,7 +2,14 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { publicPath } from '../utils/appBase';
 import NotificationBell from './NotificationBell';
+
+/** Same treatment as the notification bell, so the icon row reads as one group. */
+const iconLinkClass = ({ isActive }) =>
+  `relative p-2 rounded-full transition-colors ${
+    isActive ? 'bg-ink-100 text-ink-900' : 'text-ink-500 hover:bg-ink-100 hover:text-ink-900'
+  }`;
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -61,7 +68,7 @@ export default function Navbar() {
           {/* One account does both, so selling is always on offer; the route itself
               turns the capability on for accounts that haven't used it yet. */}
           {isMember && (
-            <NavLink to="/seller/dashboard" className={navLinkClass}>Sell Items</NavLink>
+            <NavLink to="/seller/listings" className={navLinkClass}>My listings</NavLink>
           )}
           {/* Bidding history is per-account, so it is hidden from signed-out visitors. */}
           {user && (
@@ -86,16 +93,35 @@ export default function Navbar() {
         </form>
 
         <div className="flex items-center gap-1.5">
+          {/* Watchlist and messages sit either side of the bell as one icon row. */}
+          {isMember && (
+            <NavLink to="/watchlist" className={iconLinkClass} aria-label="Watchlist" title="Watchlist">
+              <Heart size={20} />
+            </NavLink>
+          )}
           {user && <NotificationBell />}
+          {user && user.role !== 'ADMIN' && (
+            <NavLink to="/messages" className={iconLinkClass} aria-label="Messages" title="Messages">
+              <MessageSquare size={20} />
+            </NavLink>
+          )}
           {user ? (
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen(v => !v)}
                 className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-transparent hover:border-ink-200 hover:bg-ink-50 transition-colors"
               >
-                <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                  {user.username?.[0]?.toUpperCase() ?? 'U'}
-                </div>
+                {user.profileImageUrl ? (
+                  <img
+                    src={publicPath(user.profileImageUrl)}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover border border-ink-200"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm">
+                    {user.username?.[0]?.toUpperCase() ?? 'U'}
+                  </div>
+                )}
                 <span className="hidden md:block text-sm font-semibold text-ink-700 max-w-[7rem] truncate">{user.username}</span>
                 <ChevronDown size={14} className={`hidden md:block text-ink-400 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -108,13 +134,8 @@ export default function Navbar() {
                     </p>
                   </div>
                   <Link to="/profile" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                    <User size={15} className="text-ink-400" /> Profile
+                    <User size={15} className="text-ink-400" /> My account
                   </Link>
-                  {isMember && (
-                    <Link to="/watchlist" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                      <Heart size={15} className="text-ink-400" /> Watchlist
-                    </Link>
-                  )}
                   {isMember && (
                     <Link to="/seller/dashboard" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                       <LayoutDashboard size={15} className="text-ink-400" /> Seller Dashboard
@@ -123,11 +144,6 @@ export default function Navbar() {
                   {user.role === 'ADMIN' && (
                     <Link to="/admin" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                       <LayoutDashboard size={15} className="text-ink-400" /> Admin Panel
-                    </Link>
-                  )}
-                  {user.role !== 'ADMIN' && (
-                    <Link to="/messages" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                      <MessageSquare size={15} className="text-ink-400" /> Messages
                     </Link>
                   )}
                   {user.role !== 'ADMIN' && (
@@ -179,7 +195,7 @@ export default function Navbar() {
           <div className="flex flex-col">
             <Link to="/search" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700 border-b border-ink-100">Explore</Link>
             {isMember && (
-              <Link to="/seller/dashboard" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700 border-b border-ink-100">Sell Items</Link>
+              <Link to="/seller/listings" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700 border-b border-ink-100">My listings</Link>
             )}
             {user && (
               <Link to="/bidding-history" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700">Bidding History</Link>

@@ -53,7 +53,7 @@ export default function EditProfile() {
           setUploading(false);
         }
       }
-      await updateProfile(form);
+      await updateProfile({ username: form.username, phone: form.phone, address: form.address });
       const updated = await getProfile();
       setUser(updated.data);
       setMessage('Profile updated successfully!');
@@ -104,17 +104,26 @@ export default function EditProfile() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Email is the sign-in identity, so it is read-only here and left out of
+              the update payload — same rule as Account settings. */}
           {[
             { key: 'username', label: 'Display Name', type: 'text',  placeholder: 'Your name' },
-            { key: 'email',    label: 'Email',         type: 'email', placeholder: 'email@example.com' },
+            { key: 'email',    label: 'Email',         type: 'email', placeholder: 'email@example.com', locked: true },
             { key: 'phone',    label: 'Phone',         type: 'tel',   placeholder: '+65 XXXX XXXX' },
             { key: 'address',  label: 'Address',       type: 'text',  placeholder: 'Street, City, Country' },
-          ].map(({ key, label, type, placeholder }) => (
+          ].map(({ key, label, type, placeholder, locked }) => (
             <div key={key}>
-              <label className="field-label">{label}</label>
+              <label className="field-label">
+                {label}
+                {locked && <span className="ml-1.5 font-medium text-ink-400">· cannot be changed</span>}
+              </label>
               <input type={type} value={form[key]}
-                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                placeholder={placeholder} className="input-field" />
+                onChange={locked ? undefined : e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                placeholder={placeholder}
+                readOnly={locked}
+                aria-readonly={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                className={locked ? 'input-field bg-ink-50 text-ink-500 cursor-not-allowed' : 'input-field'} />
             </div>
           ))}
           <div className="flex gap-3 pt-2">

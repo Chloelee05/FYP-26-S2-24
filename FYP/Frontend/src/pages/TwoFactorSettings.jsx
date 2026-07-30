@@ -155,7 +155,7 @@ export default function TwoFactorSettings() {
             <button
               type="submit"
               disabled={loading || confirmCode.length !== 6}
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+              className="btn-primary btn-block btn-lg"
             >
               {loading ? 'Verifying…' : 'Confirm & Enable'}
             </button>
