@@ -155,6 +155,88 @@ public class SellerProfileDAO {
         return list;
     }
 
+    /**
+     * One of the seller's live listings, shaped like the search results so the
+     * public profile can render it with the same auction card as everywhere else.
+     */
+    public static final class PublicListing {
+        private final long auctionId;
+        private final String title;
+        private final String category;
+        private final BigDecimal currentPrice;
+        private final Instant endDate;
+        private final String thumbnailUrl;
+        private final int watchCount;
+
+        PublicListing(long auctionId, String title, String category, BigDecimal currentPrice,
+                      Instant endDate, String thumbnailUrl, int watchCount) {
+            this.auctionId = auctionId;
+            this.title = title;
+            this.category = category;
+            this.currentPrice = currentPrice;
+            this.endDate = endDate;
+            this.thumbnailUrl = thumbnailUrl;
+            this.watchCount = watchCount;
+        }
+
+        public long getAuctionId() { return auctionId; }
+        public String getTitle() { return title; }
+        public String getCategory() { return category; }
+        public BigDecimal getCurrentPrice() { return currentPrice; }
+        public Instant getEndDate() { return endDate; }
+        public String getThumbnailUrl() { return thumbnailUrl; }
+        public int getWatchCount() { return watchCount; }
+    }
+
+    /**
+     * Live listings for the public profile — moderation-visible auctions that have
+     * not ended yet, newest closing last, so buyers can browse what this seller has
+     * on sale right now.
+     *
+     * @param sellerId seller user id
+     * @param limit    maximum rows (caller clamps)
+     */
+    public List<PublicListing> getActiveListings(long sellerId, int limit) {
+        String sql =
+                "SELECT a.auction_id, d.title, d.category, a.date_end, "
+                + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
+                + "         d.starting_price) AS current_price, "
+                + "(SELECT ai.image_url FROM auction_images ai "
+                + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url, "
+                + "(SELECT COUNT(*)::int FROM watchlist w WHERE w.auction_id = a.auction_id) AS watch_count "
+                + "FROM auction a "
+                + "JOIN auction_details d ON d.id = a.auction_id "
+                + "WHERE a.seller_id = ? "
+                + "  AND a.moderation_state = 'active' "
+                + "  AND a.date_end > CURRENT_TIMESTAMP "
+                + "ORDER BY a.date_end ASC "
+                + "LIMIT ?";
+
+        List<PublicListing> list = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, sellerId);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Timestamp end = rs.getTimestamp("date_end");
+                    BigDecimal price = rs.getBigDecimal("current_price");
+                    list.add(new PublicListing(
+                            rs.getLong("auction_id"),
+                            rs.getString("title"),
+                            rs.getString("category"),
+                            price == null ? BigDecimal.ZERO : price,
+                            end == null ? null : end.toInstant(),
+                            rs.getString("thumbnail_url"),
+                            rs.getInt("watch_count")));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return list;
+    }
+
     /** Completed sales (orders marked COMPLETED). */
     public int countCompletedTransactions(long sellerId) {
         String sql = "SELECT COUNT(*)::int FROM orders WHERE seller_id = ? AND status = 'COMPLETED'";

@@ -221,6 +221,8 @@ public class SellerApiServlet extends ApiBase {
         body.put("reviewCount",     rating.getCount());
         body.put("totalReviews",    totalReviews);
         body.put("reviews",         reviews);
+        // Live listings so buyers can browse this seller's items from the profile.
+        body.put("listings",        profileDAO.getActiveListings(sellerId, 48));
         ok(resp, body);
     }
 

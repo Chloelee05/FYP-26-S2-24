@@ -96,7 +96,7 @@ export default function CreateAuction() {
         imageUrls,
         tags:            selectedTags,
       });
-      navigate('/seller/dashboard');
+      navigate('/seller/listings');
     } catch (err) {
       const data = err.response?.data;
       const msg = (typeof data === 'object' && data)
@@ -363,7 +363,7 @@ export default function CreateAuction() {
             >
               Preview
             </button>
-            <button type="button" onClick={() => navigate('/seller/dashboard')} className="btn-secondary btn-lg flex-1">
+            <button type="button" onClick={() => navigate('/seller/listings')} className="btn-secondary btn-lg flex-1">
               Cancel
             </button>
           </div>

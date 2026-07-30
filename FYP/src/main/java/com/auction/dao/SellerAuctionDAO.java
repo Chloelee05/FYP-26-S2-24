@@ -223,6 +223,10 @@ public class SellerAuctionDAO {
           + "COALESCE(MAX(b.bid_amount), 0) AS current_bid, "
           + "COUNT(b.bid_id) AS bid_count, "
           + "a.date_created AS start_date, a.date_end, "
+          // Scalar subqueries: the listing thumbnail and its watchlist ("likes") count.
+          + "(SELECT ai.image_url FROM auction_images ai "
+          + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url, "
+          + "(SELECT COUNT(*)::int FROM watchlist w WHERE w.auction_id = a.auction_id) AS watch_count, "
           + "CASE WHEN s.status = 'Active' AND a.date_end <= CURRENT_TIMESTAMP "
           + "     THEN 'Finished' ELSE s.status END AS status_name "
           + "FROM auction a "
@@ -256,7 +260,9 @@ public class SellerAuctionDAO {
                             rs.getTimestamp("start_date").toInstant(),
                             rs.getTimestamp("date_end").toInstant(),
                             rs.getString("status_name"),
-                            rs.getInt("quantity")));
+                            rs.getInt("quantity"),
+                            rs.getString("thumbnail_url"),
+                            rs.getInt("watch_count")));
                 }
             }
             return rows;

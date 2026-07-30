@@ -14,10 +14,15 @@ public class SellerAuctionRow {
     private final Instant endDate;
     private final String statusName;
     private final int quantity;
+    /** First uploaded image for the listing, or null when it has none. */
+    private final String thumbnailUrl;
+    /** How many buyers have this listing on their watchlist ("likes"). */
+    private final int watchCount;
 
     public SellerAuctionRow(long auctionId, String title, BigDecimal startingPrice,
                             BigDecimal maxPrice, BigDecimal currentBid, int bidCount,
-                            Instant startDate, Instant endDate, String statusName, int quantity) {
+                            Instant startDate, Instant endDate, String statusName, int quantity,
+                            String thumbnailUrl, int watchCount) {
         this.auctionId = auctionId;
         this.title = title;
         this.startingPrice = startingPrice;
@@ -28,6 +33,8 @@ public class SellerAuctionRow {
         this.endDate = endDate;
         this.statusName = statusName;
         this.quantity = quantity;
+        this.thumbnailUrl = thumbnailUrl;
+        this.watchCount = watchCount;
     }
 
     public long getAuctionId()      { return auctionId; }
@@ -40,4 +47,6 @@ public class SellerAuctionRow {
     public Instant getEndDate()      { return endDate; }
     public String getStatusName()    { return statusName; }
     public int getQuantity()         { return quantity; }
+    public String getThumbnailUrl()  { return thumbnailUrl; }
+    public int getWatchCount()       { return watchCount; }
 }

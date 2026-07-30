@@ -79,7 +79,7 @@ export default function EditAuction() {
         newImageUrls,
         deleteImageIds,
       });
-      navigate('/seller/dashboard');
+      navigate('/seller/listings');
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to update auction.');
     } finally {
@@ -174,7 +174,7 @@ export default function EditAuction() {
               className="btn-primary flex-1 btn-lg">
               {loading ? 'Saving…' : 'Save Changes'}
             </button>
-            <button type="button" onClick={() => navigate('/seller/dashboard')}
+            <button type="button" onClick={() => navigate('/seller/listings')}
               className="flex-1 border border-ink-200 text-ink-700 py-3 rounded-lg hover:bg-ink-50">
               Cancel
             </button>
