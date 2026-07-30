@@ -94,4 +94,7 @@
 \echo '== landing page head-to-head comparison copy =='
 \ir migration_landing_content_comparison.sql
 
+\echo '== recommendations strip subtitle for signed-in users with no history =='
+\ir migration_landing_content_recommendation_framing.sql
+
 \echo 'All migrations applied.'

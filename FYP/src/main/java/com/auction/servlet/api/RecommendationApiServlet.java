@@ -66,18 +66,16 @@ public class RecommendationApiServlet extends ApiBase {
         boolean trendingOnly = path != null && path.startsWith("/trending");
 
         Integer userId = trendingOnly ? null : sessionUserId(req);
-        boolean personalised = userId != null;
 
         List<SearchResultItem> results;
         try {
-            results = personalised
+            results = userId != null
                     ? recommendationDAO.recommendForUser(userId, limit)
                     : recommendationDAO.trending(limit, Collections.emptySet(), null);
         } catch (RuntimeException e) {
             getServletContext().log("recommendations error", e);
             // Fail soft: an empty list keeps the home page working.
             results = Collections.emptyList();
-            personalised = false;
         }
 
         try {
@@ -87,9 +85,12 @@ public class RecommendationApiServlet extends ApiBase {
             getServletContext().log("recommendation provenance error", e);
         }
 
+        // Claimed from what the pipeline actually returned, not from being signed in: a
+        // new account with no history gets trending filler, and saying otherwise would
+        // contradict the reasons printed on the cards.
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("results", results);
-        body.put("personalised", personalised);
+        body.put("personalised", RecommendationDAO.isPersonalised(results));
         ok(resp, body);
     }
 
@@ -154,6 +155,10 @@ public class RecommendationApiServlet extends ApiBase {
     private void handleSearchKeyword(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String keyword = param(req, "q");
         if (keyword == null) { badRequest(resp, "q is required."); return; }
+        if (keyword.trim().length() < RecommendationDAO.MIN_KEYWORD_LENGTH) {
+            badRequest(resp, "q must be at least " + RecommendationDAO.MIN_KEYWORD_LENGTH + " characters.");
+            return;
+        }
         recommendationDAO.recordSearchKeyword(sessionUserId(req), keyword);
         okMsg(resp, "Recorded.");
     }

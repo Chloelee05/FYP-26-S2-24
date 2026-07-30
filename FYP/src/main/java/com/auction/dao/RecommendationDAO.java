@@ -14,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -68,7 +69,7 @@ public class RecommendationDAO {
         }
 
         if (combined.size() < limit) {
-            List<SearchResultItem> content = tagByCategory(contentBased(userId, limit - combined.size(), exclude));
+            List<SearchResultItem> content = contentBased(userId, limit - combined.size(), exclude);
             for (SearchResultItem item : content) {
                 combined.add(item);
                 exclude.add(item.getAuctionId());
@@ -275,6 +276,10 @@ public class RecommendationDAO {
     static final String REASON_SIMILAR_TASTE = "Buyers with similar taste are watching this";
     static final String REASON_TRENDING      = "Trending — collecting the most bids today";
 
+    /** Stages that consume a signal belonging to the viewer; trending filler does not. */
+    private static final Set<Reason> PERSONALISED_REASONS = EnumSet.of(
+            Reason.SEARCH_KEYWORD, Reason.PEER_BIDS, Reason.SIMILAR_TASTE, Reason.SAME_CATEGORY);
+
     /** Longest keyword history considered when attributing a card to a search. */
     private static final int VIEWER_KEYWORD_LOOKBACK = 12;
     /** Most keywords shown on a single card. */
@@ -302,6 +307,23 @@ public class RecommendationDAO {
         }
         applyKeywordAttribution(items, viewerId);
         applyClickStats(items);
+    }
+
+    /**
+     * Whether at least one item was actually produced by a personalised stage. A signed-in
+     * user with no bids, watchlist or browse history falls through to trending filler, so
+     * being logged in is not on its own evidence that the list is personalised.
+     *
+     * <p>Call after {@link #attachProvenance(List, Integer)} so a card upgraded to the
+     * viewer's own search keyword is counted.</p>
+     */
+    public static boolean isPersonalised(List<SearchResultItem> items) {
+        if (items == null) return false;
+        for (SearchResultItem item : items) {
+            RecommendationProvenance why = item.getWhy();
+            if (why != null && PERSONALISED_REASONS.contains(why.reason())) return true;
+        }
+        return false;
     }
 
     /** Distinct keywords the user searched for, most recently used first. */
@@ -332,7 +354,8 @@ public class RecommendationDAO {
             String haystack = ((item.getTitle() == null ? "" : item.getTitle()) + " "
                     + (item.getCategory() == null ? "" : item.getCategory())).toLowerCase(Locale.ROOT);
             for (String keyword : mine) {
-                if (keyword != null && !keyword.isBlank() && haystack.contains(keyword.toLowerCase(Locale.ROOT))) {
+                if (normaliseKeyword(keyword) == null) continue;
+                if (keywordMatches(haystack, keyword.trim().toLowerCase(Locale.ROOT))) {
                     if (myMatch == null) myMatch = keyword;
                     keywords.add(keyword);
                 }
@@ -529,11 +552,38 @@ public class RecommendationDAO {
         for (SearchResultItem item : items) ps.setLong(idx++, item.getAuctionId());
     }
 
+    /**
+     * Shortest keyword worth storing or crediting. One character matches almost every
+     * listing, which let a search for "a" overwrite every genuine reason on the page.
+     * Two is kept as the floor because real auction searches are this short ("tv", "pc").
+     */
+    public static final int MIN_KEYWORD_LENGTH = 2;
+
+    /** At or above this length a keyword may match anywhere inside a word. */
+    private static final int FREE_SUBSTRING_LENGTH = 3;
+
     private static String normaliseKeyword(String raw) {
         if (raw == null) return null;
         String trimmed = raw.trim();
-        if (trimmed.isEmpty()) return null;
+        if (trimmed.length() < MIN_KEYWORD_LENGTH) return null;
         return trimmed.length() > 120 ? trimmed.substring(0, 120) : trimmed;
+    }
+
+    /**
+     * Substring matching is kept for keywords of three characters or more, because the
+     * partial hits it allows are the ones buyers expect — "phone" inside "iPhone",
+     * "watch" inside "Smartwatch". Two-character keywords are held to a word boundary
+     * instead, so "vr" cannot claim credit for "Louvre".
+     */
+    private static boolean keywordMatches(String haystack, String keyword) {
+        if (keyword.length() >= FREE_SUBSTRING_LENGTH) return haystack.contains(keyword);
+        for (int at = haystack.indexOf(keyword); at >= 0; at = haystack.indexOf(keyword, at + 1)) {
+            int end = at + keyword.length();
+            boolean startsWord = at == 0 || !Character.isLetterOrDigit(haystack.charAt(at - 1));
+            boolean endsWord = end == haystack.length() || !Character.isLetterOrDigit(haystack.charAt(end));
+            if (startsWord && endsWord) return true;
+        }
+        return false;
     }
 
     private static List<SearchResultItem> tag(List<SearchResultItem> items, Reason code, String text) {
@@ -541,15 +591,20 @@ public class RecommendationDAO {
         return items;
     }
 
-    private static List<SearchResultItem> tagByCategory(List<SearchResultItem> items) {
-        for (SearchResultItem item : items) {
-            String category = item.getCategory();
-            String text = (category == null || category.isBlank())
-                    ? "Similar to items you viewed recently"
-                    : "Because you looked at similar " + category;
-            item.setWhy(new RecommendationProvenance(Reason.SAME_CATEGORY, text));
+    /**
+     * Wording for a content-based hit. The category sentence is only used when the
+     * candidate's category is one the viewer actually has history in; a row that only
+     * qualified on tag overlap says so instead of naming a category the viewer has
+     * never browsed.
+     */
+    private static String contentReason(boolean categoryMatch, String category, String sharedTag) {
+        if (categoryMatch && category != null && !category.isBlank()) {
+            return "Because you looked at similar " + category;
         }
-        return items;
+        if (sharedTag != null && !sharedTag.isBlank()) {
+            return "Tagged “" + sharedTag + "”, like items you've viewed";
+        }
+        return "Similar to items you viewed recently";
     }
 
     // -------------------------------------------------------------------------
@@ -781,7 +836,12 @@ public class RecommendationDAO {
           + "SELECT a.auction_id, d.title, d.category, "
           + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
           + "  a.date_end, u.username, "
-          + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
+          + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
+          // Which arm of the OR below matched, so the reason can be worded honestly.
+          + "  COALESCE(d.category IN (SELECT category FROM my_cats), FALSE) AS category_match, "
+          + "  (SELECT t.tag_name FROM auction_tag_info ati JOIN tags t ON t.id = ati.tag_id "
+          + "     WHERE ati.auction_id = a.auction_id AND ati.tag_id IN (SELECT tag_id FROM my_tags) "
+          + "     ORDER BY t.tag_name LIMIT 1) AS shared_tag "
           + "FROM auction a "
           + "JOIN auction_details d ON d.id = a.auction_id "
           + "JOIN users u ON u.id = a.seller_id "
@@ -815,7 +875,15 @@ public class RecommendationDAO {
             for (Long id : excl) ps.setLong(idx++, id);
             ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
-                return mapRows(rs);
+                List<SearchResultItem> out = new ArrayList<>();
+                while (rs.next()) {
+                    SearchResultItem item = mapRow(rs);
+                    item.setWhy(new RecommendationProvenance(Reason.SAME_CATEGORY,
+                            contentReason(rs.getBoolean("category_match"),
+                                    item.getCategory(), rs.getString("shared_tag"))));
+                    out.add(item);
+                }
+                return out;
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -863,19 +931,19 @@ public class RecommendationDAO {
 
     private List<SearchResultItem> mapRows(ResultSet rs) throws Exception {
         List<SearchResultItem> out = new ArrayList<>();
-        while (rs.next()) {
-            BigDecimal price = rs.getBigDecimal("current_price");
-            Timestamp end = rs.getTimestamp("date_end");
-            Instant endInstant = end != null ? end.toInstant() : null;
-            out.add(new SearchResultItem(
-                    rs.getLong("auction_id"),
-                    rs.getString("title"),
-                    rs.getString("category"),
-                    price,
-                    endInstant,
-                    rs.getString("username"),
-                    rs.getString("thumb")));
-        }
+        while (rs.next()) out.add(mapRow(rs));
         return out;
+    }
+
+    private SearchResultItem mapRow(ResultSet rs) throws Exception {
+        Timestamp end = rs.getTimestamp("date_end");
+        return new SearchResultItem(
+                rs.getLong("auction_id"),
+                rs.getString("title"),
+                rs.getString("category"),
+                rs.getBigDecimal("current_price"),
+                end != null ? end.toInstant() : null,
+                rs.getString("username"),
+                rs.getString("thumb"));
     }
 }

@@ -467,7 +467,9 @@ export default function Home() {
                 : c('section.popular.title', 'Popular Right Now')}
               subtitle={personalised
                 ? c('section.recommended.subtitle', 'Based on items you and similar buyers have bid on or watched. Open “why this?” on any card to see the reasoning.')
-                : c('section.popular.subtitle', 'Trending auctions across the marketplace. Sign in for personalised picks.')}
+                : user
+                  ? c('section.popular.subtitle.member', 'Trending auctions across the marketplace. Bid on or watch a few listings and this strip becomes your personalised picks.')
+                  : c('section.popular.subtitle', 'Trending auctions across the marketplace. Sign in for personalised picks.')}
             />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5">
               {recommended.map(a => (

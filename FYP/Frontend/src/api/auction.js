@@ -19,11 +19,14 @@ export const getLandingContent = () => api.get('/landing-content');
 // Searching also records the keyword, which is what lets a recommendation later explain
 // itself with "matches your search for …". It is posted from here rather than from the
 // search endpoint so /api/search stays a pure read, and it is deduplicated so paging
-// and unrelated filter changes do not re-log the same term.
+// and unrelated filter changes do not re-log the same term. Terms shorter than
+// MIN_KEYWORD_LENGTH are never sent: a single letter matches nearly every listing, so
+// crediting a card to it would be a false explanation. Mirrors RecommendationDAO.
+const MIN_KEYWORD_LENGTH = 2;
 let lastRecordedKeyword = '';
 export const searchAuctions = (params) => {
   const keyword = (params?.q ?? '').trim();
-  if (keyword && keyword !== lastRecordedKeyword && (params?.page ?? 1) === 1) {
+  if (keyword.length >= MIN_KEYWORD_LENGTH && keyword !== lastRecordedKeyword && (params?.page ?? 1) === 1) {
     lastRecordedKeyword = keyword;
     api.post('/recommendations/search-keyword', form({ q: keyword }), F).catch(() => {});
   }

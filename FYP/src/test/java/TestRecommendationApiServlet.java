@@ -70,12 +70,22 @@ class TestRecommendationApiServlet {
         assertTrue(body.get("results").isArray());
     }
 
+    private static SearchResultItem itemWith(long id, RecommendationProvenance.Reason reason, String text) {
+        SearchResultItem item = new SearchResultItem(
+                id, "Pokemon card lot", "Collectibles", BigDecimal.valueOf(99),
+                Instant.parse("2026-12-31T00:00:00Z"), "seller", null);
+        item.setWhy(new RecommendationProvenance(reason, text));
+        return item;
+    }
+
     @Test
     @DisplayName("logged-in buyer gets personalised results")
     void personalisedForBuyer() throws Exception {
         var session = ApiTestSupport.newBuyerSession(5);
         ApiTestSupport.withBearer(req, session);
-        when(mockDAO.recommendForUser(5, 8)).thenReturn(Collections.emptyList());
+        when(mockDAO.recommendForUser(5, 8)).thenReturn(List.of(
+                itemWith(2L, RecommendationProvenance.Reason.PEER_BIDS, "Buyers who bid on your items also bid on this"),
+                itemWith(3L, RecommendationProvenance.Reason.TRENDING, "Trending — collecting the most bids today")));
 
         StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
         servlet.doGet(req, resp);
@@ -83,6 +93,55 @@ class TestRecommendationApiServlet {
         JsonNode body = ApiTestSupport.parse(sw);
         verify(resp).setStatus(200);
         assertTrue(body.get("personalised").asBoolean());
+    }
+
+    @Test
+    @DisplayName("a signed-in buyer with no history is not told the list is personalised")
+    void notPersonalisedWhenEveryItemIsTrendingFiller() throws Exception {
+        // A brand new account falls through every personalised stage to trending filler.
+        // Claiming personalisation here would contradict the reason printed on each card.
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(mockDAO.recommendForUser(5, 8)).thenReturn(List.of(
+                itemWith(2L, RecommendationProvenance.Reason.TRENDING, "Trending — collecting the most bids today"),
+                itemWith(3L, RecommendationProvenance.Reason.TRENDING, "Trending — collecting the most bids today")));
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        verify(resp).setStatus(200);
+        assertFalse(body.get("personalised").asBoolean());
+        assertEquals(2, body.get("results").size());
+    }
+
+    @Test
+    @DisplayName("an empty recommendation list is not personalised")
+    void notPersonalisedWhenEmpty() throws Exception {
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(mockDAO.recommendForUser(5, 8)).thenReturn(Collections.emptyList());
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        assertFalse(ApiTestSupport.parse(sw).get("personalised").asBoolean());
+    }
+
+    @Test
+    @DisplayName("a one-character search keyword is rejected rather than recorded")
+    void rejectsTooShortSearchKeyword() throws Exception {
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/search-keyword");
+        when(req.getParameter("q")).thenReturn("a");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(400);
+        verify(mockDAO, never()).recordSearchKeyword(any(), anyString());
     }
 
     @Test
