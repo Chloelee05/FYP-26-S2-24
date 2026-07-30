@@ -28,8 +28,8 @@ import SupportChat from './pages/SupportChat';
 import LegalPage from './pages/LegalPage';
 import NotFound from './pages/NotFound';
 
-// Seller and admin consoles are only reachable by those roles, so they are split
-// out of the main bundle rather than shipped to every anonymous visitor.
+// The seller tools and admin console are only opened by signed-in accounts, so they
+// are split out of the main bundle rather than shipped to every anonymous visitor.
 const SellerDashboard = lazy(() => import('./pages/seller/SellerDashboard'));
 const CreateAuction = lazy(() => import('./pages/seller/CreateAuction'));
 const EditAuction = lazy(() => import('./pages/seller/EditAuction'));

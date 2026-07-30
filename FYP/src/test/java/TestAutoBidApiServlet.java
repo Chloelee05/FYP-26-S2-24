@@ -36,13 +36,31 @@ class TestAutoBidApiServlet {
     }
 
     @Test
-    @DisplayName("requires buyer role")
-    void sellerForbidden() throws Exception {
-        AuthSession s = ApiTestSupport.newSellerSession(1);
+    @DisplayName("admin → 403")
+    void adminForbidden() throws Exception {
+        AuthSession s = ApiTestSupport.newAdminSession(1);
         ApiTestSupport.withBearer(req, s);
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(403);
+        verifyNoInteractions(mockDAO);
+    }
+
+    @Test
+    @DisplayName("a seller-capable account may auto-bid on someone else's listing")
+    void sellingBuyerMayAutoBid() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("maxAmount")).thenReturn("500");
+        when(req.getParameter("action")).thenReturn("SET");
+        when(mockDAO.isOwnAuction(10L, 2)).thenReturn(false);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(mockDAO).upsert(10L, 2, new BigDecimal("500"), null, new BigDecimal("0.01"));
+        verify(resp).setStatus(200);
     }
 
     @Test

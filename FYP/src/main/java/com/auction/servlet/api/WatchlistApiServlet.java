@@ -14,7 +14,7 @@ import java.util.Collections;
  * GET  /api/watchlist              — list buyer's watchlist
  * GET  /api/watchlist?auctionId=X  — {@code {"watching": true|false}} for one auction
  * POST /api/watchlist              — params: auctionId, action (add|remove)
- * Requires BUYER role.
+ * Open to any signed-in non-admin account: selling does not remove the ability to watch.
  */
 @WebServlet("/api/watchlist")
 public class WatchlistApiServlet extends ApiBase {
@@ -31,7 +31,7 @@ public class WatchlistApiServlet extends ApiBase {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
         int userId = ((Number) session.getAttribute("userId")).intValue();
 
         // Single-auction check: the detail page only needs to know whether one item is
@@ -52,7 +52,7 @@ public class WatchlistApiServlet extends ApiBase {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
         int userId = ((Number) session.getAttribute("userId")).intValue();
 
         String auctionIdStr = param(req, "auctionId");

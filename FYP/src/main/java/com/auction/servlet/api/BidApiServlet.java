@@ -20,7 +20,8 @@ import java.math.BigDecimal;
  *   PRICE_UP → ascending bid + proxy auto-bids
  *   DUTCH    → accept current descending clock price (first acceptance wins)
  *   BLIND    → one sealed bid per buyer; revealed at close
- * Requires BUYER role.
+ * Open to any signed-in non-admin account; bidding on your own listing is rejected
+ * downstream with {@link BidResult#SELF_BID}.
  */
 @WebServlet("/api/bid")
 public class BidApiServlet extends ApiBase {
@@ -37,7 +38,7 @@ public class BidApiServlet extends ApiBase {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) {
+        if (!canBuy(session)) {
             forbidden(resp); return;
         }
 

@@ -41,7 +41,7 @@ public class QuestionApiServlet extends ApiBase {
 
     private void handleAsk(HttpServletRequest req, HttpServletResponse resp, AuthSession session)
             throws IOException {
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
         int askerId = ((Number) session.getAttribute("userId")).intValue();
 
         String auctionIdStr = param(req, "auctionId");

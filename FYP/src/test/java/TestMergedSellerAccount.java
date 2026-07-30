@@ -1,8 +1,16 @@
+import com.auction.dao.AutoBidDAO;
+import com.auction.dao.BidDAO;
 import com.auction.dao.UserDAO;
+import com.auction.dao.WatchlistDAO;
+import com.auction.model.AuctionType;
 import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.servlet.api.AccountApiServlet;
+import com.auction.servlet.api.AuthApiServlet;
+import com.auction.servlet.api.AutoBidApiServlet;
+import com.auction.servlet.api.BidApiServlet;
 import com.auction.servlet.api.SellerApiServlet;
+import com.auction.servlet.api.WatchlistApiServlet;
 import com.auction.test.ApiTestSupport;
 import com.auction.util.AuthSession;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -12,8 +20,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 
 import java.io.StringWriter;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -37,6 +49,30 @@ class TestMergedSellerAccount {
     private static class SellerWrapper extends SellerApiServlet {
         @Override public void doGet(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
             super.doGet(req, resp);
+        }
+    }
+
+    private static class AuthWrapper extends AuthApiServlet {
+        @Override public void doPost(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
+            super.doPost(req, resp);
+        }
+    }
+
+    private static class WatchlistWrapper extends WatchlistApiServlet {
+        @Override public void doGet(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
+            super.doGet(req, resp);
+        }
+    }
+
+    private static class BidWrapper extends BidApiServlet {
+        @Override public void doPost(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
+            super.doPost(req, resp);
+        }
+    }
+
+    private static class AutoBidWrapper extends AutoBidApiServlet {
+        @Override public void doPost(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
+            super.doPost(req, resp);
         }
     }
 
@@ -202,6 +238,167 @@ class TestMergedSellerAccount {
             ApiTestSupport.bindJsonWriter(resp);
             servlet.doGet(req, resp);
             verify(resp, never()).setStatus(403);
+        }
+    }
+
+    // ── Registration never takes a role from the client ───────────────────────
+    @Nested
+    @DisplayName("POST /api/auth/register")
+    class RegistrationIgnoresRole {
+
+        private UserDAO mockDAO;
+        private AuthWrapper servlet;
+        private HttpServletRequest req;
+        private HttpServletResponse resp;
+
+        @BeforeEach
+        void setUp() {
+            mockDAO = mock(UserDAO.class);
+            servlet = new AuthWrapper();
+            servlet.setUserDAO(mockDAO);
+            req  = mock(HttpServletRequest.class);
+            resp = mock(HttpServletResponse.class);
+            when(req.getPathInfo()).thenReturn("/register");
+            when(req.getParameter("username")).thenReturn("newcomer");
+            when(req.getParameter("email")).thenReturn("newcomer@email.com");
+            when(req.getParameter("password")).thenReturn("Password1!");
+            when(req.getParameter("confirmPassword")).thenReturn("Password1!");
+            when(req.getParameter("termsAccept")).thenReturn("true");
+            when(mockDAO.insertUser(any(User.class))).thenReturn(true);
+        }
+
+        private User captureInserted() {
+            ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+            verify(mockDAO).insertUser(captor.capture());
+            return captor.getValue();
+        }
+
+        @Test
+        @DisplayName("no role parameter → unified BUYER that cannot yet sell")
+        void defaultsToUnifiedBuyer() throws Exception {
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(200);
+            User created = captureInserted();
+            assertEquals(Role.BUYER, created.getRole());
+            assertFalse(created.canSell());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"SELLER", "seller", "ADMIN", "admin", "nonsense"})
+        @DisplayName("an attacker-supplied role is ignored, not honoured")
+        void suppliedRoleIsIgnored(String role) throws Exception {
+            when(req.getParameter("role")).thenReturn(role);
+
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(200);
+            User created = captureInserted();
+            assertEquals(Role.BUYER, created.getRole());
+            assertFalse(created.canSell());
+        }
+    }
+
+    // ── One account does both ─────────────────────────────────────────────────
+    @Nested
+    @DisplayName("A seller-capable account keeps its buyer-side abilities")
+    class UnifiedAccountKeepsBuyerActions {
+
+        private HttpServletRequest req;
+        private HttpServletResponse resp;
+
+        @BeforeEach
+        void setUp() {
+            req  = mock(HttpServletRequest.class);
+            resp = mock(HttpServletResponse.class);
+        }
+
+        @Test
+        @DisplayName("watchlist is not gated behind an exclusive buyer role")
+        void watchlistAllowed() throws Exception {
+            WatchlistDAO dao = mock(WatchlistDAO.class);
+            when(dao.listByUser(4)).thenReturn(java.util.Collections.emptyList());
+            WatchlistWrapper servlet = new WatchlistWrapper();
+            servlet.setWatchlistDAO(dao);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newSellingBuyerSession(4));
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doGet(req, resp);
+
+            verify(resp).setStatus(200);
+            verify(dao).listByUser(4);
+        }
+
+        @Test
+        @DisplayName("bidding is not gated behind an exclusive buyer role")
+        void biddingAllowed() throws Exception {
+            BidDAO dao = mock(BidDAO.class);
+            when(dao.getAuctionTypeId(11L)).thenReturn(AuctionType.PRICE_UP.getId());
+            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidResult.SUCCESS);
+            BidWrapper servlet = new BidWrapper();
+            servlet.setBidDAO(dao);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newSellingBuyerSession(4));
+            when(req.getParameter("auctionId")).thenReturn("11");
+            when(req.getParameter("bidAmount")).thenReturn("75");
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(200);
+        }
+
+        @Test
+        @DisplayName("but bidding on your OWN listing is still rejected")
+        void selfBidStillRejected() throws Exception {
+            BidDAO dao = mock(BidDAO.class);
+            when(dao.getAuctionTypeId(11L)).thenReturn(AuctionType.PRICE_UP.getId());
+            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidResult.SELF_BID);
+            BidWrapper servlet = new BidWrapper();
+            servlet.setBidDAO(dao);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newSellingBuyerSession(4));
+            when(req.getParameter("auctionId")).thenReturn("11");
+            when(req.getParameter("bidAmount")).thenReturn("75");
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(400);
+        }
+
+        @Test
+        @DisplayName("and auto-bidding on your OWN listing is still rejected")
+        void ownAuctionAutoBidStillRejected() throws Exception {
+            AutoBidDAO dao = mock(AutoBidDAO.class);
+            when(dao.isOwnAuction(11L, 4)).thenReturn(true);
+            AutoBidWrapper servlet = new AutoBidWrapper();
+            servlet.setAutoBidDAO(dao);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newSellingBuyerSession(4));
+            when(req.getParameter("auctionId")).thenReturn("11");
+            when(req.getParameter("maxAmount")).thenReturn("500");
+            when(req.getParameter("action")).thenReturn("SET");
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(403);
+            verify(dao, never()).upsert(anyLong(), anyInt(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("admins remain excluded from buyer actions")
+        void adminStillExcluded() throws Exception {
+            WatchlistDAO dao = mock(WatchlistDAO.class);
+            WatchlistWrapper servlet = new WatchlistWrapper();
+            servlet.setWatchlistDAO(dao);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newAdminSession(1));
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doGet(req, resp);
+
+            verify(resp).setStatus(403);
+            verifyNoInteractions(dao);
         }
     }
 }

@@ -154,9 +154,9 @@ class TestOrderApiServlet {
     }
 
     @Test
-    @DisplayName("POST refund is forbidden for non-buyers")
-    void refundForbiddenForSeller() throws Exception {
-        var s = ApiTestSupport.newSellerSession(7);
+    @DisplayName("POST refund is forbidden for admins")
+    void refundForbiddenForAdmin() throws Exception {
+        var s = ApiTestSupport.newAdminSession(7);
         ApiTestSupport.withBearer(req, s);
         when(req.getPathInfo()).thenReturn("/refund");
         when(req.getParameter("orderId")).thenReturn("5");
@@ -167,5 +167,23 @@ class TestOrderApiServlet {
 
         verify(resp).setStatus(403);
         verify(mockOrderDAO, never()).requestRefund(anyLong(), anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("POST refund is allowed for a seller-capable account on its own purchase")
+    void refundAllowedForSellingBuyer() throws Exception {
+        var s = ApiTestSupport.newSellingBuyerSession(7);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getPathInfo()).thenReturn("/refund");
+        when(req.getParameter("orderId")).thenReturn("5");
+        when(req.getParameter("reason")).thenReturn("Item does not match the listing description at all.");
+        when(mockOrderDAO.requestRefund(anyLong(), anyInt(), anyString()))
+                .thenReturn(OrderDAO.RefundResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockOrderDAO).requestRefund(5L, 7, "Item does not match the listing description at all.");
     }
 }

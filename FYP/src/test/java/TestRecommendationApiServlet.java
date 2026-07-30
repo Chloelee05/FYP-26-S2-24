@@ -1,4 +1,5 @@
 import com.auction.dao.RecommendationDAO;
+import com.auction.model.RecommendationProvenance;
 import com.auction.model.SearchResultItem;
 import com.auction.servlet.api.RecommendationApiServlet;
 import com.auction.test.ApiTestSupport;
@@ -13,6 +14,9 @@ import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -25,6 +29,9 @@ class TestRecommendationApiServlet {
     private static class Wrapper extends RecommendationApiServlet {
         @Override public void doGet(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
             super.doGet(req, resp);
+        }
+        @Override public void doPost(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
+            super.doPost(req, resp);
         }
     }
 
@@ -112,5 +119,146 @@ class TestRecommendationApiServlet {
 
         verify(resp).setStatus(200);
         verify(mockDAO).trending(eq(4), eq(Collections.emptySet()), isNull());
+    }
+
+    @Test
+    @DisplayName("each result carries the provenance that explains it")
+    void resultsCarryProvenance() throws Exception {
+        SearchResultItem item = new SearchResultItem(
+                2L, "Pokemon card lot", "Collectibles", BigDecimal.valueOf(99),
+                Instant.parse("2026-12-31T00:00:00Z"), "seller", null);
+        RecommendationProvenance why =
+                new RecommendationProvenance(RecommendationProvenance.Reason.SEARCH_KEYWORD,
+                        "Matches your search for “pokemon”");
+        why.setClickCount(12);
+        why.setDistinctClickers(4);
+        why.setClickedByMasked("b***2");
+        why.setKeywords(List.of("pokemon"));
+        item.setWhy(why);
+        when(mockDAO.trending(eq(8), eq(Collections.emptySet()), isNull()))
+                .thenReturn(java.util.List.of(item));
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        JsonNode first = ApiTestSupport.parse(sw).get("results").get(0).get("why");
+        assertEquals("SEARCH_KEYWORD", first.get("reasonCode").asText());
+        assertEquals("Matches your search for “pokemon”", first.get("reason").asText());
+        assertEquals(12, first.get("clickCount").asInt());
+        assertEquals("b***2", first.get("clickedByMasked").asText());
+        assertEquals("pokemon", first.get("keywords").get(0).asText());
+        verify(mockDAO).attachProvenance(anyList(), isNull());
+    }
+
+    @Test
+    @DisplayName("search results stay free of the recommendation-only provenance block")
+    void provenanceOmittedWhenAbsent() throws Exception {
+        SearchResultItem item = new SearchResultItem(
+                2L, "Phone", "Electronics", BigDecimal.valueOf(99),
+                Instant.parse("2026-12-31T00:00:00Z"), "seller", null);
+        when(mockDAO.trending(eq(8), eq(Collections.emptySet()), isNull()))
+                .thenReturn(java.util.List.of(item));
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        assertFalse(ApiTestSupport.parse(sw).get("results").get(0).has("why"));
+    }
+
+    @Test
+    @DisplayName("a click is attributed to the keyword that surfaced the card")
+    void clickCarriesKeyword() throws Exception {
+        when(req.getPathInfo()).thenReturn("/events");
+        when(req.getParameter("type")).thenReturn("click");
+        when(req.getParameter("auctionId")).thenReturn("9");
+        when(req.getParameter("keyword")).thenReturn("pokemon");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).recordEvent(isNull(), eq(9L), eq("CLICK"), eq("pokemon"));
+    }
+
+    @Test
+    @DisplayName("a searched keyword is recorded against the signed-in user")
+    void recordsSearchKeyword() throws Exception {
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/search-keyword");
+        when(req.getParameter("q")).thenReturn("pokemon");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).recordSearchKeyword(eq(5), eq("pokemon"));
+    }
+
+    @Test
+    @DisplayName("recording a keyword requires the keyword itself")
+    void rejectsBlankSearchKeyword() throws Exception {
+        when(req.getPathInfo()).thenReturn("/search-keyword");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(400);
+        verify(mockDAO, never()).recordSearchKeyword(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("per-user attribution is refused without a session")
+    void attributionRejectsAnonymous() throws Exception {
+        when(req.getPathInfo()).thenReturn("/attribution");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(401);
+        verify(mockDAO, never()).attributionOverview(anyInt());
+    }
+
+    @Test
+    @DisplayName("per-user attribution is refused to a signed-in buyer")
+    void attributionRejectsBuyer() throws Exception {
+        var session = ApiTestSupport.newBuyerSession(5);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/attribution");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(403);
+        verify(mockDAO, never()).attributionOverview(anyInt());
+        verify(mockDAO, never()).attributionDetail(anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("an admin sees the click / keyword leaderboard, and per-auction detail")
+    void attributionForAdmin() throws Exception {
+        var session = ApiTestSupport.newAdminSession(1);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/attribution");
+        Map<String, Object> overview = new LinkedHashMap<>();
+        overview.put("topKeywords", List.of(Map.of("keyword", "pokemon", "searches", 3)));
+        when(mockDAO.attributionOverview(25)).thenReturn(overview);
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        assertEquals("pokemon",
+                ApiTestSupport.parse(sw).get("topKeywords").get(0).get("keyword").asText());
+
+        reset(resp);
+        when(req.getParameter("auctionId")).thenReturn("9");
+        when(mockDAO.attributionDetail(9L, 25)).thenReturn(Map.of("auctionId", 9L));
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).attributionDetail(9L, 25);
     }
 }

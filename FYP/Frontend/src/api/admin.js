@@ -90,6 +90,12 @@ export const getRecommendationConfig = () => api.get('/admin/recommendations');
 export const saveRecommendationConfig = (itemsShown, similarityThreshold) =>
   api.post('/admin/recommendations', form({ itemsShown, similarityThreshold }), F);
 
+// Recommendation provenance. This is the only surface that returns *which* user clicked
+// or searched — the public landing page gets aggregates and masked names only, so this
+// endpoint is ADMIN-gated server side. Without an auctionId it returns the leaderboard.
+export const getRecommendationAttribution = (auctionId, limit = 25) =>
+  api.get('/recommendations/attribution', { params: { auctionId, limit } });
+
 // Orders / transactions
 export const getAdminOrders = () => api.get('/admin/orders');
 // Dispute resolution: admin overrides the seller on a pending refund request

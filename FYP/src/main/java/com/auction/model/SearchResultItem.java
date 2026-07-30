@@ -1,5 +1,7 @@
 package com.auction.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -19,6 +21,8 @@ public final class SearchResultItem {
     private final String sellerUsername;
     /** URL of the first uploaded image, or {@code null} if none. */
     private final String thumbnailUrl;
+    /** Set on recommendation endpoints only; omitted from search responses entirely. */
+    private RecommendationProvenance why;
 
     public SearchResultItem(long auctionId, String title, String category,
                             BigDecimal currentPrice, Instant endDate,
@@ -39,4 +43,9 @@ public final class SearchResultItem {
     public Instant getEndDate() { return endDate; }
     public String getSellerUsername() { return sellerUsername; }
     public String getThumbnailUrl() { return thumbnailUrl; }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public RecommendationProvenance getWhy() { return why; }
+
+    public void setWhy(RecommendationProvenance why) { this.why = why; }
 }

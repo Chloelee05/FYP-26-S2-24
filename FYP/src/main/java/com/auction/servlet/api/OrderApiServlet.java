@@ -105,7 +105,9 @@ public class OrderApiServlet extends ApiBase {
     }
 
     private void handleComplete(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {
-        if (!"BUYER".equalsIgnoreCase(sessionRole(req))) { forbidden(resp); return; }
+        // Buyer-side action on an order the caller owns; ownership is enforced by
+        // confirmReceipt(orderId, buyerId), so selling does not disqualify the caller.
+        if (!canBuy(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
         if (orderId == null) { badRequest(resp, "orderId is required."); return; }
 
@@ -124,7 +126,8 @@ public class OrderApiServlet extends ApiBase {
     }
 
     private void handleRefund(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {
-        if (!"BUYER".equalsIgnoreCase(sessionRole(req))) { forbidden(resp); return; }
+        // Ownership is enforced by requestRefund(...), which answers NOT_BUYER otherwise.
+        if (!canBuy(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
         if (orderId == null) { badRequest(resp, "orderId is required."); return; }
         String reason = param(req, "reason");

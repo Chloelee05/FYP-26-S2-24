@@ -58,7 +58,7 @@ public class ReportApiServlet extends ApiBase {
         if (path != null && path.startsWith("/user")) {
             handleReportUser(req, resp, session);
         } else {
-            if (!isBuyer(session)) { forbidden(resp); return; }
+            if (!canBuy(session)) { forbidden(resp); return; }
             handleReportListing(req, resp, session);
         }
     }

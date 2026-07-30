@@ -82,7 +82,7 @@ export default function SellerProfilePublic() {
         )}
         {message && <div className="mt-3 text-green-600 text-sm">{message}</div>}
 
-        {user?.role === 'BUYER' && (
+        {user && user.role !== 'ADMIN' && (
           <p className="mt-4 pt-4 border-t border-ink-100 text-sm text-ink-500">
             Rate this seller from your <Link to="/profile" className="link-subtle">Orders</Link> tab after a completed purchase.
           </p>

@@ -53,7 +53,7 @@ public class RateApiServlet extends ApiBase {
         if (path != null && path.startsWith("/delete")) { handleDeleteOwn(req, resp); return; }
 
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
         int buyerId = ((Number) session.getAttribute("userId")).intValue();
 
         String auctionIdStr = param(req, "auctionId");
@@ -128,7 +128,7 @@ public class RateApiServlet extends ApiBase {
     }
 
     private void handleCheck(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!isBuyer(authSession(req))) { forbidden(resp); return; }
+        if (!canBuy(authSession(req))) { forbidden(resp); return; }
         int buyerId = sessionUserId(req);
         String auctionIdStr = param(req, "auctionId");
         if (auctionIdStr == null) { badRequest(resp, "auctionId is required."); return; }

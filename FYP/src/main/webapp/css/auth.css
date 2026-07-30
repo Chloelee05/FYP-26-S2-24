@@ -120,28 +120,13 @@ body.auth-page {
   font-size: 0.95rem;
 }
 
+/* Informational only — there is one account type, so this is no longer a choice. */
 .account-type-card {
   border: 2px solid #e5e7eb;
   border-radius: 0.85rem;
   padding: 1rem 0.75rem;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
   height: 100%;
   text-align: center;
-}
-
-.account-type-card:hover {
-  border-color: #cbd5e1;
-}
-
-/* Selected account type — works with native radio inside label (:has supported in current browsers) */
-.account-type-card:has(input:checked) {
-  border-color: var(--ah-brand);
-  background-color: rgba(37, 99, 235, 0.06);
-}
-
-.account-type-card:has(input:checked) .role-icon.text-secondary {
-  color: var(--ah-brand) !important;
 }
 
 .account-type-card .role-icon {

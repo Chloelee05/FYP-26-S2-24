@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { getAdminUsers, banUser, unbanUser, approveUser, rejectUser } from '../../api/admin';
 
 // Backend AdminUserSummary fields: id, username, email, role (BUYER/SELLER/ADMIN),
-//   statusId (1=active, 2=suspended, 4=pending, 5=rejected), joined, bidCount, listingCount
+//   canSell, statusId (1=active, 2=suspended, 4=pending, 5=rejected), joined, bidCount, listingCount
+// Buying and selling are one account type, so the table shows member vs admin and
+// flags the selling capability separately rather than presenting role as the type.
 
 const STATUS = {
   1: { label: 'active',   className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
@@ -91,9 +93,12 @@ export default function AdminUsers() {
                   </td>
                   <td className="px-4 py-4 text-ink-600">{user.email}</td>
                   <td className="px-4 py-4">
-                    <span className={`badge ${roleLower === 'buyer' ? 'bg-primary-50 text-primary-700 ring-primary-200' : 'bg-purple-50 text-purple-700 ring-purple-200'}`}>
-                      {roleLower}
+                    <span className={`badge ${isAdmin ? 'bg-red-50 text-red-700 ring-red-200' : 'bg-primary-50 text-primary-700 ring-primary-200'}`}>
+                      {isAdmin ? 'admin' : 'member'}
                     </span>
+                    {!isAdmin && user.canSell && (
+                      <span className="badge bg-purple-50 text-purple-700 ring-purple-200 ml-1.5">selling</span>
+                    )}
                   </td>
                   <td className="px-4 py-4 text-ink-600">
                     <p>Bids: {user.bidCount ?? 0}</p>

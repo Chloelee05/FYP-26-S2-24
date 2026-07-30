@@ -113,7 +113,28 @@ public abstract class ApiBase extends HttpServlet {
     }
 
     protected boolean isAdmin(AuthSession session)  { return hasRole(session, Role.ADMIN);  }
+
+    /** Exact role match. Prefer {@link #canBuy(AuthSession)} for buyer-side authorisation. */
     protected boolean isBuyer(AuthSession session)  { return hasRole(session, Role.BUYER);  }
+
+    /**
+     * True when the session may take buyer-side actions — bidding, watchlisting,
+     * asking questions, rating and reporting.
+     *
+     * <p>Buying and selling share one account, so this is not an exclusive role check:
+     * a seller-capable account (and a legacy SELLER-role account) buys on the same
+     * login it sells from. Only admins are excluded, to keep moderation impartial.
+     * Per-listing limits such as "not your own auction" are enforced by the DAOs.</p>
+     */
+    protected boolean canBuy(AuthSession session) {
+        if (session == null || session.getAttribute("userId") == null) return false;
+        return !isAdmin(session);
+    }
+
+    /** Request-scoped form of {@link #canBuy(AuthSession)}. */
+    protected boolean canBuy(HttpServletRequest req) {
+        return canBuy(authSession(req));
+    }
 
     /**
      * True when the session may list items for sale.

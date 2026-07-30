@@ -670,10 +670,10 @@ function SellingSection() {
             <Store size={22} />
           </span>
           <div className="min-w-0">
-            <h2 className="section-title text-base">Selling is enabled</h2>
+            <h2 className="section-title text-base">Selling is switched on</h2>
             <p className="text-sm text-ink-500 mt-1 leading-relaxed">
-              You can list items and manage orders from your seller dashboard. Your
-              buying, bidding and watchlist all stay on this same account.
+              You can list items and manage orders from your seller dashboard. Buying,
+              bidding and your watchlist run on this same account — there is only one.
             </p>
             <div className="flex flex-wrap gap-3 mt-5">
               <button onClick={() => navigate('/seller/dashboard')} className="btn-primary">
@@ -698,8 +698,9 @@ function SellingSection() {
         <div className="min-w-0">
           <h2 className="section-title text-base">Start selling</h2>
           <p className="text-sm text-ink-500 mt-1 leading-relaxed">
-            Turn on selling to list your own items. You keep the same account — your
-            bids, watchlist and order history are unaffected.
+            Switch selling on to list your own items. It's the same account either
+            way — your bids, watchlist and order history are unaffected. You can also
+            do this straight from Sell Items in the navigation bar.
           </p>
 
           <ul className="mt-5 space-y-2.5">
@@ -735,8 +736,6 @@ function SellingSection() {
 // ── Main settings page ────────────────────────────────────────────────────────
 export default function AccountSettings() {
   const [searchParams] = useSearchParams();
-  // /profile/settings?tab=selling — where ProtectedRoute sends a buyer who tried
-  // to open a seller page without the capability.
   const initialTab = TABS.some(t => t.key === searchParams.get('tab'))
     ? searchParams.get('tab')
     : 'profile';

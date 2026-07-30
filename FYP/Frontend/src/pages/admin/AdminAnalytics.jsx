@@ -6,6 +6,7 @@ import {
   getRecommendationConfig, saveRecommendationConfig,
 } from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
+import RecommendationAttributionPanel from './RecommendationAttributionPanel';
 
 const REPORTS = [
   { icon: FileText, label: 'User Activity Report', sub: 'Export user statistics', color: 'text-primary-600', bg: 'bg-primary-50', type: 'user-activity', filename: 'user-activity-report.txt' },
@@ -36,7 +37,8 @@ export default function AdminAnalytics() {
   useEffect(() => {
     getAdminAnalytics().then(r => setData(r.data)).catch(() => {});
     getAdminUsers()
-      .then(r => setSellers((r.data ?? []).filter(u => u.role === 'SELLER' && u.statusId === 1)))
+      // Sellers are identified by the capability: merged accounts keep the BUYER role.
+      .then(r => setSellers((r.data ?? []).filter(u => u.canSell && u.statusId === 1)))
       .catch(() => {});
     getRecommendationConfig()
       .then(r => {
@@ -237,6 +239,8 @@ export default function AdminAnalytics() {
           </button>
         </div>
       </div>
+
+      <RecommendationAttributionPanel />
 
       <div className="card p-5">
         <h2 className="font-bold text-ink-900 mb-1">Seller Analytics Email</h2>

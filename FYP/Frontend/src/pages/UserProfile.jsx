@@ -245,7 +245,9 @@ export default function UserProfile() {
             <h2 className="font-display font-bold text-lg text-ink-900">{profile.username}</h2>
             <div className="mt-2 mb-2 flex flex-wrap justify-center gap-1.5">
               <span className={roleDisplay.className}>{roleDisplay.label}</span>
-              {profile.canSell && <span className="badge bg-purple-50 text-purple-700 ring-purple-200">Seller</span>}
+              {profile.canSell && (
+                <span className="badge bg-purple-50 text-purple-700 ring-purple-200">Selling enabled</span>
+              )}
             </div>
             <p className="text-sm text-ink-400 mb-5">
               Member since {profile.memberSince ? new Date(profile.memberSince).toLocaleDateString('en-SG', { month: 'long', year: 'numeric' }) : '—'}

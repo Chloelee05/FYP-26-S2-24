@@ -43,13 +43,52 @@ class TestWatchlistApiServlet {
     }
 
     @Test
-    @DisplayName("GET requires buyer role")
-    void getForbiddenForSeller() throws Exception {
-        AuthSession s = ApiTestSupport.newSellerSession(1);
+    @DisplayName("GET is forbidden for admins")
+    void getForbiddenForAdmin() throws Exception {
+        AuthSession s = ApiTestSupport.newAdminSession(1);
         ApiTestSupport.withBearer(req, s);
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doGet(req, resp);
         verify(resp).setStatus(403);
+    }
+
+    @Test
+    @DisplayName("GET is unauthenticated → 403")
+    void getForbiddenForGuest() throws Exception {
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+        verify(resp).setStatus(403);
+        verifyNoInteractions(mockDAO);
+    }
+
+    @Test
+    @DisplayName("a seller-capable account keeps its watchlist (one merged account)")
+    void sellingBuyerMayWatch() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("99");
+        when(req.getParameter("action")).thenReturn("add");
+        when(mockDAO.add(99L, 2)).thenReturn(WatchlistResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).add(99L, 2);
+    }
+
+    @Test
+    @DisplayName("a legacy SELLER-role account keeps its watchlist")
+    void legacySellerMayWatch() throws Exception {
+        AuthSession s = ApiTestSupport.newSellerSession(3);
+        ApiTestSupport.withBearer(req, s);
+        when(mockDAO.listByUser(3)).thenReturn(Collections.emptyList());
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).listByUser(3);
     }
 
     @Test

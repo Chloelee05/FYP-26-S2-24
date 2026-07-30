@@ -27,7 +27,7 @@ import java.util.logging.Logger;
  *
  * POST /api/auth/login            params: email, password
  * POST /api/auth/logout
- * POST /api/auth/register         params: username, email, password, confirmPassword, role, termsAccept
+ * POST /api/auth/register         params: username, email, password, confirmPassword, termsAccept
  * POST /api/auth/forgot-password  params: identifier (email)
  * POST /api/auth/reset-password   params: identifier, otp, newPassword, confirmNewPassword
  * POST /api/auth/change-password  params: currentPassword, newPassword, confirmPassword
@@ -163,7 +163,6 @@ public class AuthApiServlet extends ApiBase {
         String email           = param(req, "email");
         String password        = req.getParameter("password");
         String confirmPassword = req.getParameter("confirmPassword");
-        String roleParam       = param(req, "role");
         boolean termsAccept    = "on".equalsIgnoreCase(req.getParameter("termsAccept"))
                               || "true".equalsIgnoreCase(req.getParameter("termsAccept"));
 
@@ -183,13 +182,11 @@ public class AuthApiServlet extends ApiBase {
         }
         if (!termsAccept) { badRequest(resp, "You must accept the terms to continue."); return; }
 
-        // Buying and selling share one account: everyone registers as a Buyer and
-        // turns selling on later via POST /api/account/enable-selling. A legacy
-        // `role` parameter is accepted but ignored so older clients keep working.
+        // Buying and selling share one account, so sign-up offers no account-type
+        // choice. Any `role` parameter on the request is ignored rather than trusted:
+        // every registration creates a BUYER, who turns selling on in-app via
+        // POST /api/account/enable-selling. ADMIN is never self-service.
         Role role = Role.BUYER;
-        if (roleParam != null && "ADMIN".equalsIgnoreCase(roleParam.trim())) {
-            badRequest(resp, "Invalid role."); return;
-        }
 
         if (userDAO.checkEmail(email.toLowerCase())) {
             error(resp, 409, "An account with this email already exists.");

@@ -47,13 +47,63 @@ class TestBidApiServlet {
     }
 
     @Test
-    @DisplayName("seller role → 403")
-    void sellerForbidden() throws Exception {
-        AuthSession s = ApiTestSupport.newSellerSession(5);
+    @DisplayName("admin → 403")
+    void adminForbidden() throws Exception {
+        AuthSession s = ApiTestSupport.newAdminSession(5);
         ApiTestSupport.withBearer(req, s);
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(403);
+        verifyNoInteractions(mockDAO);
+    }
+
+    @Test
+    @DisplayName("seller-capable account may still bid (one merged account)")
+    void sellingBuyerMayBid() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(5);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("bidAmount")).thenReturn("100");
+        when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).placeBid(10L, 5, new BigDecimal("100"));
+    }
+
+    @Test
+    @DisplayName("legacy SELLER-role account may still bid")
+    void legacySellerMayBid() throws Exception {
+        AuthSession s = ApiTestSupport.newSellerSession(5);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("bidAmount")).thenReturn("100");
+        when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+    }
+
+    @Test
+    @DisplayName("bidding on your own auction is still rejected")
+    void selfBidRejected() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(5);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("bidAmount")).thenReturn("100");
+        when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SELF_BID);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(400);
     }
 
     @Test

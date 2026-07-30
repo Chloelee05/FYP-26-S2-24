@@ -15,7 +15,20 @@ export const getPlatformStats = () => api.get('/stats');
 export const getLandingContent = () => api.get('/landing-content');
 
 // Search / browse
-export const searchAuctions = (params) => api.get('/search', { params });
+//
+// Searching also records the keyword, which is what lets a recommendation later explain
+// itself with "matches your search for …". It is posted from here rather than from the
+// search endpoint so /api/search stays a pure read, and it is deduplicated so paging
+// and unrelated filter changes do not re-log the same term.
+let lastRecordedKeyword = '';
+export const searchAuctions = (params) => {
+  const keyword = (params?.q ?? '').trim();
+  if (keyword && keyword !== lastRecordedKeyword && (params?.page ?? 1) === 1) {
+    lastRecordedKeyword = keyword;
+    api.post('/recommendations/search-keyword', form({ q: keyword }), F).catch(() => {});
+  }
+  return api.get('/search', { params });
+};
 export const getCategories   = ()       => api.get('/categories');
 export const getTags         = ()       => api.get('/auction/tags');
 
@@ -38,11 +51,13 @@ export const getSimilarAuctions = (auctionId, limit = 4) =>
 export const dismissRecommendation = (auctionId) =>
   api.post('/recommendations/dismiss', form({ auctionId }), F);
 
-// Recommendation analytics events (impressions batched as CSV; single click)
+// Recommendation analytics events (impressions batched as CSV; single click).
+// `keyword` attributes the event to the search term that surfaced the card, so the
+// "why this?" panel can show which keywords are actually driving each recommendation.
 export const recordRecommendationImpressions = (auctionIds) =>
   api.post('/recommendations/events', form({ type: 'impression', auctionIds: auctionIds.join(',') }), F);
-export const recordRecommendationClick = (auctionId) =>
-  api.post('/recommendations/events', form({ type: 'click', auctionId }), F);
+export const recordRecommendationClick = (auctionId, keyword) =>
+  api.post('/recommendations/events', form({ type: 'click', auctionId, keyword }), F);
 
 // Auction detail
 export const getAuctionDetail = (id) => api.get(`/auction/${id}`);

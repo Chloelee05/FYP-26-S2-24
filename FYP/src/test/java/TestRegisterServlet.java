@@ -2,6 +2,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.auction.dao.UserDAO;
+import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.servlet.RegisterServlet;
 import jakarta.servlet.RequestDispatcher;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.io.*;
@@ -105,24 +107,59 @@ public class TestRegisterServlet extends Mockito{
         //assertTrue(stringWriter.toString().contains("Error"));
         }
 
+    /**
+     * Buying and selling are one account type, so sign-up presents no role choice.
+     * A supplied {@code role} must neither be required nor honoured.
+     */
     @Test
-    @DisplayName("Testing invalid roles")
-    public void testInvalidRole() throws Exception{
+    @DisplayName("Registration succeeds without a role parameter")
+    public void testRoleNotRequired() throws Exception{
         when(mockRequest.getParameter("username")).thenReturn("Test1");
         when(mockRequest.getParameter("password")).thenReturn("Password1!");
         when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
         when(mockRequest.getParameter("termsAccept")).thenReturn("on");
         when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
-        when(mockRequest.getParameter("role")).thenReturn("");
-
-        //until there's a response written in Servlet, check via verify()
-/*        StringWriter stringWriter = new StringWriter();
-        PrintWriter printWriter = new PrintWriter(stringWriter);
-        when(response.getWriter()).thenReturn(printWriter);*/
+        when(mockRequest.getParameter("role")).thenReturn(null);
+        when(mockDAO.insertUser(any(User.class))).thenReturn(true);
 
         mockServlet.doPost(mockRequest, mockResponse);
-        verify(mockRequest).setAttribute(eq("Error"), eq("Role is required."));
-        //assertTrue(stringWriter.toString().contains("Error"));
+
+        verify(mockRequest).setAttribute(eq("Insert"), eq("Insert ran!"));
+        verify(mockRequest, never()).setAttribute(eq("Error"), anyString());
+    }
+
+    @Test
+    @DisplayName("A supplied role is ignored — the account is always a unified BUYER")
+    public void testSuppliedRoleIsIgnored() throws Exception{
+        when(mockRequest.getParameter("username")).thenReturn("Test3");
+        when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
+        when(mockRequest.getParameter("email")).thenReturn("test3@email.com");
+        when(mockRequest.getParameter("role")).thenReturn("ADMIN");
+        when(mockDAO.insertUser(any(User.class))).thenReturn(true);
+
+        mockServlet.doPost(mockRequest, mockResponse);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(mockDAO).insertUser(captor.capture());
+        assertEquals(Role.BUYER, captor.getValue().getRole());
+        assertFalse(captor.getValue().canSell());
+    }
+
+    @Test
+    @DisplayName("The sign-up form no longer echoes a role back to the view")
+    public void testNoStickyRoleAttribute() throws Exception{
+        when(mockRequest.getParameter("username")).thenReturn(" ");
+        when(mockRequest.getParameter("password")).thenReturn("Password1!");
+        when(mockRequest.getParameter("confirmPassword")).thenReturn("Password1!");
+        when(mockRequest.getParameter("termsAccept")).thenReturn("on");
+        when(mockRequest.getParameter("email")).thenReturn("Test1@email.com");
+        when(mockRequest.getParameter("role")).thenReturn("seller");
+
+        mockServlet.doPost(mockRequest, mockResponse);
+
+        verify(mockRequest, never()).setAttribute(eq("signupRole"), any());
     }
 
     @Test

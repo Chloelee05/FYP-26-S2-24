@@ -35,14 +35,46 @@ class TestQuestionApiServlet {
     }
 
     @Test
-    @DisplayName("ask requires buyer")
-    void askSellerForbidden() throws Exception {
-        AuthSession s = ApiTestSupport.newSellerSession(1);
+    @DisplayName("ask is forbidden for admins")
+    void askAdminForbidden() throws Exception {
+        AuthSession s = ApiTestSupport.newAdminSession(1);
         ApiTestSupport.withBearer(req, s);
         when(req.getPathInfo()).thenReturn("/ask");
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(403);
+        verifyNoInteractions(mockDAO);
+    }
+
+    @Test
+    @DisplayName("a seller-capable account may ask on someone else's listing")
+    void askAsSellingBuyer() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getPathInfo()).thenReturn("/ask");
+        when(req.getParameter("auctionId")).thenReturn("5");
+        when(req.getParameter("text")).thenReturn("Is this still available?");
+        when(mockDAO.insertQuestion(5L, 2, "Is this still available?")).thenReturn(QuestionResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+        verify(resp).setStatus(200);
+    }
+
+    @Test
+    @DisplayName("asking on your own listing is still rejected")
+    void askOwnListingRejected() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getPathInfo()).thenReturn("/ask");
+        when(req.getParameter("auctionId")).thenReturn("5");
+        when(req.getParameter("text")).thenReturn("Is this still available?");
+        when(mockDAO.insertQuestion(5L, 2, "Is this still available?"))
+                .thenReturn(QuestionResult.SELF_QUESTION);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+        verify(resp).setStatus(400);
     }
 
     @Test

@@ -19,9 +19,11 @@ export function getInitials(name = '') {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
+// Buying and selling are one account type, so BUYER and the legacy SELLER role both
+// display as a single "Member". Only ADMIN is a genuinely separate kind of account.
 const ROLE_LABELS = {
-  BUYER: { label: 'Buyer', className: 'badge bg-primary-50 text-primary-700 ring-primary-200' },
-  SELLER: { label: 'Seller', className: 'badge bg-purple-50 text-purple-700 ring-purple-200' },
+  BUYER: { label: 'Member', className: 'badge bg-primary-50 text-primary-700 ring-primary-200' },
+  SELLER: { label: 'Member', className: 'badge bg-primary-50 text-primary-700 ring-primary-200' },
   ADMIN: { label: 'Admin', className: 'badge bg-red-50 text-red-700 ring-red-200' },
 };
 

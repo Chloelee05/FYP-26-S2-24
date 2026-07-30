@@ -4,7 +4,7 @@ import {
   X, ArrowRight, ShieldCheck, Gavel, Sparkles, TrendingUp, Search as SearchIcon,
   Watch, Headphones, Car, Smartphone, Home as HomeIcon, Camera, Tag, SearchX,
   AlertCircle, RotateCcw, UserPlus, BadgeDollarSign, Star, Quote, Check, Scale,
-  Timer, LockKeyhole, LineChart, Users,
+  Timer, LockKeyhole, LineChart, Users, Minus,
 } from 'lucide-react';
 import { apiErrorMessage } from '../utils/apiError';
 import AuctionCard from '../components/AuctionCard';
@@ -59,6 +59,42 @@ const WHY_AUCTIONHUB = [
     contrast: 'One listing style fits every category elsewhere.',
   },
 ];
+
+/** Head-to-head rows under the differentiation cards. Copy overridden by landing_content. */
+const WHY_COMPARISON = [
+  {
+    key: 'row1',
+    label: 'Who sets the price',
+    ours: 'Buyers compete in the open, so the market decides what it is worth.',
+    theirs: 'One seller picks a number and waits to be haggled down.',
+  },
+  {
+    key: 'row2',
+    label: 'Momentum',
+    ours: 'A live countdown turns idle interest into a decision.',
+    theirs: 'Listings drift for weeks with no deadline to act on.',
+  },
+  {
+    key: 'row3',
+    label: 'Your privacy',
+    ours: 'Bidder names are masked and personal data is encrypted.',
+    theirs: 'Full-name direct messages with strangers in your inbox.',
+  },
+  {
+    key: 'row4',
+    label: 'Selling formats',
+    ours: 'Ascending, Dutch, sealed-bid — plus Buy It Now for instant sales.',
+    theirs: 'One listing style stretched across every category.',
+  },
+  {
+    key: 'row5',
+    label: 'Cost to take part',
+    ours: 'Free to browse, watch and bid — sellers pay only on a sale.',
+    theirs: 'Paid bumps and boosts just to stay visible in the feed.',
+  },
+];
+
+const CTA_POINTS = ['Live ascending bids', 'Dutch & sealed formats', 'Auto-bid proxy', 'Seller ratings'];
 
 /**
  * The hero headline is a single content row ("Bid smart, buy") but renders across two lines,
@@ -186,14 +222,14 @@ export default function Home() {
                 onClick={() => navigate('/search')}
                 className="inline-flex items-center gap-2 bg-white text-ink-900 px-6 py-3 rounded-xl font-semibold text-sm shadow-lift hover:bg-ink-100 hover:-translate-y-0.5 transition-all"
               >
-                <SearchIcon size={16} /> Explore auctions
+                <SearchIcon size={16} /> {c('hero.ctaPrimary', 'Explore auctions')}
               </button>
               {!user && (
                 <Link
                   to="/register"
                   className="group inline-flex items-center gap-2 border border-white/25 bg-white/5 backdrop-blur-sm px-6 py-3 rounded-xl font-semibold text-sm hover:bg-white/15 hover:border-white/40 transition-all"
                 >
-                  Start selling
+                  {c('hero.ctaSecondary', 'Start selling')}
                   <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
                 </Link>
               )}
@@ -246,9 +282,9 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="max-w-7xl mx-auto px-4 py-12 space-y-14">
+      <div className="max-w-7xl mx-auto px-4 py-12 md:py-16 space-y-16 md:space-y-20">
         {/* Why AuctionHub — differentiation vs fixed-price / classified competitors */}
-        <Reveal as="section" className="relative overflow-hidden rounded-[2rem] border border-ink-200/80 bg-white shadow-sm">
+        <Reveal as="section" className="relative overflow-hidden rounded-[2rem] border border-ink-200/70 bg-white shadow-soft">
           <div
             className="pointer-events-none absolute inset-0 opacity-90"
             style={{
@@ -256,25 +292,25 @@ export default function Home() {
                 'radial-gradient(36rem 22rem at 0% 0%, rgba(29,77,216,0.08), transparent 55%), radial-gradient(28rem 18rem at 100% 100%, rgba(249,126,7,0.08), transparent 50%)',
             }}
           />
-          <div className="relative px-6 py-10 md:px-10 md:py-12">
+          <div className="relative px-6 py-10 md:px-12 md:py-14">
             <div className="max-w-2xl">
-              <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-primary-600">
+              <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-primary-600">
                 <Users size={14} /> {c('why.eyebrow', 'Why bid here')}
               </p>
-              <h2 className="font-display text-3xl md:text-4xl font-extrabold text-ink-900 mt-3 tracking-tight leading-[1.1]">
+              <h2 className="font-display text-3xl md:text-[2.6rem] font-extrabold text-ink-900 mt-4 tracking-tight leading-[1.08]">
                 {c('why.heading', 'Not another marketplace.')}&nbsp;
                 <span className="text-primary-600">{c('why.headingAccent', 'A real auction floor.')}</span>
               </h2>
-              <p className="text-sm md:text-base text-ink-500 mt-3 leading-relaxed">
+              <p className="text-sm md:text-base text-ink-500 mt-4 leading-relaxed">
                 {c('why.intro', 'Carousell, Facebook Marketplace and big listing sites are great for fixed prices. AuctionHub is for when you want competition, fair discovery and a clock that actually closes the deal.')}
               </p>
             </div>
 
-            <div className="mt-8 grid md:grid-cols-2 gap-4">
+            <div className="mt-10 grid md:grid-cols-2 gap-4">
               {WHY_AUCTIONHUB.map(({ icon: Icon, key, title, body, contrast }, i) => (
                 <Reveal key={key} delay={80 + i * 70}>
                   <article
-                    className="group h-full rounded-2xl border border-ink-100 bg-white/80 backdrop-blur-sm p-5 md:p-6
+                    className="group h-full rounded-2xl border border-ink-200/70 bg-white/85 backdrop-blur-sm p-5 md:p-6
                                transition-all duration-300 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lift"
                   >
                     <div className="flex items-start gap-4">
@@ -283,11 +319,14 @@ export default function Home() {
                         <Icon size={20} strokeWidth={1.75} />
                       </span>
                       <div className="min-w-0">
-                        <h3 className="font-display text-lg font-bold text-ink-900">{c(`why.${key}.title`, title)}</h3>
-                        <p className="text-sm text-ink-600 mt-1.5 leading-relaxed">{c(`why.${key}.body`, body)}</p>
-                        <p className="text-xs text-ink-400 mt-3 leading-relaxed border-t border-ink-100 pt-3">
-                          <span className="font-semibold text-ink-500">Elsewhere: </span>
-                          {c(`why.${key}.contrast`, contrast)}
+                        <h3 className="font-display text-lg font-bold text-ink-900 leading-snug">{c(`why.${key}.title`, title)}</h3>
+                        <p className="text-sm text-ink-600 mt-2 leading-relaxed">{c(`why.${key}.body`, body)}</p>
+                        <p className="flex items-start gap-2 text-xs text-ink-400 mt-4 leading-relaxed border-t border-ink-100 pt-3">
+                          <Minus size={13} className="mt-0.5 shrink-0 text-ink-300" />
+                          <span>
+                            <span className="font-semibold text-ink-500">{c('why.contrastLabel', 'Elsewhere:')} </span>
+                            {c(`why.${key}.contrast`, contrast)}
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -296,30 +335,73 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="sheen-host mt-8 rounded-2xl bg-ink-900 text-white px-5 py-5 md:px-7 md:py-6 flex flex-col md:flex-row md:items-center gap-5">
+            {/* Head-to-head: the differentiation claims lined up against the alternative */}
+            <Reveal className="mt-10" delay={80}>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-ink-400">
+                {c('why.compare.eyebrow', 'Head to head')}
+              </p>
+              <h3 className="font-display text-xl md:text-2xl font-bold text-ink-900 mt-1.5 tracking-tight">
+                {c('why.compare.heading', 'The same item, two very different outcomes.')}
+              </h3>
+
+              <div className="mt-5 overflow-hidden rounded-2xl border border-ink-200/70 bg-white/80 backdrop-blur-sm shadow-soft">
+                <div className="hidden md:grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1.1fr)] gap-6 border-b border-ink-200/70 bg-ink-50/70 px-6 py-3.5">
+                  <span />
+                  <span className="inline-flex items-center gap-2 text-sm font-bold text-primary-700">
+                    <Gavel size={15} className="shrink-0" />
+                    {c('why.compare.ours', 'AuctionHub')}
+                  </span>
+                  <span className="text-sm font-semibold text-ink-400">
+                    {c('why.compare.theirs', 'Fixed-price marketplaces')}
+                  </span>
+                </div>
+
+                {WHY_COMPARISON.map(({ key, label, ours, theirs }) => (
+                  <div
+                    key={key}
+                    className="grid md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1.1fr)] gap-x-6 gap-y-2 px-6 py-4
+                               border-b border-ink-100 last:border-0 transition-colors hover:bg-ink-50/50"
+                  >
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink-400 self-center">
+                      {c(`why.compare.${key}.label`, label)}
+                    </p>
+                    <p className="flex items-start gap-2 text-sm font-medium text-ink-800 leading-relaxed">
+                      <Check size={15} className="mt-0.5 shrink-0 text-emerald-500" />
+                      {c(`why.compare.${key}.ours`, ours)}
+                    </p>
+                    <p className="flex items-start gap-2 text-sm text-ink-400 leading-relaxed">
+                      <Minus size={15} className="mt-0.5 shrink-0 text-ink-300" />
+                      {c(`why.compare.${key}.theirs`, theirs)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+
+            <div className="sheen-host mt-10 rounded-2xl bg-ink-900 text-white px-5 py-6 md:px-8 md:py-7 flex flex-col md:flex-row md:items-center gap-6">
               <div className="flex-1">
-                <p className="font-display text-lg md:text-xl font-bold leading-snug">
+                <p className="font-display text-lg md:text-xl font-bold leading-snug max-w-xl">
                   {c('why.ctaHeadline', 'Free to browse. Free to bid. Sellers only pay when something sells.')}
                 </p>
-                <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
-                  {['Live ascending bids', 'Dutch & sealed formats', 'Auto-bid proxy', 'Seller ratings'].map(item => (
+                <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
+                  {CTA_POINTS.map((item, i) => (
                     <li key={item} className="inline-flex items-center gap-1.5">
                       <Check size={14} className="text-accent-400 shrink-0" />
-                      {item}
+                      {c(`why.ctaPoint${i + 1}`, item)}
                     </li>
                   ))}
                 </ul>
               </div>
               <div className="relative flex flex-wrap gap-2 shrink-0">
                 <Link to="/search" className="btn bg-white text-ink-900 hover:bg-ink-100 hover:-translate-y-0.5 hover:shadow-lift shadow-sm">
-                  Explore live auctions
+                  {c('why.ctaPrimary', 'Explore live auctions')}
                 </Link>
                 {!user && (
                   <Link
                     to="/register"
                     className="group btn border border-white/25 bg-white/5 hover:bg-white/15 hover:border-white/40 text-white"
                   >
-                    Create free account
+                    {c('why.ctaSecondary', 'Create free account')}
                     <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
                   </Link>
                 )}
@@ -379,10 +461,13 @@ export default function Home() {
         {recommended.length > 0 && (
           <Reveal as="section">
             <SectionHeader
-              title={personalised ? 'Recommended for You' : 'Popular Right Now'}
+              icon={Sparkles}
+              title={personalised
+                ? c('section.recommended.title', 'Recommended for You')
+                : c('section.popular.title', 'Popular Right Now')}
               subtitle={personalised
-                ? 'Based on items you and similar buyers have bid on or watched.'
-                : 'Trending auctions across the marketplace. Sign in for personalised picks.'}
+                ? c('section.recommended.subtitle', 'Based on items you and similar buyers have bid on or watched. Open “why this?” on any card to see the reasoning.')
+                : c('section.popular.subtitle', 'Trending auctions across the marketplace. Sign in for personalised picks.')}
             />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5">
               {recommended.map(a => (
@@ -390,8 +475,9 @@ export default function Home() {
                   key={a.auctionId}
                   className="relative group/rec"
                   onClickCapture={e => {
-                    if (e.target.closest('[data-dismiss]')) return; // dismissing ≠ clicking through
-                    recordRecommendationClick(a.auctionId).catch(() => {});
+                    // Dismissing, or opening "why this?", is not a click-through.
+                    if (e.target.closest('[data-dismiss]') || e.target.closest('[data-why]')) return;
+                    recordRecommendationClick(a.auctionId, a.why?.keywords?.[0]).catch(() => {});
                   }}
                 >
                   {user && (

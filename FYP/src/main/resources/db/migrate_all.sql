@@ -85,7 +85,13 @@
 \echo '== merged buyer/seller accounts (can_sell capability) =='
 \ir migration_seller_capability.sql
 
+\echo '== recommendation explainability (search history, keyword attribution) =='
+\ir migration_recommendation_explainability.sql
+
 \echo '== admin-editable landing page copy =='
 \ir migration_landing_content.sql
+
+\echo '== landing page head-to-head comparison copy =='
+\ir migration_landing_content_comparison.sql
 
 \echo 'All migrations applied.'

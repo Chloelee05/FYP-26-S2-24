@@ -1,6 +1,7 @@
 package com.auction.model.admin;
 
 import com.auction.model.Role;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDate;
 
@@ -72,7 +73,11 @@ public final class AdminUserSummary {
     /**
      * Whether this account may list items for sale. True for accounts that opted in,
      * and for pre-merge accounts still carrying the SELLER role.
+     *
+     * <p>Explicitly mapped because the admin table distinguishes accounts by
+     * capability, not by role, and this is not a bean-style getter name.</p>
      */
+    @JsonProperty("canSell")
     public boolean canSell() {
         return canSell || role == Role.SELLER;
     }

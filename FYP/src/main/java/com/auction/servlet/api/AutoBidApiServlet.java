@@ -17,7 +17,7 @@ import java.util.logging.Logger;
 /**
  * POST /api/auto-bid  params: auctionId, action (SET|CANCEL), maxAmount, note, bidIncrement
  * GET  /api/auto-bid?auctionId=X  — returns the authenticated buyer's current auto-bid (or 404)
- * Requires BUYER role.
+ * Open to any signed-in non-admin account; auto-bidding on your own listing is rejected.
  */
 @WebServlet("/api/auto-bid")
 public class AutoBidApiServlet extends ApiBase {
@@ -37,7 +37,7 @@ public class AutoBidApiServlet extends ApiBase {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
 
         int buyerId = ((Number) session.getAttribute("userId")).intValue();
         String auctionIdStr = req.getParameter("auctionId");
@@ -63,7 +63,7 @@ public class AutoBidApiServlet extends ApiBase {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
-        if (!isBuyer(session)) { forbidden(resp); return; }
+        if (!canBuy(session)) { forbidden(resp); return; }
 
         int buyerId = ((Number) session.getAttribute("userId")).intValue();
 

@@ -1,7 +1,10 @@
 package com.auction.dao;
 
+import com.auction.model.RecommendationProvenance;
+import com.auction.model.RecommendationProvenance.Reason;
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
+import com.auction.util.SecurityUtil;
 import com.auction.util.UserBasedCollaborativeFilter;
 
 import java.math.BigDecimal;
@@ -12,8 +15,10 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -42,7 +47,8 @@ public class RecommendationDAO {
     public List<SearchResultItem> recommendForUser(int userId, int limit) {
         Set<Long> dismissed = listDismissedIds(userId);
 
-        List<SearchResultItem> cf = collaborativeFiltering(userId, limit + dismissed.size());
+        List<SearchResultItem> cf = tag(collaborativeFiltering(userId, limit + dismissed.size()),
+                Reason.PEER_BIDS, REASON_PEER_BIDS);
         cf.removeIf(item -> dismissed.contains(item.getAuctionId()));
         if (cf.size() > limit) cf = new ArrayList<>(cf.subList(0, limit));
 
@@ -52,7 +58,9 @@ public class RecommendationDAO {
         List<SearchResultItem> combined = new ArrayList<>(cf);
 
         if (combined.size() < limit) {
-            List<SearchResultItem> ubcf = userBasedCosineRecommendations(userId, limit - combined.size(), exclude);
+            List<SearchResultItem> ubcf = tag(
+                    userBasedCosineRecommendations(userId, limit - combined.size(), exclude),
+                    Reason.SIMILAR_TASTE, REASON_SIMILAR_TASTE);
             for (SearchResultItem item : ubcf) {
                 combined.add(item);
                 exclude.add(item.getAuctionId());
@@ -60,7 +68,7 @@ public class RecommendationDAO {
         }
 
         if (combined.size() < limit) {
-            List<SearchResultItem> content = contentBased(userId, limit - combined.size(), exclude);
+            List<SearchResultItem> content = tagByCategory(contentBased(userId, limit - combined.size(), exclude));
             for (SearchResultItem item : content) {
                 combined.add(item);
                 exclude.add(item.getAuctionId());
@@ -119,7 +127,7 @@ public class RecommendationDAO {
             for (Long id : excl) ps.setLong(idx++, id);
             ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
-                return mapRows(rs);
+                return tag(mapRows(rs), Reason.PEER_BIDS, REASON_PEER_BIDS);
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -167,15 +175,50 @@ public class RecommendationDAO {
 
     /** Records an IMPRESSION or CLICK for recommendation analytics. Best-effort. */
     public void recordEvent(Integer userId, long auctionId, String eventType) {
-        String sql = "INSERT INTO recommendation_events (user_id, auction_id, event_type) VALUES (?, ?, ?)";
+        recordEvent(userId, auctionId, eventType, null);
+    }
+
+    /**
+     * Records an IMPRESSION or CLICK, optionally attributed to the search keyword that
+     * surfaced the card. Best-effort: falls back to a keyword-less insert when the
+     * explainability migration has not been applied yet.
+     */
+    public void recordEvent(Integer userId, long auctionId, String eventType, String sourceKeyword) {
+        String keyword = normaliseKeyword(sourceKeyword);
+        if (keyword != null && insertEvent(userId, auctionId, eventType, keyword)) return;
+        insertEvent(userId, auctionId, eventType, null);
+    }
+
+    private boolean insertEvent(Integer userId, long auctionId, String eventType, String keyword) {
+        String sql = keyword == null
+                ? "INSERT INTO recommendation_events (user_id, auction_id, event_type) VALUES (?, ?, ?)"
+                : "INSERT INTO recommendation_events (user_id, auction_id, event_type, source_keyword) VALUES (?, ?, ?, ?)";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             if (userId != null) ps.setInt(1, userId); else ps.setNull(1, java.sql.Types.BIGINT);
             ps.setLong(2, auctionId);
             ps.setString(3, eventType);
+            if (keyword != null) ps.setString(4, keyword);
             ps.executeUpdate();
+            return true;
         } catch (Exception ignored) {
             // analytics only — never break the page
+            return false;
+        }
+    }
+
+    /** Records a keyword a visitor searched for. Best-effort; guests store a null user. */
+    public void recordSearchKeyword(Integer userId, String keyword) {
+        String cleaned = normaliseKeyword(keyword);
+        if (cleaned == null) return;
+        String sql = "INSERT INTO search_history (user_id, keyword) VALUES (?, ?)";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (userId != null) ps.setInt(1, userId); else ps.setNull(1, java.sql.Types.BIGINT);
+            ps.setString(2, cleaned);
+            ps.executeUpdate();
+        } catch (Exception ignored) {
+            // analytics only — never break search
         }
     }
 
@@ -222,6 +265,291 @@ public class RecommendationDAO {
 
     private static double round4(double v) {
         return Math.round(v * 10000.0) / 10000.0;
+    }
+
+    // -------------------------------------------------------------------------
+    // Explainability: why an item was recommended, and how it has performed
+    // -------------------------------------------------------------------------
+
+    static final String REASON_PEER_BIDS     = "Buyers who bid on your items also bid on this";
+    static final String REASON_SIMILAR_TASTE = "Buyers with similar taste are watching this";
+    static final String REASON_TRENDING      = "Trending — collecting the most bids today";
+
+    /** Longest keyword history considered when attributing a card to a search. */
+    private static final int VIEWER_KEYWORD_LOOKBACK = 12;
+    /** Most keywords shown on a single card. */
+    private static final int MAX_KEYWORDS_PER_ITEM = 3;
+    /**
+     * A masked username is only shown once this many distinct people have clicked, so a
+     * single clicker can never be identified by elimination on a quiet listing.
+     */
+    private static final int MIN_CLICKERS_TO_NAME = 2;
+
+    /**
+     * Fills in click performance and search-keyword attribution for a recommendation list,
+     * upgrading the reason to "matches your search" where one of the viewer's own recent
+     * keywords explains the card. Items without a stage reason default to trending.
+     *
+     * <p>Only aggregates and masked names are written here — see
+     * {@link #attributionDetail(long, int)} for the admin-only per-user view.</p>
+     */
+    public void attachProvenance(List<SearchResultItem> items, Integer viewerId) {
+        if (items == null || items.isEmpty()) return;
+        for (SearchResultItem item : items) {
+            if (item.getWhy() == null) {
+                item.setWhy(new RecommendationProvenance(Reason.TRENDING, REASON_TRENDING));
+            }
+        }
+        applyKeywordAttribution(items, viewerId);
+        applyClickStats(items);
+    }
+
+    /** Distinct keywords the user searched for, most recently used first. */
+    public List<String> recentKeywords(int userId, int limit) {
+        List<String> out = new ArrayList<>();
+        String sql = "SELECT keyword FROM search_history WHERE user_id = ? "
+                + "GROUP BY keyword ORDER BY MAX(created_at) DESC LIMIT ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(rs.getString(1));
+            }
+        } catch (Exception ignored) {
+            // migration not applied yet — no keyword attribution
+        }
+        return out;
+    }
+
+    private void applyKeywordAttribution(List<SearchResultItem> items, Integer viewerId) {
+        Map<Long, List<String>> surfaced = keywordsPerAuction(items);
+        List<String> mine = viewerId == null ? List.of() : recentKeywords(viewerId, VIEWER_KEYWORD_LOOKBACK);
+
+        for (SearchResultItem item : items) {
+            List<String> keywords = new ArrayList<>();
+            String myMatch = null;
+            String haystack = ((item.getTitle() == null ? "" : item.getTitle()) + " "
+                    + (item.getCategory() == null ? "" : item.getCategory())).toLowerCase(Locale.ROOT);
+            for (String keyword : mine) {
+                if (keyword != null && !keyword.isBlank() && haystack.contains(keyword.toLowerCase(Locale.ROOT))) {
+                    if (myMatch == null) myMatch = keyword;
+                    keywords.add(keyword);
+                }
+            }
+            for (String keyword : surfaced.getOrDefault(item.getAuctionId(), List.of())) {
+                if (keywords.stream().noneMatch(k -> k.equalsIgnoreCase(keyword))) keywords.add(keyword);
+            }
+            if (keywords.size() > MAX_KEYWORDS_PER_ITEM) keywords = keywords.subList(0, MAX_KEYWORDS_PER_ITEM);
+
+            if (myMatch != null) {
+                item.setWhy(new RecommendationProvenance(
+                        Reason.SEARCH_KEYWORD, "Matches your search for “" + myMatch + "”"));
+            }
+            item.getWhy().setKeywords(keywords);
+        }
+    }
+
+    /** Keywords previously attributed to each auction's impressions/clicks, most used first. */
+    private Map<Long, List<String>> keywordsPerAuction(List<SearchResultItem> items) {
+        Map<Long, List<String>> out = new HashMap<>();
+        String sql = "SELECT auction_id, source_keyword, COUNT(*) AS uses FROM recommendation_events "
+                + "WHERE source_keyword IS NOT NULL AND auction_id IN (" + placeholders(items.size()) + ") "
+                + "GROUP BY auction_id, source_keyword ORDER BY auction_id, uses DESC";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindAuctionIds(ps, items);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    List<String> list = out.computeIfAbsent(rs.getLong(1), k -> new ArrayList<>());
+                    if (list.size() < MAX_KEYWORDS_PER_ITEM) list.add(rs.getString(2));
+                }
+            }
+        } catch (Exception ignored) {
+            // migration not applied yet — no aggregate keywords
+        }
+        return out;
+    }
+
+    private void applyClickStats(List<SearchResultItem> items) {
+        Map<Long, SearchResultItem> byId = new LinkedHashMap<>();
+        for (SearchResultItem item : items) byId.put(item.getAuctionId(), item);
+
+        String countSql = "SELECT auction_id, COUNT(*) AS clicks, COUNT(DISTINCT user_id) AS clickers "
+                + "FROM recommendation_events WHERE event_type = 'CLICK' "
+                + "AND auction_id IN (" + placeholders(items.size()) + ") GROUP BY auction_id";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(countSql)) {
+            bindAuctionIds(ps, items);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    SearchResultItem item = byId.get(rs.getLong("auction_id"));
+                    if (item == null) continue;
+                    item.getWhy().setClickCount(rs.getLong("clicks"));
+                    item.getWhy().setDistinctClickers(rs.getLong("clickers"));
+                }
+            }
+        } catch (Exception ignored) {
+            // migration not applied yet — leave click figures at zero
+            return;
+        }
+
+        String sampleSql = "SELECT e.auction_id, u.username FROM ("
+                + "  SELECT DISTINCT ON (auction_id) auction_id, user_id FROM recommendation_events "
+                + "  WHERE event_type = 'CLICK' AND user_id IS NOT NULL "
+                + "    AND auction_id IN (" + placeholders(items.size()) + ") "
+                + "  ORDER BY auction_id, created_at DESC"
+                + ") e JOIN users u ON u.id = e.user_id";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sampleSql)) {
+            bindAuctionIds(ps, items);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    SearchResultItem item = byId.get(rs.getLong(1));
+                    if (item == null) continue;
+                    if (item.getWhy().getDistinctClickers() < MIN_CLICKERS_TO_NAME) continue;
+                    item.getWhy().setClickedByMasked(SecurityUtil.maskUsername(rs.getString(2)));
+                }
+            }
+        } catch (Exception ignored) {
+            // masked sample is optional — counts alone still explain the card
+        }
+    }
+
+    /**
+     * ADMIN-only provenance detail for one auction: who clicked, what they searched, and
+     * when. Never reachable from a public endpoint — the landing page reads only the
+     * aggregates produced by {@link #attachProvenance(List, Integer)}.
+     */
+    public Map<String, Object> attributionDetail(long auctionId, int limit) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("auctionId", auctionId);
+        out.put("events", queryList(
+                "SELECT e.user_id, u.username, e.event_type, e.source_keyword, e.created_at "
+              + "FROM recommendation_events e LEFT JOIN users u ON u.id = e.user_id "
+              + "WHERE e.auction_id = ? ORDER BY e.created_at DESC LIMIT ?",
+                auctionId, limit,
+                rs -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    long uid = rs.getLong(1);
+                    row.put("userId", rs.wasNull() ? null : uid);
+                    row.put("username", rs.getString(2));
+                    row.put("eventType", rs.getString(3));
+                    row.put("sourceKeyword", rs.getString(4));
+                    row.put("createdAt", instantOf(rs.getTimestamp(5)));
+                    return row;
+                }));
+        out.put("searches", queryList(
+                "SELECT s.user_id, u.username, s.keyword, s.created_at "
+              + "FROM search_history s LEFT JOIN users u ON u.id = s.user_id "
+              + "JOIN auction_details d ON d.id = ? "
+              + "WHERE POSITION(LOWER(s.keyword) IN LOWER(d.title)) > 0 "
+              + "   OR LOWER(s.keyword) = LOWER(COALESCE(d.category, '')) "
+              + "ORDER BY s.created_at DESC LIMIT ?",
+                auctionId, limit,
+                rs -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    long uid = rs.getLong(1);
+                    row.put("userId", rs.wasNull() ? null : uid);
+                    row.put("username", rs.getString(2));
+                    row.put("keyword", rs.getString(3));
+                    row.put("createdAt", instantOf(rs.getTimestamp(4)));
+                    return row;
+                }));
+        return out;
+    }
+
+    /** ADMIN-only overview: the recommendations people actually click, and what they search. */
+    public Map<String, Object> attributionOverview(int limit) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("topAuctions", queryList(
+                "SELECT e.auction_id, d.title, "
+              + "  COUNT(*) FILTER (WHERE e.event_type = 'CLICK') AS clicks, "
+              + "  COUNT(*) FILTER (WHERE e.event_type = 'IMPRESSION') AS impressions, "
+              + "  COUNT(DISTINCT e.user_id) FILTER (WHERE e.event_type = 'CLICK') AS clickers "
+              + "FROM recommendation_events e LEFT JOIN auction_details d ON d.id = e.auction_id "
+              + "GROUP BY e.auction_id, d.title ORDER BY clicks DESC, impressions DESC LIMIT ?",
+                null, limit,
+                rs -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("auctionId", rs.getLong(1));
+                    row.put("title", rs.getString(2));
+                    row.put("clicks", rs.getLong(3));
+                    row.put("impressions", rs.getLong(4));
+                    row.put("distinctClickers", rs.getLong(5));
+                    return row;
+                }));
+        out.put("topKeywords", queryList(
+                "SELECT keyword, COUNT(*) AS searches, COUNT(DISTINCT user_id) AS searchers "
+              + "FROM search_history GROUP BY keyword ORDER BY searches DESC LIMIT ?",
+                null, limit,
+                rs -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("keyword", rs.getString(1));
+                    row.put("searches", rs.getLong(2));
+                    row.put("searchers", rs.getLong(3));
+                    return row;
+                }));
+        return out;
+    }
+
+    private interface RowMapper {
+        Map<String, Object> map(ResultSet rs) throws Exception;
+    }
+
+    /** Runs an analytics query, returning an empty list when its table is not migrated yet. */
+    private List<Map<String, Object>> queryList(String sql, Long auctionId, int limit, RowMapper mapper) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int idx = 1;
+            if (auctionId != null) ps.setLong(idx++, auctionId);
+            ps.setInt(idx, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(mapper.map(rs));
+            }
+        } catch (Exception ignored) {
+            // analytics only — an un-migrated database reports nothing rather than failing
+        }
+        return out;
+    }
+
+    private static Instant instantOf(Timestamp ts) {
+        return ts == null ? null : ts.toInstant();
+    }
+
+    private static String placeholders(int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) sb.append(i == 0 ? "?" : ",?");
+        return sb.toString();
+    }
+
+    private void bindAuctionIds(PreparedStatement ps, List<SearchResultItem> items) throws Exception {
+        int idx = 1;
+        for (SearchResultItem item : items) ps.setLong(idx++, item.getAuctionId());
+    }
+
+    private static String normaliseKeyword(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) return null;
+        return trimmed.length() > 120 ? trimmed.substring(0, 120) : trimmed;
+    }
+
+    private static List<SearchResultItem> tag(List<SearchResultItem> items, Reason code, String text) {
+        for (SearchResultItem item : items) item.setWhy(new RecommendationProvenance(code, text));
+        return items;
+    }
+
+    private static List<SearchResultItem> tagByCategory(List<SearchResultItem> items) {
+        for (SearchResultItem item : items) {
+            String category = item.getCategory();
+            String text = (category == null || category.isBlank())
+                    ? "Similar to items you viewed recently"
+                    : "Because you looked at similar " + category;
+            item.setWhy(new RecommendationProvenance(Reason.SAME_CATEGORY, text));
+        }
+        return items;
     }
 
     // -------------------------------------------------------------------------
@@ -526,7 +854,7 @@ public class RecommendationDAO {
             if (excludeSellerId != null) ps.setInt(idx++, excludeSellerId);
             ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
-                return mapRows(rs);
+                return tag(mapRows(rs), Reason.TRENDING, REASON_TRENDING);
             }
         } catch (Exception e) {
             throw new RuntimeException(e);

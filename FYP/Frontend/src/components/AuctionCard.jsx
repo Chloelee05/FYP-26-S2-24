@@ -1,19 +1,80 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, ImageIcon } from 'lucide-react';
+import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
+import { useAuth } from '../context/AuthContext';
 
 /** Auctions closing within this window get the urgent (amber) treatment. */
 const URGENT_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Provenance for a recommended card: the short reason inline, the click/keyword
+ * evidence behind a toggle so the card never becomes a wall of text.
+ *
+ * Everything shown here is aggregate or masked — the server never sends the
+ * identities behind these numbers to a public page.
+ */
+function WhyThis({ why }) {
+  const [open, setOpen] = useState(false);
+  const keywords = why.keywords ?? [];
+  const clicks = why.clickCount ?? 0;
+
+  return (
+    <div data-why className="mt-2.5 border-t border-ink-100 pt-2.5">
+      <button
+        type="button"
+        onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
+        aria-expanded={open}
+        className="group/why flex w-full items-start gap-1.5 text-left text-[11px] leading-snug text-ink-500 hover:text-primary-600 transition-colors"
+      >
+        <Sparkles size={12} className="mt-px shrink-0 text-primary-500" />
+        <span className="flex-1 line-clamp-2">{why.reason}</span>
+        <ChevronDown
+          size={12}
+          className={`mt-px shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-1.5 rounded-lg bg-ink-50 px-2.5 py-2 text-[11px] text-ink-500">
+          <p className="flex items-center gap-1.5">
+            <MousePointerClick size={12} className="shrink-0 text-ink-400" />
+            {clicks === 0
+              ? 'No clicks recorded yet'
+              : why.clickedByMasked
+                ? `${why.clickedByMasked} and ${why.distinctClickers - 1} other${why.distinctClickers - 1 === 1 ? '' : 's'} clicked this — ${clicks} click${clicks === 1 ? '' : 's'} in total`
+                : `Clicked ${clicks} time${clicks === 1 ? '' : 's'}`}
+          </p>
+          {keywords.length > 0 && (
+            <p className="flex items-start gap-1.5">
+              <Search size={12} className="mt-px shrink-0 text-ink-400" />
+              <span className="flex flex-wrap gap-1">
+                {keywords.map(k => (
+                  <span key={k} className="rounded bg-white px-1.5 py-0.5 font-medium text-ink-600 ring-1 ring-inset ring-ink-200">
+                    {k}
+                  </span>
+                ))}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AuctionCard({ auction }) {
+  const { user } = useAuth();
   const {
-    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category,
+    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category, why,
   } = auction;
 
   const msLeft = endDate ? new Date(endDate) - new Date() : null;
   const ended = msLeft != null && msLeft <= 0;
   const urgent = msLeft != null && msLeft > 0 && msLeft < URGENT_MS;
+  // Signed-out visitors are never offered a bidding affordance — only a way in to look.
+  const ctaLabel = ended ? 'View Result' : user ? 'Bid Now' : 'View Auction';
 
   return (
     <div className="card card-hover group overflow-hidden flex flex-col">
@@ -63,6 +124,8 @@ export default function AuctionCard({ auction }) {
           <p className="text-xs text-ink-400 mt-1 truncate">by {sellerUsername}</p>
         )}
 
+        {why?.reason && <WhyThis why={why} />}
+
         <div className="mt-auto pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Current bid</p>
           <p className="text-lg font-bold text-ink-900 tabular-nums">{formatCurrency(currentPrice)}</p>
@@ -70,7 +133,7 @@ export default function AuctionCard({ auction }) {
             to={`/auction/${auctionId}`}
             className="btn-primary btn-block mt-3 text-xs uppercase tracking-wide"
           >
-            {ended ? 'View Result' : 'Bid Now'}
+            {ctaLabel}
           </Link>
         </div>
       </div>

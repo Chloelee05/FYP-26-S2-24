@@ -56,6 +56,11 @@ export default function AuctionDetail() {
   const [similar, setSimilar] = useState([]);
   const [copied, setCopied] = useState(false);
 
+  // Buying and selling share one account, so buyer affordances are offered to every
+  // signed-in member. Whether this particular listing is biddable is decided by
+  // auction.isOwner (you cannot bid on your own) rather than by account type.
+  const canBuy = Boolean(user) && user.role !== 'ADMIN';
+
   useEffect(() => {
     getAuctionDetail(id).then(r => {
       setAuction(r.data);
@@ -106,7 +111,7 @@ export default function AuctionDetail() {
 
   // Reflect whether this auction is already in the buyer's watchlist
   useEffect(() => {
-    if (user?.role !== 'BUYER') { setWatched(false); return; }
+    if (!user || user.role === 'ADMIN') { setWatched(false); return; }
     checkWatching(id)
       .then(r => setWatched(Boolean(r.data?.watching)))
       .catch(() => {});
@@ -130,7 +135,7 @@ export default function AuctionDetail() {
 
   const handleToggleWatch = async () => {
     if (!user) { setError('Please log in to use your watchlist.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can add items to a watchlist.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot use a watchlist.'); return; }
     setError(''); setMessage('');
     try {
       if (watched) {
@@ -200,14 +205,14 @@ export default function AuctionDetail() {
   const apiError = (err, fallback) => {
     const data = err.response?.data;
     if (typeof data === 'object' && data) return data.error || data.message || fallback;
-    if (err.response?.status === 403) return 'Access denied. Use a buyer account for this action.';
+    if (err.response?.status === 403) return 'Access denied for this action.';
     if (err.response?.status === 401) return 'Please log in to continue.';
     return fallback;
   };
 
   const handlePlaceBid = async () => {
     if (!user) { setError('Please log in to place a bid.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can place bids. Switch to a buyer account.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot place bids.'); return; }
     const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
     if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
     if (amount <= bidFloor) { setError(`Your bid must be higher than ${formatCurrency(bidFloor)}.`); return; }
@@ -225,7 +230,7 @@ export default function AuctionDetail() {
 
   const handleAutoBid = async () => {
     if (!user) { setError('Please log in to enable auto-bid.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can set auto-bid.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot set auto-bid.'); return; }
     setError(''); setMessage('');
     try {
       await setAutoBid(id, autoBidMax, null, autoBidIncrement);
@@ -252,7 +257,7 @@ export default function AuctionDetail() {
 
   const handleAcceptDutch = async () => {
     if (!user) { setError('Please log in to accept this price.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can accept a Dutch price.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot accept a Dutch price.'); return; }
     setError(''); setMessage('');
     try {
       await acceptDutchPrice(id);
@@ -266,7 +271,7 @@ export default function AuctionDetail() {
 
   const handleBuyItNow = async () => {
     if (!user) { setError('Please log in to Buy It Now.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can use Buy It Now.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot use Buy It Now.'); return; }
     if (!window.confirm(`Buy this item now for ${formatCurrency(auction.buyItNowPrice)}?`)) return;
     setError(''); setMessage('');
     try {
@@ -295,7 +300,7 @@ export default function AuctionDetail() {
 
   const handleSealedBid = async () => {
     if (!user) { setError('Please log in to submit a sealed bid.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can submit a sealed bid.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot submit a sealed bid.'); return; }
     const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
     if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
     if (amount < sealedMinBid) { setError(`Your sealed bid must be at least ${formatCurrency(sealedMinBid)}.`); return; }
@@ -313,7 +318,7 @@ export default function AuctionDetail() {
   const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!user) { setError('Please log in to ask a question.'); return; }
-    if (user.role !== 'BUYER') { setError('Only buyers can ask questions. Switch to a buyer account.'); return; }
+    if (!canBuy) { setError('Admin accounts cannot ask questions.'); return; }
     if (!question.trim()) { setError('Enter a question first.'); return; }
     setError(''); setMessage('');
     try {
@@ -413,7 +418,7 @@ export default function AuctionDetail() {
                   ? <Check size={18} className="text-emerald-600" />
                   : <Share2 size={18} className="text-ink-400" />}
               </button>
-              {user && user.role === 'BUYER' && !auction.isOwner && (
+              {canBuy && !auction.isOwner && (
                 <button
                   onClick={() => setShowReport(true)}
                   className="p-2.5 rounded-xl border border-ink-200 bg-white hover:bg-red-50 hover:border-red-200 transition-all group"
@@ -550,7 +555,7 @@ export default function AuctionDetail() {
                 </div>
               ))}
             </div>
-            {user?.role === 'BUYER' && !auction.isOwner && (
+            {canBuy && !auction.isOwner && (
               <form onSubmit={handleAskQuestion} className="flex gap-2 mt-4">
                 <input
                   value={question}
@@ -717,7 +722,7 @@ export default function AuctionDetail() {
                   </button>
                 </div>
 
-                {auction.buyItNowPrice != null && Number(auction.buyItNowPrice) > 0 && user?.role === 'BUYER' && (
+                {auction.buyItNowPrice != null && Number(auction.buyItNowPrice) > 0 && canBuy && (
                   <div className="card p-6 border-emerald-200 bg-emerald-50/60">
                     <h3 className="section-title text-base mb-1">Buy It Now</h3>
                     <p className="text-3xl font-bold text-emerald-600 mb-2 tabular-nums">{formatCurrency(auction.buyItNowPrice)}</p>

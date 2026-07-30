@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { AlertCircle, RotateCcw, Check, Save, Type } from 'lucide-react';
+import {
+  AlertCircle, RotateCcw, Check, Save, Type, Search, X, ChevronDown, ChevronsDownUp,
+} from 'lucide-react';
 import {
   getAdminLandingContent, saveLandingContent,
   resetLandingContentField, resetLandingContentGroup,
@@ -11,6 +13,8 @@ import { apiErrorMessage } from '../../utils/apiError';
 // The field list, its grouping and its defaults all come from the landing_content
 // table, so adding copy is a migration change only — nothing here is hardcoded.
 
+const ALL_GROUPS = '__all__';
+
 export default function AdminLandingContent() {
   const [items, setItems] = useState([]);
   const [values, setValues] = useState({});
@@ -18,6 +22,8 @@ export default function AdminLandingContent() {
   const [savingGroup, setSavingGroup] = useState('');
   const [savedGroup, setSavedGroup] = useState('');
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [collapsed, setCollapsed] = useState(() => new Set());
 
   const load = () => getAdminLandingContent()
     .then(r => {
@@ -40,27 +46,53 @@ export default function AdminLandingContent() {
     return [...byGroup.entries()];
   }, [items]);
 
-  const changedIn = (fields) => fields.filter(f => (values[f.key] ?? '') !== (f.value ?? ''));
+  const needle = query.trim().toLowerCase();
+  const matches = (item) => !needle
+    || item.label.toLowerCase().includes(needle)
+    || item.key.toLowerCase().includes(needle)
+    || (values[item.key] ?? '').toLowerCase().includes(needle);
 
-  const handleSave = async (group, fields) => {
+  const visibleGroups = groups
+    .map(([group, fields]) => [group, fields.filter(matches)])
+    .filter(([, fields]) => fields.length > 0);
+
+  const changedIn = (fields) => fields.filter(f => (values[f.key] ?? '') !== (f.value ?? ''));
+  const allChanged = changedIn(items);
+
+  // While filtering, every surviving group opens so a match is never hidden behind a collapsed header.
+  const isOpen = (group) => Boolean(needle) || !collapsed.has(group);
+
+  const toggleGroup = (group) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(group)) next.delete(group); else next.add(group);
+    return next;
+  });
+
+  const saveFields = async (scope, fields) => {
     const changed = changedIn(fields);
     if (changed.length === 0) return;
     setError('');
     setSavedGroup('');
-    setSavingGroup(group);
+    setSavingGroup(scope);
     try {
       await saveLandingContent(Object.fromEntries(changed.map(f => [f.key, values[f.key]])));
       const saved = new Map(changed.map(f => [f.key, values[f.key]]));
       setItems(prev => prev.map(i => saved.has(i.key)
         ? { ...i, value: saved.get(i.key), default: saved.get(i.key) === i.defaultValue }
         : i));
-      setSavedGroup(group);
+      setSavedGroup(scope);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save that content.'));
     } finally {
       setSavingGroup('');
     }
   };
+
+  const discardFields = (fields) => setValues(v => {
+    const next = { ...v };
+    fields.forEach(f => { next[f.key] = f.value ?? ''; });
+    return next;
+  });
 
   const handleResetField = async (item) => {
     setError('');
@@ -87,7 +119,7 @@ export default function AdminLandingContent() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-8 pb-28">
       <h1 className="page-title">Landing Page Content</h1>
       <p className="page-subtitle mb-6">
         Edit the wording shown to visitors on the home page. Categories, metrics, listings
@@ -101,24 +133,75 @@ export default function AdminLandingContent() {
         </div>
       )}
 
+      {!loading && groups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-5">
+          <div className="relative flex-1 min-w-[16rem] max-w-sm">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Filter by label, key or text…"
+              className="input-field pl-9 pr-9"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                title="Clear filter"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <span className="text-xs text-ink-400">
+            {items.length} field{items.length === 1 ? '' : 's'} in {groups.length} group{groups.length === 1 ? '' : 's'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(prev => prev.size > 0 ? new Set() : new Set(groups.map(([g]) => g)))}
+            className="btn-secondary btn-sm ml-auto"
+          >
+            <ChevronsDownUp size={14} /> {collapsed.size > 0 ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="card p-8 text-center text-ink-400">Loading content…</div>
       ) : groups.length === 0 ? (
         <div className="card p-8 text-center text-ink-400">
           No editable content found. Run the database migrations and reload.
         </div>
+      ) : visibleGroups.length === 0 ? (
+        <div className="card p-8 text-center text-ink-400">
+          Nothing matches “{query}”.
+        </div>
       ) : (
-        <div className="space-y-6">
-          {groups.map(([group, fields]) => {
+        <div className="space-y-5">
+          {visibleGroups.map(([group, fields]) => {
             const changed = changedIn(fields);
             const busy = savingGroup === group;
+            const open = isOpen(group);
             return (
               <section key={group} className="card overflow-hidden">
                 <header className="flex items-center justify-between gap-4 px-5 py-3.5 bg-ink-50 border-b border-ink-200">
-                  <h2 className="font-semibold text-ink-900 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group)}
+                    aria-expanded={open}
+                    className="flex items-center gap-2 font-semibold text-ink-900 hover:text-primary-600 transition-colors"
+                  >
                     <Type size={16} className="text-primary-600" />
                     {group}
-                  </h2>
+                    <span className="text-xs font-normal text-ink-400">
+                      {fields.length} field{fields.length === 1 ? '' : 's'}
+                    </span>
+                    <ChevronDown
+                      size={15}
+                      className={`text-ink-400 transition-transform ${open ? '' : '-rotate-90'}`}
+                    />
+                  </button>
                   <div className="flex items-center gap-3">
                     {changed.length > 0 && (
                       <span className="badge-warning">{changed.length} unsaved</span>
@@ -136,71 +219,89 @@ export default function AdminLandingContent() {
                   </div>
                 </header>
 
-                <div className="p-5 space-y-4">
-                  {fields.map(item => (
-                    <div key={item.key}>
-                      <div className="flex items-baseline justify-between gap-3 mb-1">
-                        <label htmlFor={item.key} className="block text-xs text-ink-500">
-                          {item.label}
-                        </label>
-                        {(values[item.key] ?? '') !== item.defaultValue && (
-                          <button
-                            type="button"
-                            onClick={() => handleResetField(item)}
-                            className="flex items-center gap-1 text-[11px] text-ink-400 hover:text-primary-600 font-medium transition-colors"
-                            title="Restore the original wording"
-                          >
-                            <RotateCcw size={11} /> Reset
-                          </button>
-                        )}
-                      </div>
-                      {item.multiline ? (
-                        <textarea
-                          id={item.key}
-                          value={values[item.key] ?? ''}
-                          onChange={e => setValues(v => ({ ...v, [item.key]: e.target.value }))}
-                          rows={3}
-                          maxLength={2000}
-                          className="textarea-field"
-                        />
-                      ) : (
-                        <input
-                          id={item.key}
-                          value={values[item.key] ?? ''}
-                          onChange={e => setValues(v => ({ ...v, [item.key]: e.target.value }))}
-                          maxLength={2000}
-                          className="input-field"
-                        />
-                      )}
-                      <p className="text-[11px] text-ink-400 mt-1 font-mono">{item.key}</p>
+                {open && (
+                  <>
+                    <div className="p-5 space-y-4">
+                      {fields.map(item => (
+                        <div key={item.key}>
+                          <div className="flex items-baseline justify-between gap-3 mb-1">
+                            <label htmlFor={item.key} className="block text-xs text-ink-500">
+                              {item.label}
+                            </label>
+                            {(values[item.key] ?? '') !== item.defaultValue && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetField(item)}
+                                className="flex items-center gap-1 text-[11px] text-ink-400 hover:text-primary-600 font-medium transition-colors"
+                                title="Restore the original wording"
+                              >
+                                <RotateCcw size={11} /> Reset
+                              </button>
+                            )}
+                          </div>
+                          {item.multiline ? (
+                            <textarea
+                              id={item.key}
+                              value={values[item.key] ?? ''}
+                              onChange={e => setValues(v => ({ ...v, [item.key]: e.target.value }))}
+                              rows={3}
+                              maxLength={2000}
+                              className="textarea-field"
+                            />
+                          ) : (
+                            <input
+                              id={item.key}
+                              value={values[item.key] ?? ''}
+                              onChange={e => setValues(v => ({ ...v, [item.key]: e.target.value }))}
+                              maxLength={2000}
+                              className="input-field"
+                            />
+                          )}
+                          <p className="text-[11px] text-ink-400 mt-1 font-mono">{item.key}</p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <div className="flex gap-3 px-5 py-3.5 border-t border-ink-100 bg-white">
-                  <button
-                    onClick={() => handleSave(group, fields)}
-                    disabled={busy || changed.length === 0}
-                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Save size={15} /> {busy ? 'Saving…' : 'Save Changes'}
-                  </button>
-                  {changed.length > 0 && (
-                    <button
-                      onClick={() => setValues(v => {
-                        const next = { ...v };
-                        fields.forEach(f => { next[f.key] = f.value ?? ''; });
-                        return next;
-                      })}
-                      className="btn-secondary"
-                    >
-                      Discard
-                    </button>
-                  )}
-                </div>
+                    <div className="flex gap-3 px-5 py-3.5 border-t border-ink-100 bg-white">
+                      <button
+                        onClick={() => saveFields(group, fields)}
+                        disabled={busy || changed.length === 0}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Save size={15} /> {busy ? 'Saving…' : 'Save Changes'}
+                      </button>
+                      {changed.length > 0 && (
+                        <button onClick={() => discardFields(fields)} className="btn-secondary">
+                          Discard
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </section>
             );
           })}
+        </div>
+      )}
+
+      {/* Edits can span collapsed or filtered-out groups, so saving stays reachable. */}
+      {allChanged.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-ink-200 bg-white/95 backdrop-blur-sm shadow-lift">
+          <div className="flex items-center justify-end gap-3 px-8 py-3.5">
+            <span className="text-sm text-ink-500 mr-auto">
+              {allChanged.length} unsaved change{allChanged.length === 1 ? '' : 's'} across the page
+            </span>
+            <button onClick={() => discardFields(items)} className="btn-secondary">
+              Discard all
+            </button>
+            <button
+              onClick={() => saveFields(ALL_GROUPS, items)}
+              disabled={savingGroup === ALL_GROUPS}
+              className="btn-primary"
+            >
+              <Save size={15} /> {savingGroup === ALL_GROUPS ? 'Saving…' : 'Save all changes'}
+            </button>
+          </div>
         </div>
       )}
     </div>

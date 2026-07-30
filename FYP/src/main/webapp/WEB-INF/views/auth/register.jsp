@@ -25,7 +25,7 @@
     <div class="row justify-content-center pt-2">
         <div class="col-12 col-sm-11 col-md-9 col-lg-7 col-xl-6">
             <h1 class="auth-title text-center mt-2 mb-1">Welcome to <span class="text-primary">AuctionHub</span></h1>
-            <p class="text-center text-secondary mb-4">I want to:</p>
+            <p class="text-center text-secondary mb-4">One account for buying and selling.</p>
 
             <c:if test="${not empty Error}">
                 <div class="alert alert-danger small" role="alert"><c:out value="${Error}"/></div>
@@ -37,28 +37,18 @@
             <form id="registerForm" method="post" action="${pageContext.request.contextPath}/register" novalidate>
                 <div class="row g-3 mb-3">
                     <div class="col-6">
-                        <label class="account-type-card d-block mb-0 w-100" id="labelRoleBuyer">
-                            <input type="radio" name="role" value="buyer" id="roleBuyer"
-                                   class="visually-hidden" autocomplete="off"
-                                   <c:if test="${empty signupRole or signupRole ne 'seller'}">checked="checked"</c:if>>
-                            <span class="d-block" aria-hidden="true">
-                                <span class="role-icon text-secondary"><i class="bi bi-cart3"></i></span>
-                                <span class="d-block fw-bold">Buy Items</span>
-                                <span class="d-block small text-secondary">Register as Buyer</span>
-                            </span>
-                        </label>
+                        <div class="account-type-card w-100">
+                            <span class="role-icon text-secondary"><i class="bi bi-cart3"></i></span>
+                            <span class="d-block fw-bold">Buy Items</span>
+                            <span class="d-block small text-secondary">Ready as soon as you sign in</span>
+                        </div>
                     </div>
                     <div class="col-6">
-                        <label class="account-type-card d-block mb-0 w-100" id="labelRoleSeller">
-                            <input type="radio" name="role" value="seller" id="roleSeller"
-                                   class="visually-hidden" autocomplete="off"
-                                   <c:if test="${signupRole eq 'seller'}">checked="checked"</c:if>>
-                            <span class="d-block" aria-hidden="true">
-                                <span class="role-icon text-secondary"><i class="bi bi-cash-stack"></i></span>
-                                <span class="d-block fw-bold">Sell Items</span>
-                                <span class="d-block small text-secondary">Register as Seller</span>
-                            </span>
-                        </label>
+                        <div class="account-type-card w-100">
+                            <span class="role-icon text-secondary"><i class="bi bi-cash-stack"></i></span>
+                            <span class="d-block fw-bold">Sell Items</span>
+                            <span class="d-block small text-secondary">Switch on in one click, any time</span>
+                        </div>
                     </div>
                 </div>
 

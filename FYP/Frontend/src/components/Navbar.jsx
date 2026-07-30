@@ -41,6 +41,9 @@ export default function Navbar() {
 
   const menuItemClass = 'flex items-center gap-2.5 px-3 py-2 text-sm text-ink-700 rounded-lg hover:bg-ink-50 hover:text-ink-900 transition-colors';
 
+  // Buying and selling are one account type; only the admin console is separate.
+  const isMember = Boolean(user) && user.role !== 'ADMIN';
+
   return (
     <nav className="sticky top-0 z-50 border-b border-ink-200/70 bg-white/85 backdrop-blur-lg supports-[backdrop-filter]:bg-white/70">
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-16 gap-3">
@@ -55,7 +58,9 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-7">
           <NavLink to="/search" className={navLinkClass}>Explore</NavLink>
-          {user?.canSell && (
+          {/* One account does both, so selling is always on offer; the route itself
+              turns the capability on for accounts that haven't used it yet. */}
+          {isMember && (
             <NavLink to="/seller/dashboard" className={navLinkClass}>Sell Items</NavLink>
           )}
           {/* Bidding history is per-account, so it is hidden from signed-out visitors. */}
@@ -99,18 +104,18 @@ export default function Navbar() {
                   <div className="px-3 py-2 mb-1 border-b border-ink-100">
                     <p className="text-sm font-semibold text-ink-900 truncate">{user.username}</p>
                     <p className="text-xs text-ink-400">
-                      {user.role === 'ADMIN' ? 'Admin' : user.canSell ? 'Buyer & Seller' : 'Buyer'}
+                      {user.role === 'ADMIN' ? 'Admin' : 'Member — buy & sell'}
                     </p>
                   </div>
                   <Link to="/profile" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     <User size={15} className="text-ink-400" /> Profile
                   </Link>
-                  {user.role === 'BUYER' && (
+                  {isMember && (
                     <Link to="/watchlist" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                       <Heart size={15} className="text-ink-400" /> Watchlist
                     </Link>
                   )}
-                  {user.canSell && (
+                  {isMember && (
                     <Link to="/seller/dashboard" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                       <LayoutDashboard size={15} className="text-ink-400" /> Seller Dashboard
                     </Link>
@@ -173,7 +178,7 @@ export default function Navbar() {
           </form>
           <div className="flex flex-col">
             <Link to="/search" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700 border-b border-ink-100">Explore</Link>
-            {user?.canSell && (
+            {isMember && (
               <Link to="/seller/dashboard" onClick={() => setMobileOpen(false)} className="py-2.5 text-sm font-medium text-ink-700 border-b border-ink-100">Sell Items</Link>
             )}
             {user && (

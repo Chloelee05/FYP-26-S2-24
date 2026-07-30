@@ -16,12 +16,20 @@ import java.util.Map;
  * GET  /api/recommendations?limit=8            — personalised recommendations
  * GET  /api/recommendations/trending?limit=8   — trending auctions, never personalised
  * GET  /api/recommendations/similar?auctionId= — "buyers who bid on this also bid on…"
+ * GET  /api/recommendations/attribution        — ADMIN only: per-user provenance detail
  * POST /api/recommendations/dismiss  auctionId — hide a recommendation (auth required)
- * POST /api/recommendations/events   type=impression|click, auctionId (or auctionIds CSV)
+ * POST /api/recommendations/events   type=impression|click, auctionId (or auctionIds CSV),
+ *                                    optional keyword the card was attributed to
+ * POST /api/recommendations/search-keyword q=  — records a searched keyword
  *
  * <p>Returns personalised recommendations (item-based collaborative filtering) for the
  * logged-in buyer, or trending active auctions for anonymous / cold-start users.
- * Response shape mirrors {@code /api/search} results so the same card renders both.</p>
+ * Response shape mirrors {@code /api/search} results so the same card renders both,
+ * plus a {@code why} block explaining the placement.</p>
+ *
+ * <p><b>Privacy split:</b> the public routes expose only aggregates (click counts,
+ * keywords) and masked usernames. Which specific user clicked or searched what is
+ * available exclusively on {@code /attribution}, which requires the ADMIN role.</p>
  */
 @WebServlet({"/api/recommendations", "/api/recommendations/*"})
 public class RecommendationApiServlet extends ApiBase {
@@ -46,6 +54,10 @@ public class RecommendationApiServlet extends ApiBase {
             handleSimilar(req, resp);
             return;
         }
+        if (path != null && path.startsWith("/attribution")) {
+            handleAttribution(req, resp);
+            return;
+        }
 
         int limit = resolveLimit(req);
 
@@ -66,6 +78,13 @@ public class RecommendationApiServlet extends ApiBase {
             // Fail soft: an empty list keeps the home page working.
             results = Collections.emptyList();
             personalised = false;
+        }
+
+        try {
+            // Aggregate + masked provenance only; the per-user rows stay on /attribution.
+            recommendationDAO.attachProvenance(results, userId);
+        } catch (RuntimeException e) {
+            getServletContext().log("recommendation provenance error", e);
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -92,9 +111,51 @@ public class RecommendationApiServlet extends ApiBase {
             handleDismiss(req, resp);
         } else if (path != null && path.startsWith("/events")) {
             handleEvents(req, resp);
+        } else if (path != null && path.startsWith("/search-keyword")) {
+            handleSearchKeyword(req, resp);
         } else {
             error(resp, 404, "Not found.");
         }
+    }
+
+    /**
+     * GET /api/recommendations/attribution[?auctionId=&limit=] — ADMIN only.
+     * Without an auctionId this returns the click/keyword leaderboard; with one it
+     * returns the individual users behind that auction's recommendations.
+     */
+    private void handleAttribution(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!requireRole(req, resp, "ADMIN")) return;
+
+        int limit = 25;
+        String limitStr = param(req, "limit");
+        if (limitStr != null) {
+            try { limit = Math.max(1, Math.min(200, Integer.parseInt(limitStr))); }
+            catch (NumberFormatException ignored) { }
+        }
+
+        Long auctionId = parseLong(param(req, "auctionId"));
+        try {
+            ok(resp, auctionId == null
+                    ? recommendationDAO.attributionOverview(limit)
+                    : recommendationDAO.attributionDetail(auctionId, limit));
+        } catch (RuntimeException e) {
+            getServletContext().log("recommendation attribution error", e);
+            serverError(resp, "Could not load recommendation attribution.");
+        }
+    }
+
+    /**
+     * POST /api/recommendations/search-keyword  q=&lt;keyword&gt;
+     *
+     * <p>Records what a visitor searched for so recommendations can later explain
+     * themselves with "matches your search for …". Fire-and-forget: the search itself is
+     * served by {@code /api/search} and never blocks on this.</p>
+     */
+    private void handleSearchKeyword(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String keyword = param(req, "q");
+        if (keyword == null) { badRequest(resp, "q is required."); return; }
+        recommendationDAO.recordSearchKeyword(sessionUserId(req), keyword);
+        okMsg(resp, "Recorded.");
     }
 
     /** GET /api/recommendations/similar?auctionId=&limit= */
@@ -115,6 +176,11 @@ public class RecommendationApiServlet extends ApiBase {
         } catch (RuntimeException e) {
             getServletContext().log("similar recommendations error", e);
             results = Collections.emptyList();
+        }
+        try {
+            recommendationDAO.attachProvenance(results, sessionUserId(req));
+        } catch (RuntimeException e) {
+            getServletContext().log("recommendation provenance error", e);
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("results", results);
@@ -157,7 +223,9 @@ public class RecommendationApiServlet extends ApiBase {
         }
         if (ids.isEmpty()) { badRequest(resp, "auctionId or auctionIds is required."); return; }
 
-        for (Long id : ids) recommendationDAO.recordEvent(userId, id, eventType);
+        // The keyword the card was surfaced under, so the click can be attributed to it.
+        String keyword = param(req, "keyword");
+        for (Long id : ids) recommendationDAO.recordEvent(userId, id, eventType, keyword);
         okMsg(resp, "Recorded.");
     }
 

@@ -42,13 +42,30 @@ class TestRateApiServlet {
     }
 
     @Test
-    @DisplayName("POST requires buyer role")
-    void sellerForbidden() throws Exception {
-        AuthSession s = ApiTestSupport.newSellerSession(1);
+    @DisplayName("POST is forbidden for admins")
+    void adminForbidden() throws Exception {
+        AuthSession s = ApiTestSupport.newAdminSession(1);
         ApiTestSupport.withBearer(req, s);
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(403);
+    }
+
+    @Test
+    @DisplayName("a seller-capable account may still rate a seller it bought from")
+    void sellingBuyerMayRate() throws Exception {
+        AuthSession s = ApiTestSupport.newSellingBuyerSession(2);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getParameter("auctionId")).thenReturn("10");
+        when(req.getParameter("score")).thenReturn("5");
+        when(mockDAO.insertRating(eq(10L), eq(2), eq(5), any()))
+                .thenReturn(RatingDAO.RatingResult.SUCCESS);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).insertRating(eq(10L), eq(2), eq(5), any());
     }
 
     @Test

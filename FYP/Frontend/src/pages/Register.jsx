@@ -41,7 +41,7 @@ export default function Register() {
       {showSuccess && (
         <SuccessModal
           title="Account created successfully!"
-          message="You can now sign in. Want to sell as well? Turn on selling any time from Account Settings — no second account needed."
+          message="You can now sign in. Buying is ready straight away, and Sell Items in the navigation bar switches selling on whenever you want it — there is no second account to create."
           buttonLabel="Go to Sign In"
           onClose={() => navigate('/login?registered=1')}
         />
@@ -81,7 +81,7 @@ export default function Register() {
             <div className="flex flex-col items-center gap-1.5 p-4 rounded-2xl bg-ink-50 ring-1 ring-inset ring-ink-200">
               <DollarSign size={22} className="text-ink-400" />
               <span className="font-bold text-sm text-ink-900">Sell items</span>
-              <span className="text-xs text-ink-500 text-center">Switch on later in Settings</span>
+              <span className="text-xs text-ink-500 text-center">Switch on in one click, any time</span>
             </div>
           </div>
 

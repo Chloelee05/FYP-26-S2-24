@@ -40,64 +40,57 @@ public class RegisterServlet extends HttpServlet {
         String email = req.getParameter("email");
         String password = req.getParameter("password");
         String confirmPassword = req.getParameter("confirmPassword");
-        String rolePara = req.getParameter("role");
-        Role role = null;
 
         username = (username == null) ? null : username.trim();
         email = (email == null) ? null : email.trim().toLowerCase();
-        rolePara = (rolePara == null) ? null : rolePara.trim();
 
         if (username == null || username.isBlank()) {
-            errorHandler(req, "Username is required.", username, email, rolePara, confirmPassword);
+            errorHandler(req, "Username is required.", username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
         String displayNameViolation = InputValidator.getDisplayNameViolation(username);
         if (displayNameViolation != null) {
-            errorHandler(req, displayNameViolation, username, email, rolePara, confirmPassword);
+            errorHandler(req, displayNameViolation, username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
         String emailViolation = InputValidator.getEmailFormatViolation(email);
         if (emailViolation != null) {
-            errorHandler(req, emailViolation, username, email, rolePara, confirmPassword);
+            errorHandler(req, emailViolation, username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
         String passwordViolation = InputValidator.getPasswordPolicyViolation(password);
         if (passwordViolation != null) {
-            errorHandler(req, passwordViolation, username, email, rolePara, confirmPassword);
+            errorHandler(req, passwordViolation, username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
         if (confirmPassword == null || !confirmPassword.equals(password)) {
-            errorHandler(req, "Passwords do not match.", username, email, rolePara, confirmPassword);
+            errorHandler(req, "Passwords do not match.", username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
         if (req.getParameter("termsAccept") == null) {
-            errorHandler(req, "You must accept the terms to continue.", username, email, rolePara, confirmPassword);
+            errorHandler(req, "You must accept the terms to continue.", username, email, confirmPassword);
             req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
             return;
         }
-        if (rolePara == null || rolePara.isBlank()) {
-            errorHandler(req, "Role is required.", username, email, rolePara, confirmPassword);
-            req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
-            return;
-        }
-        // Buying and selling share one account: every registration creates a Buyer,
-        // who can turn selling on later from Account Settings. The `role` parameter is
-        // still required by this legacy form but no longer selects the account type.
-        role = Role.BUYER;
+
+        // Buying and selling share one account, so sign-up offers no account-type
+        // choice. Any submitted `role` parameter is ignored: every registration
+        // creates a BUYER, who can turn selling on from within the app.
+        Role role = Role.BUYER;
 
         try {
             if (userDAO.checkUser(username.trim())) {
-                errorHandler(req, "Username already in use!", username, email, rolePara, confirmPassword);
+                errorHandler(req, "Username already in use!", username, email, confirmPassword);
                 req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
                 return;
             }
             if (userDAO.checkEmail(email.trim())) {
-                errorHandler(req, "Email already in use!", username, email, rolePara, confirmPassword);
+                errorHandler(req, "Email already in use!", username, email, confirmPassword);
                 req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
                 return;
             }
@@ -108,33 +101,27 @@ public class RegisterServlet extends HttpServlet {
             if (userDAO.insertUser(user)) {
                 req.setAttribute("Insert", "Insert ran!");
             } else {
-                errorHandler(req, "Registration failed. Please try again.", username, email, rolePara,
-                        confirmPassword);
+                errorHandler(req, "Registration failed. Please try again.", username, email, confirmPassword);
             }
         } catch (Throwable ex) {
             getServletContext().log("Registration database error", ex);
             errorHandler(req,
                     "Could not reach the database. Ensure PostgreSQL is running, JDBC driver is on the classpath, "
                             + "and DBUtil settings are correct.",
-                    username, email, rolePara, confirmPassword);
+                    username, email, confirmPassword);
         }
         req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
     }
 
-    private void errorHandler(HttpServletRequest req, String message, String username, String email, String signupRole,
+    private void errorHandler(HttpServletRequest req, String message, String username, String email,
                               String confirmPassword) {
         req.setAttribute("Error", message);
-        stickyForm(req, username, email, signupRole, confirmPassword);
+        stickyForm(req, username, email, confirmPassword);
     }
 
-    /**
-     * Use attribute name {@code signupRole} (not {@code role}) to avoid EL / JSP ambiguity with the literal "role".
-     */
-    private void stickyForm(HttpServletRequest req, String username, String email, String signupRole,
-                            String confirmPassword) {
+    private void stickyForm(HttpServletRequest req, String username, String email, String confirmPassword) {
         req.setAttribute("username", username);
         req.setAttribute("email", email);
-        req.setAttribute("signupRole", signupRole);
         req.setAttribute("confirmPassword", confirmPassword);
     }
 }
