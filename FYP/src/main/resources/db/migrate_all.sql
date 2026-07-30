@@ -97,4 +97,7 @@
 \echo '== recommendations strip subtitle for signed-in users with no history =='
 \ir migration_landing_content_recommendation_framing.sql
 
+\echo '== auction card CTA labels (View Auction / View Result) =='
+\ir migration_landing_content_card_cta.sql
+
 \echo 'All migrations applied.'

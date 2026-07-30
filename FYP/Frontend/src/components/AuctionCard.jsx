@@ -1,12 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
-import { useAuth } from '../context/AuthContext';
+import { getLandingContent } from '../api/auction';
 
 /** Auctions closing within this window get the urgent (amber) treatment. */
 const URGENT_MS = 6 * 60 * 60 * 1000;
+
+const DEFAULT_VIEW_CTA = 'View Auction';
+const DEFAULT_ENDED_CTA = 'View Result';
+
+// One shared fetch for every card on the page — /api/landing-content is also
+// cached server-side, so this stays cheap even when Home, Search and Detail
+// all mount cards.
+let landingContentPromise;
+function loadLandingContentOnce() {
+  if (!landingContentPromise) {
+    landingContentPromise = getLandingContent()
+      .then(r => r.data ?? {})
+      .catch(() => ({}));
+  }
+  return landingContentPromise;
+}
 
 /**
  * Provenance for a recommended card: the short reason inline, the click/keyword
@@ -65,16 +81,28 @@ function WhyThis({ why }) {
 }
 
 export default function AuctionCard({ auction }) {
-  const { user } = useAuth();
   const {
     auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category, why,
   } = auction;
 
+  const [viewCta, setViewCta] = useState(DEFAULT_VIEW_CTA);
+  const [endedCta, setEndedCta] = useState(DEFAULT_ENDED_CTA);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLandingContentOnce().then(content => {
+      if (cancelled) return;
+      setViewCta(content['card.cta.viewAuction'] || DEFAULT_VIEW_CTA);
+      setEndedCta(content['card.cta.viewResult'] || DEFAULT_ENDED_CTA);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const msLeft = endDate ? new Date(endDate) - new Date() : null;
   const ended = msLeft != null && msLeft <= 0;
   const urgent = msLeft != null && msLeft > 0 && msLeft < URGENT_MS;
-  // Signed-out visitors are never offered a bidding affordance — only a way in to look.
-  const ctaLabel = ended ? 'View Result' : user ? 'Bid Now' : 'View Auction';
+  // Same label for guests and signed-in users — bidding stays on the detail page.
+  const ctaLabel = ended ? endedCta : viewCta;
 
   return (
     <div className="card card-hover group overflow-hidden flex flex-col">
