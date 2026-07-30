@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -10,6 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import TwoFactorLogin from './pages/TwoFactorLogin';
 import TwoFactorSettings from './pages/TwoFactorSettings';
@@ -31,6 +32,7 @@ import NotFound from './pages/NotFound';
 // The seller tools and admin console are only opened by signed-in accounts, so they
 // are split out of the main bundle rather than shipped to every anonymous visitor.
 const SellerDashboard = lazy(() => import('./pages/seller/SellerDashboard'));
+const MyListings = lazy(() => import('./pages/seller/MyListings'));
 const CreateAuction = lazy(() => import('./pages/seller/CreateAuction'));
 const EditAuction = lazy(() => import('./pages/seller/EditAuction'));
 
@@ -84,7 +86,8 @@ function App() {
               {/* Auth pages – no navbar */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/forgot-password" element={<Navigate to="/reset-password" replace />} />
+              {/* Step 1 asks for the email, step 2 takes the emailed code plus the new password. */}
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/2fa-verify" element={<TwoFactorLogin />} />
 
@@ -125,6 +128,7 @@ function App() {
               <Route path="/messages" element={<MainLayout><ProtectedRoute><Messages /></ProtectedRoute></MainLayout>} />
 
               <Route path="/seller/dashboard" element={<MainLayout><ProtectedRoute requireSeller><SellerDashboard /></ProtectedRoute></MainLayout>} />
+              <Route path="/seller/listings" element={<MainLayout><ProtectedRoute requireSeller><MyListings /></ProtectedRoute></MainLayout>} />
               <Route path="/seller/create" element={<MainLayout><ProtectedRoute requireSeller><CreateAuction /></ProtectedRoute></MainLayout>} />
               <Route path="/seller/auction/:id/edit" element={<MainLayout><ProtectedRoute requireSeller><EditAuction /></ProtectedRoute></MainLayout>} />
 

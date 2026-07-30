@@ -1,25 +1,38 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Gavel, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { resetPassword, forgotPassword } from '../api/auth';
+import AuthLayout from '../components/AuthLayout';
+import CodeInput from '../components/CodeInput';
+import PasswordField from '../components/PasswordField';
+
+/** Server-side rejections that mean "the code is the problem", not the password. */
+const CODE_ERROR = /code|otp|expire/i;
 
 export default function ResetPassword() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const emailFromLink = searchParams.get('email') || '';
+
+  // 'code' collects the emailed OTP, 'password' the new password. Both are sent
+  // together in the single /auth/reset-password call the backend expects.
+  const [step, setStep] = useState('code');
   const [form, setForm] = useState({
-    identifier:         searchParams.get('email') || '',
+    identifier:         emailFromLink,
     newPassword:        '',
     confirmNewPassword: '',
     otp:                '',
   });
-  const [error, setError]         = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [sending, setSending]     = useState(false);
-  const [codeSent, setCodeSent]   = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [sending, setSending]   = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleSendCode = async () => {
     if (!form.identifier) { setError('Please enter your email first.'); return; }
-    setError(''); setSending(true);
+    setError(''); setCodeSent(false); setSending(true);
     try {
       await forgotPassword(form.identifier);
       setCodeSent(true);
@@ -28,6 +41,13 @@ export default function ResetPassword() {
     } finally {
       setSending(false);
     }
+  };
+
+  const handleContinue = (e) => {
+    e.preventDefault();
+    if (!form.identifier) { setError('Please enter your email first.'); return; }
+    if (form.otp.length !== 6) { setError('Enter the 6-digit code from your email.'); return; }
+    setError(''); setCodeSent(false); setStep('password');
   };
 
   const handleSubmit = async (e) => {
@@ -43,119 +63,144 @@ export default function ResetPassword() {
       });
       navigate('/login?reset=1');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Reset failed. The code may have expired.');
+      const msg = err.response?.data?.error || err.response?.data?.message || 'Reset failed. The code may have expired.';
+      setError(msg);
+      // A bad or expired code is fixed on the previous step, so go back to it.
+      if (CODE_ERROR.test(msg)) { setForm(f => ({ ...f, otp: '' })); setStep('code'); }
     } finally {
       setLoading(false);
     }
   };
 
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const alerts = (
+    <>
+      {error && (
+        <div className="alert-error mb-4">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {codeSent && !error && (
+        <div className="alert-success mb-4">
+          <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+          <span>We sent a new code to your email.</span>
+        </div>
+      )}
+    </>
+  );
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md animate-fade-up">
-        <Link to="/" className="flex items-center justify-center gap-2 mb-7">
-          <span className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-sm">
-            <Gavel size={19} />
-          </span>
-          <span className="font-display font-extrabold text-lg text-ink-900">
-            Auction<span className="text-primary-600">Hub</span>
-          </span>
-        </Link>
-
-        <div className="card p-7 sm:p-9">
-          <div className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 mb-4">
-            <KeyRound size={22} />
-          </div>
-          <h1 className="font-display text-2xl font-bold text-ink-900">Reset your password</h1>
-          <p className="text-sm text-ink-500 mt-1.5 mb-6">
-            We’ll email you a 6-digit code to confirm it’s you.
+    <AuthLayout
+      heading={<>One more step.</>}
+      blurb="Enter the code we emailed you, then choose a new password. Codes expire, so use the newest one."
+    >
+      {step === 'code' ? (
+        <>
+          <h1 className="font-display text-3xl font-bold text-ink-900">Enter your code</h1>
+          <p className="text-sm text-ink-500 mt-2 mb-8">
+            We sent a 6-digit code to {emailFromLink ? <span className="font-medium text-ink-700">{emailFromLink}</span> : 'your email'}.
           </p>
 
-          {error && (
-            <div className="alert-error mb-4">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-          {codeSent && !error && (
-            <div className="alert-success mb-4">
-              <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-              <span>Verification code sent to your email.</span>
-            </div>
-          )}
+          {alerts}
+
+          <form onSubmit={handleContinue} className="space-y-5">
+            {!emailFromLink && (
+              <div>
+                <label className="field-label" htmlFor="reset-email">Email address</label>
+                <input
+                  id="reset-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={form.identifier}
+                  onChange={set('identifier')}
+                  autoComplete="email"
+                  required
+                  className="input-field"
+                />
+              </div>
+            )}
+
+            <CodeInput
+              id="reset-otp"
+              value={form.otp}
+              onChange={otp => { setForm(f => ({ ...f, otp })); setError(''); }}
+              autoFocus={Boolean(emailFromLink)}
+              invalid={Boolean(error) && CODE_ERROR.test(error)}
+            />
+
+            <button
+              type="submit"
+              disabled={form.otp.length !== 6}
+              className="btn-primary btn-block btn-lg"
+            >
+              Verify and continue
+            </button>
+          </form>
+
+          <button
+            type="button"
+            onClick={handleSendCode}
+            disabled={sending}
+            className="mx-auto mt-6 block text-sm font-semibold text-primary-600 hover:text-primary-700 hover:underline underline-offset-2 disabled:opacity-50"
+          >
+            {sending ? 'Sending…' : 'Resend code'}
+          </button>
+
+          <p className="text-center text-sm mt-3">
+            <Link to="/login" className="text-ink-400 hover:text-ink-600 transition-colors">Back to sign in</Link>
+          </p>
+        </>
+      ) : (
+        <>
+          <h1 className="font-display text-3xl font-bold text-ink-900">Choose a new password</h1>
+          <p className="text-sm text-ink-500 mt-2 mb-8">
+            Last step — pick a password you haven’t used here before.
+          </p>
+
+          {alerts}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="field-label" htmlFor="reset-email">Email</label>
-              <input
-                id="reset-email"
-                type="email"
-                placeholder="you@example.com"
-                value={form.identifier}
-                onChange={set('identifier')}
-                required
-                className="input-field"
-              />
-            </div>
-
-            <div>
               <label className="field-label" htmlFor="reset-new">New password</label>
-              <input
+              <PasswordField
                 id="reset-new"
-                type="password"
+                placeholder="Create a password"
                 value={form.newPassword}
                 onChange={set('newPassword')}
+                autoComplete="new-password"
                 required
-                className="input-field"
               />
+              <p className="field-hint">
+                8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+              </p>
             </div>
 
             <div>
               <label className="field-label" htmlFor="reset-confirm">Confirm password</label>
-              <input
+              <PasswordField
                 id="reset-confirm"
-                type="password"
+                placeholder="Re-enter your password"
                 value={form.confirmNewPassword}
                 onChange={set('confirmNewPassword')}
+                autoComplete="new-password"
                 required
-                className="input-field"
               />
             </div>
 
-            <div>
-              <label className="field-label" htmlFor="reset-otp">Verification code</label>
-              <div className="flex gap-2">
-                <input
-                  id="reset-otp"
-                  type="text"
-                  placeholder="000000"
-                  value={form.otp}
-                  onChange={set('otp')}
-                  required
-                  className="input-field flex-1 tracking-[0.3em] font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleSendCode}
-                  disabled={sending}
-                  className="btn-secondary shrink-0 whitespace-nowrap"
-                >
-                  {sending ? 'Sending…' : 'Send code'}
-                </button>
-              </div>
-            </div>
-
             <button type="submit" disabled={loading} className="btn-primary btn-block btn-lg">
-              {loading ? 'Resetting…' : 'Reset Password'}
+              {loading ? 'Resetting…' : 'Reset password'}
             </button>
           </form>
 
-          <p className="text-center text-sm text-ink-400 mt-6">
-            <Link to="/login" className="link-subtle">Back to sign in</Link>
-          </p>
-        </div>
-      </div>
-    </div>
+          <button
+            type="button"
+            onClick={() => { setStep('code'); setError(''); }}
+            className="mx-auto mt-6 flex items-center gap-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors"
+          >
+            <ArrowLeft size={14} /> Back to the code
+          </button>
+        </>
+      )}
+    </AuthLayout>
   );
 }
