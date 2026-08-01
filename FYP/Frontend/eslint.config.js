@@ -18,4 +18,14 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  // Build config runs in Node, not the browser, so it reads process.env.
+  {
+    files: ['*.config.js'],
+    languageOptions: { globals: globals.node },
+  },
+  // Vitest injects describe/it/expect via `globals: true`.
+  {
+    files: ['**/*.test.{js,jsx}', 'src/test/**/*.{js,jsx}'],
+    languageOptions: { globals: { ...globals.browser, ...globals.vitest } },
+  },
 ])

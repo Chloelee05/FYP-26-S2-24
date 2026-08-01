@@ -1,7 +1,10 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { getSession, login as apiLogin, logout as apiLogout } from '../api/auth';
 
-const AuthContext = createContext(null);
+// Exported so tests can render a component under a stubbed session without
+// standing up the real provider and its /session request.
+// eslint-disable-next-line react-refresh/only-export-components
+export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -59,4 +62,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// Kept beside the provider on purpose: ~40 modules import useAuth from here, and moving
+// it to its own file to satisfy fast refresh would churn all of them for no runtime gain.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

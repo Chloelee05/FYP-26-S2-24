@@ -4,6 +4,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => ({
   base: process.env.VITE_BASE || (mode === 'production' ? '/online-auction/' : '/'),
   plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.js',
+  },
   server: {
     port: 3000,
     proxy: {
