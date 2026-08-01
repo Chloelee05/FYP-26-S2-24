@@ -1,6 +1,8 @@
 package com.auction.servlet.api;
 
 import com.auction.dao.AutoBidDAO;
+import com.auction.dao.BidDAO;
+import com.auction.notification.NotificationService;
 import com.auction.realtime.AuctionEventPublisher;
 import com.auction.util.AuthSession;
 import com.auction.util.DBUtil;
@@ -122,10 +124,19 @@ public class AutoBidApiServlet extends ApiBase {
         // requiring another manual bid — mirrors SetAutoBidServlet (legacy JSP path).
         final long auctionIdFinal = auctionId;
         try {
-            DBUtil.runInTransaction(conn -> {
+            Integer displaced = DBUtil.runInTransaction(conn -> {
+                Integer before = BidDAO.topBidderId(conn, auctionIdFinal);
                 autoBidDAO.processAutoBids(conn, auctionIdFinal);
-                return null;
+                Integer after = BidDAO.topBidderId(conn, auctionIdFinal);
+                // Setting an auto-bid can take the lead off someone, and this path never told
+                // them. Only report it when the lead genuinely changed hands.
+                return (before != null && !before.equals(after)) ? before : null;
             });
+            // Notify before publishing: the snapshot push is the more failure-prone of the two,
+            // and a realtime hiccup must not cost the displaced bidder their notification.
+            if (displaced != null) {
+                NotificationService.notifyOutbid(auctionIdFinal, displaced);
+            }
             AuctionEventPublisher.publishSnapshot(auctionIdFinal);
         } catch (Exception e) {
             // Auto-bid stored; processing failed — log and continue.

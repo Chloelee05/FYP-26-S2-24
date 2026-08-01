@@ -11,6 +11,8 @@ package com.auction.telegram;
  *       {@code X-Telegram-Bot-Api-Secret-Token}; the webhook rejects anything else</li>
  *   <li>{@code AUCTION_TELEGRAM_PEPPER} — server-side pepper mixed into the chat-id hash so a
  *       stolen database alone cannot be brute-forced back to chat ids</li>
+ *   <li>{@code AUCTION_PUBLIC_BASE_URL} — optional public address of the deployment, used to
+ *       link alerts back to the auction</li>
  * </ul>
  *
  * <p>Mirrors {@link com.auction.util.MailConfig#isSmtpConfigured()}: when
@@ -57,6 +59,21 @@ public final class TelegramConfig {
     public static String pepper() {
         String env = firstNonBlank(System.getenv("AUCTION_TELEGRAM_PEPPER"));
         return env != null ? env : "auctionhub-dev-telegram-pepper";
+    }
+
+    /**
+     * Public address of this deployment, e.g.
+     * {@code https://fyp-26-s2-24.onrender.com/online-auction}, used to put a "View auction"
+     * link in an alert. Optional: unset means alerts simply carry no link, which is better
+     * than guessing a host and shipping a dead one. Any trailing slash is dropped so callers
+     * can always append {@code /path}.
+     */
+    public static String publicBaseUrl() {
+        String raw = firstNonBlank(System.getenv("AUCTION_PUBLIC_BASE_URL"));
+        if (raw == null) {
+            return null;
+        }
+        return raw.endsWith("/") ? raw.substring(0, raw.length() - 1) : raw;
     }
 
     /** Deep link that opens the bot and hands it {@code token} as the {@code /start} payload. */

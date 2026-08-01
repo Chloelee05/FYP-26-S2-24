@@ -93,6 +93,10 @@ public final class AuctionFinalizer {
             FinalizeResult r = DBUtil.runInTransaction(conn -> finalizeIfEnded(conn, auctionId));
             if (r.finalized && r.winnerId > 0) {
                 NotificationService.notifyAuctionWonIfAbsent(auctionId, r.winnerId);
+                // Everyone else who bid. Deduplicated per recipient inside the service, which
+                // matters here because this method is re-entered by the 60-second sweep and by
+                // any page that lazily finalises the same auction.
+                NotificationService.notifyAuctionLost(auctionId, r.winnerId);
             } else if (r.finalized && r.winnerId <= 0) {
                 NotificationService.notifyAuctionEndedUnsold(auctionId);
             }

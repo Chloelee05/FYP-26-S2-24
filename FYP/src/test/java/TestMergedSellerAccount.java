@@ -336,7 +336,7 @@ class TestMergedSellerAccount {
         void biddingAllowed() throws Exception {
             BidDAO dao = mock(BidDAO.class);
             when(dao.getAuctionTypeId(11L)).thenReturn(AuctionType.PRICE_UP.getId());
-            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidResult.SUCCESS);
+            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidOutcome.of(BidDAO.BidResult.SUCCESS));
             BidWrapper servlet = new BidWrapper();
             servlet.setBidDAO(dao);
 
@@ -354,7 +354,7 @@ class TestMergedSellerAccount {
         void selfBidStillRejected() throws Exception {
             BidDAO dao = mock(BidDAO.class);
             when(dao.getAuctionTypeId(11L)).thenReturn(AuctionType.PRICE_UP.getId());
-            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidResult.SELF_BID);
+            when(dao.placeBid(11L, 4, new BigDecimal("75"))).thenReturn(BidDAO.BidOutcome.of(BidDAO.BidResult.SELF_BID));
             BidWrapper servlet = new BidWrapper();
             servlet.setBidDAO(dao);
 

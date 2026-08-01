@@ -88,6 +88,8 @@ public class BidApiServlet extends ApiBase {
         if (result == BidResult.SUCCESS) {
             AuctionEventPublisher.publishSnapshot(auctionId);
             NotificationService.notifyAuctionWon(auctionId, buyerId);
+            // A Buy It Now ends the auction under everyone else's feet — they need telling.
+            NotificationService.notifyAuctionLost(auctionId, buyerId);
             okMsg(resp, "Buy It Now successful — you won this auction!");
         } else {
             error(resp, 400, toMessage(result));
@@ -99,14 +101,19 @@ public class BidApiServlet extends ApiBase {
         BigDecimal bidAmount = parseAmount(req, resp);
         if (bidAmount == null) return;
 
-        BidResult result = bidDAO.placeBid(auctionId, buyerId, bidAmount);
-        if (result == BidResult.SUCCESS) {
+        BidDAO.BidOutcome outcome = bidDAO.placeBid(auctionId, buyerId, bidAmount);
+        if (outcome.isSuccess()) {
             AuctionEventPublisher.publishSnapshot(auctionId);
-            NotificationService.notifyOutbid(auctionId, buyerId);
+            // The DAO reports who actually lost the lead, which is not always the previous
+            // leader: a proxy auto-bid may have outbid this buyer inside the same transaction.
+            Integer displaced = outcome.displacedBidderId();
+            if (displaced != null) {
+                NotificationService.notifyOutbid(auctionId, displaced);
+            }
             NotificationService.notifySellerNewBid(auctionId, bidAmount);
             okMsg(resp, "Bid of $" + bidAmount.toPlainString() + " placed successfully!");
         } else {
-            error(resp, 400, toMessage(result));
+            error(resp, 400, toMessage(outcome.result));
         }
     }
 
@@ -115,6 +122,8 @@ public class BidApiServlet extends ApiBase {
         if (result == BidResult.SUCCESS) {
             AuctionEventPublisher.publishSnapshot(auctionId);
             NotificationService.notifyAuctionWon(auctionId, buyerId);
+            // First acceptance closes the clock for everyone still waiting for it to fall.
+            NotificationService.notifyAuctionLost(auctionId, buyerId);
             okMsg(resp, "You accepted the current price and won this Dutch auction!");
         } else {
             error(resp, 400, toMessage(result));

@@ -65,7 +65,7 @@ class TestBidApiServlet {
         when(req.getParameter("auctionId")).thenReturn("10");
         when(req.getParameter("bidAmount")).thenReturn("100");
         when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
-        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SUCCESS);
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
@@ -82,7 +82,7 @@ class TestBidApiServlet {
         when(req.getParameter("auctionId")).thenReturn("10");
         when(req.getParameter("bidAmount")).thenReturn("100");
         when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
-        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SUCCESS);
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
@@ -98,7 +98,7 @@ class TestBidApiServlet {
         when(req.getParameter("auctionId")).thenReturn("10");
         when(req.getParameter("bidAmount")).thenReturn("100");
         when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
-        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SELF_BID);
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SELF_BID));
 
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
@@ -124,7 +124,7 @@ class TestBidApiServlet {
         when(req.getParameter("auctionId")).thenReturn("10");
         when(req.getParameter("bidAmount")).thenReturn("100");
         when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
-        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidResult.SUCCESS);
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("100"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
@@ -140,7 +140,7 @@ class TestBidApiServlet {
         when(req.getParameter("auctionId")).thenReturn("10");
         when(req.getParameter("bidAmount")).thenReturn("50");
         when(mockDAO.getAuctionTypeId(10L)).thenReturn(AuctionType.PRICE_UP.getId());
-        when(mockDAO.placeBid(10L, 5, new BigDecimal("50"))).thenReturn(BidResult.BID_TOO_LOW);
+        when(mockDAO.placeBid(10L, 5, new BigDecimal("50"))).thenReturn(BidDAO.BidOutcome.of(BidResult.BID_TOO_LOW));
 
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);

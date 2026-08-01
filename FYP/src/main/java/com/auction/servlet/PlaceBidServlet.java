@@ -2,6 +2,7 @@ package com.auction.servlet;
 
 import com.auction.dao.BidDAO;
 import com.auction.dao.BidDAO.BidResult;
+import com.auction.notification.NotificationService;
 import com.auction.util.RbacUtil;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -101,9 +102,9 @@ public class PlaceBidServlet extends HttpServlet {
             return;
         }
 
-        BidResult result;
+        BidDAO.BidOutcome outcome;
         try {
-            result = bidDAO.placeBid(auctionId, buyerId, bidAmount);
+            outcome = bidDAO.placeBid(auctionId, buyerId, bidAmount);
         } catch (RuntimeException e) {
             LOGGER.severe(String.format("placeBid error [auctionId=%d, buyerId=%d]: %s",
                     auctionId, buyerId, e.getMessage()));
@@ -111,13 +112,20 @@ public class PlaceBidServlet extends HttpServlet {
             return;
         }
 
-        if (result == BidResult.SUCCESS) {
+        if (outcome.isSuccess()) {
             // SCRUM-295: log only IDs and amount — no PII (no session token, no email)
             LOGGER.info(String.format("Bid placed [auctionId=%d, buyerId=%d, amount=%s].",
                     auctionId, buyerId, bidAmount.toPlainString()));
+            // This path never told the displaced bidder anything, so a bid placed from the
+            // JSP page silently produced no notification at all. Same call as the API path.
+            Integer displaced = outcome.displacedBidderId();
+            if (displaced != null) {
+                NotificationService.notifyOutbid(auctionId, displaced);
+            }
+            NotificationService.notifySellerNewBid(auctionId, bidAmount);
             session.setAttribute("bidFlash", "Your bid of $" + bidAmount.toPlainString() + " was placed successfully!");
         } else {
-            session.setAttribute("bidFlashError", toMessage(result));
+            session.setAttribute("bidFlashError", toMessage(outcome.result));
         }
 
         resp.sendRedirect(req.getContextPath() + "/auction/" + auctionId);

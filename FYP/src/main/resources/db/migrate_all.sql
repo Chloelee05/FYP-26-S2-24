@@ -103,4 +103,7 @@
 \echo '== Telegram notifications (links, one-time codes, outbox, preferences, copy) =='
 \ir migration_telegram_notifications.sql
 
+\echo '== Telegram alert bodies (outbid / won / lost) =='
+\ir migration_telegram_alerts.sql
+
 \echo 'All migrations applied.'

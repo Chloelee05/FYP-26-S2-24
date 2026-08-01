@@ -201,7 +201,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(99);
             when(req.getParameter("auctionId")).thenReturn("7");
             when(req.getParameter("bidAmount")).thenReturn("50.00");
-            when(mockDAO.placeBid(7L, 99, new BigDecimal("50.00"))).thenReturn(BidResult.SUCCESS);
+            when(mockDAO.placeBid(7L, 99, new BigDecimal("50.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
             servlet.doPost(req, resp);
 
@@ -225,7 +225,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("150.00");
-            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidResult.SUCCESS);
+            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
             servlet.doPost(req, resp);
 
@@ -241,7 +241,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("99.99");
-            when(mockDAO.placeBid(anyLong(), anyInt(), any())).thenReturn(BidResult.SUCCESS);
+            when(mockDAO.placeBid(anyLong(), anyInt(), any())).thenReturn(BidDAO.BidOutcome.of(BidResult.SUCCESS));
 
             servlet.doPost(req, resp);
 
@@ -265,7 +265,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(3);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("200.00");
-            when(mockDAO.placeBid(10L, 3, new BigDecimal("200.00"))).thenReturn(BidResult.SELF_BID);
+            when(mockDAO.placeBid(10L, 3, new BigDecimal("200.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.SELF_BID));
 
             servlet.doPost(req, resp);
 
@@ -291,7 +291,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("100.00");
-            when(mockDAO.placeBid(10L, 5, new BigDecimal("100.00"))).thenReturn(BidResult.BID_TOO_LOW);
+            when(mockDAO.placeBid(10L, 5, new BigDecimal("100.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.BID_TOO_LOW));
 
             servlet.doPost(req, resp);
 
@@ -307,7 +307,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("150.00");
-            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidResult.AUCTION_CLOSED);
+            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.AUCTION_CLOSED));
 
             servlet.doPost(req, resp);
 
@@ -323,7 +323,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("150.00");
-            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidResult.AUCTION_REMOVED);
+            when(mockDAO.placeBid(10L, 5, new BigDecimal("150.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.AUCTION_REMOVED));
 
             servlet.doPost(req, resp);
 
@@ -337,7 +337,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("10");
             when(req.getParameter("bidAmount")).thenReturn("9999.00");
-            when(mockDAO.placeBid(10L, 5, new BigDecimal("9999.00"))).thenReturn(BidResult.EXCEEDS_MAX_PRICE);
+            when(mockDAO.placeBid(10L, 5, new BigDecimal("9999.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.EXCEEDS_MAX_PRICE));
 
             servlet.doPost(req, resp);
 
@@ -351,7 +351,7 @@ public class TestPlaceBidServlet {
             stubBuyerSession(5);
             when(req.getParameter("auctionId")).thenReturn("9999");
             when(req.getParameter("bidAmount")).thenReturn("50.00");
-            when(mockDAO.placeBid(9999L, 5, new BigDecimal("50.00"))).thenReturn(BidResult.AUCTION_NOT_FOUND);
+            when(mockDAO.placeBid(9999L, 5, new BigDecimal("50.00"))).thenReturn(BidDAO.BidOutcome.of(BidResult.AUCTION_NOT_FOUND));
 
             servlet.doPost(req, resp);
 

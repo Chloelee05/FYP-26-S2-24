@@ -3,6 +3,7 @@ package com.auction.notification;
 import com.auction.dao.NotificationDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.telegram.TelegramAlerts;
 import com.auction.util.DBUtil;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
@@ -10,11 +11,18 @@ import com.auction.util.OtpMailer;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
- * Generates in-app notifications (and best-effort email when SMTP is configured)
- * for bidding results, account decisions, Q&amp;A replies and orders.
+ * Generates in-app notifications for bidding results, account decisions, Q&amp;A replies and
+ * orders, plus best-effort email when SMTP is configured and a queued Telegram push when
+ * the user has connected the bot.
+ *
+ * <p>All three channels funnel through one private {@code create}, so an event that a user
+ * has opted out of is suppressed everywhere at once and a channel cannot drift from the
+ * others.</p>
  *
  * <p>All methods are best-effort and never throw: a notification failure must not
  * break the primary action (placing a bid, approving a user, etc.).</p>
@@ -29,17 +37,31 @@ public final class NotificationService {
 
     // ── Public event hooks ────────────────────────────────────────────────────
 
-    /** Notifies the previous top bidder (runner-up) that they have been outbid. */
-    public static void notifyOutbid(long auctionId, int newLeaderId) {
+    /**
+     * Notifies {@code displacedUserId} that they no longer hold the top bid.
+     *
+     * <p>The recipient is passed in rather than derived here. It used to be looked up as
+     * "highest bidder who is not the caller", which silently named the wrong person whenever
+     * a proxy auto-bid counter-bid inside the same transaction: the auto-bidder was both the
+     * highest other bidder and the current leader, so the winner was told they had lost
+     * while the bidder they had actually displaced heard nothing. Only the caller, which can
+     * see the leader before and after auto-bid resolution, knows who was really displaced —
+     * see {@code BidDAO.BidOutcome#displacedBidderId()}.</p>
+     *
+     * <p>Privacy: the message never names who outbid them. That identity is personal data
+     * and, in a live auction, tells the recipient how much further their opponent is likely
+     * to go.</p>
+     */
+    public static void notifyOutbid(long auctionId, int displacedUserId) {
         safe(() -> {
-            Integer runnerUp = runnerUpBidder(auctionId, newLeaderId);
-            if (runnerUp == null) return;
-            String title = auctionTitle(auctionId);
-            create(runnerUp, "OUTBID",
-                    "You've been outbid on \"" + title + "\".",
+            AuctionSummary summary = auctionSummary(auctionId);
+            create(displacedUserId, "OUTBID",
+                    "You've been outbid on \"" + summary.title + "\".",
                     "/auction/" + auctionId,
                     "You've been outbid",
-                    "Someone placed a higher bid on \"" + title + "\". Visit AuctionHub to bid again.");
+                    "Someone placed a higher bid on \"" + summary.title
+                            + "\". Visit AuctionHub to bid again.",
+                    TelegramAlerts.outbid(auctionId, displacedUserId, summary.title, summary.topBid));
         });
     }
 
@@ -75,12 +97,14 @@ public final class NotificationService {
     /** Notifies the winner that they won, and the seller that their item sold. */
     public static void notifyAuctionWon(long auctionId, int winnerId) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
+            AuctionSummary summary = auctionSummary(auctionId);
+            String title = summary.title;
             create(winnerId, "WON",
                     "Congratulations! You won \"" + title + "\". Complete payment to finish the transaction.",
                     "/auction/" + auctionId,
                     "You won an auction",
-                    "You won \"" + title + "\" on AuctionHub. Log in to complete payment.");
+                    "You won \"" + title + "\" on AuctionHub. Log in to complete payment.",
+                    TelegramAlerts.won(auctionId, winnerId, title, summary.topBid));
             Integer sellerId = sellerOf(auctionId);
             if (sellerId != null) {
                 create(sellerId, "SOLD",
@@ -98,6 +122,43 @@ public final class NotificationService {
             String link = "/auction/" + auctionId;
             if (notificationDAO.exists(winnerId, "WON", link)) return;
             notifyAuctionWon(auctionId, winnerId);
+        });
+    }
+
+    /**
+     * Tells everyone who bid on a concluded auction, other than the winner, that it closed
+     * without them.
+     *
+     * <p>An auction can conclude four ways — the clock running out, the seller declaring a
+     * winner, a Buy It Now, or a Dutch acceptance — and time expiry is itself re-entrant,
+     * since {@code AuctionFinalizer} is called both by the 60-second sweep and lazily by any
+     * page that loads an ended auction. Rather than making each of those paths remember
+     * whether it has already announced the result, every recipient is deduplicated on
+     * {@code (userId, "LOST", link)}, the same way {@link #notifyAuctionWonIfAbsent} is.
+     * The Telegram leg carries {@code LOST:{auctionId}:{userId}} into the outbox's own
+     * dedupe index, so a re-entry that races the first one still cannot double-send.</p>
+     *
+     * <p>Privacy: the message carries the title and the final price only. Naming the winner
+     * would disclose one member's purchase to every rival bidder, which is neither necessary
+     * for the notification to be useful nor something the loser has any right to know.</p>
+     *
+     * @param winnerId the excluded winner, or a non-positive value when the auction ended
+     *                 with no winner at all
+     */
+    public static void notifyAuctionLost(long auctionId, int winnerId) {
+        safe(() -> {
+            AuctionSummary summary = auctionSummary(auctionId);
+            String link = "/auction/" + auctionId;
+            for (int loserId : losingBidders(auctionId, winnerId)) {
+                if (notificationDAO.exists(loserId, "LOST", link)) continue;
+                create(loserId, "LOST",
+                        "\"" + summary.title + "\" closed without you. The winning bid was higher than yours.",
+                        link,
+                        "An auction closed without you",
+                        "\"" + summary.title + "\" has ended on AuctionHub and your bid was not the winning one. "
+                                + "Browse similar listings to keep looking.",
+                        TelegramAlerts.lost(auctionId, loserId, summary.title, summary.topBid));
+            }
         });
     }
 
@@ -337,6 +398,25 @@ public final class NotificationService {
 
     private static void create(int userId, String type, String message, String link,
                                String emailSubject, String emailBody) {
+        create(userId, type, message, link, emailSubject, emailBody, null);
+    }
+
+    /**
+     * The single funnel every notification passes through, now for three channels.
+     *
+     * <p>{@code allowedByPreference} is checked once, here, and decides for all of them: if
+     * an event is suppressed it is suppressed everywhere, and a new channel cannot drift
+     * from the others because there is only one place the decision is made. That is also why
+     * the Telegram enqueue lives here rather than beside each {@code notify*} caller — the
+     * legacy JSP bid path reaches the same {@link #notifyOutbid} and therefore gets Telegram
+     * delivery without knowing Telegram exists.</p>
+     *
+     * @param telegram the Telegram body for this event, or {@code null} for the event types
+     *                 that have no push equivalent (admin alerts, receipts, order chatter)
+     */
+    private static void create(int userId, String type, String message, String link,
+                               String emailSubject, String emailBody,
+                               TelegramAlerts.Alert telegram) {
         if (!allowedByPreference(userId, type)) return;
         notificationDAO.create(userId, type, message, link);
         if (MailConfig.isSmtpConfigured()) {
@@ -349,6 +429,7 @@ public final class NotificationService {
                 LOG.fine("Notification email skipped: " + e.getMessage());
             }
         }
+        TelegramNotifier.enqueue(userId, telegram);
     }
 
     /**
@@ -371,6 +452,39 @@ public final class NotificationService {
     }
 
     // ── Lookups ──────────────────────────────────────────────────────────────
+
+    /** The two facts every bid-related alert needs: what it is and what it costs. */
+    private static final class AuctionSummary {
+        final String title;
+        /** Highest bid so far, i.e. the price to beat or the price it closed at. */
+        final java.math.BigDecimal topBid;
+
+        AuctionSummary(String title, java.math.BigDecimal topBid) {
+            this.title = title;
+            this.topBid = topBid;
+        }
+    }
+
+    /** Title and current top bid in one round trip, since every caller needs both. */
+    private static AuctionSummary auctionSummary(long auctionId) {
+        String sql = "SELECT d.title, (SELECT MAX(bid_amount) FROM bids WHERE auction_id = d.id) AS top_bid "
+                + "FROM auction_details d WHERE d.id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String title = rs.getString("title");
+                    return new AuctionSummary(
+                            (title == null || title.isBlank()) ? "your item" : title,
+                            rs.getBigDecimal("top_bid"));
+                }
+            }
+        } catch (Exception e) {
+            LOG.fine("auctionSummary lookup failed: " + e.getMessage());
+        }
+        return new AuctionSummary("your item", null);
+    }
 
     private static String auctionTitle(long auctionId) {
         String sql = "SELECT title FROM auction_details WHERE id = ?";
@@ -426,21 +540,24 @@ public final class NotificationService {
         return null;
     }
 
-    /** Highest bidder other than {@code excludeUserId}, i.e. the user just outbid. */
-    private static Integer runnerUpBidder(long auctionId, int excludeUserId) {
-        String sql = "SELECT user_id FROM bids WHERE auction_id = ? AND user_id <> ? "
-                + "ORDER BY bid_amount DESC, bid_time DESC LIMIT 1";
+    /**
+     * Every distinct bidder on the auction except {@code winnerId}. One row per person
+     * however many times they bid, so a buyer who was outbid five times is told once.
+     */
+    private static List<Integer> losingBidders(long auctionId, int winnerId) {
+        String sql = "SELECT DISTINCT user_id FROM bids WHERE auction_id = ? AND user_id <> ?";
+        List<Integer> out = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, auctionId);
-            ps.setInt(2, excludeUserId);
+            ps.setInt(2, winnerId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getInt(1);
+                while (rs.next()) out.add(rs.getInt(1));
             }
         } catch (Exception e) {
-            LOG.fine("runnerUpBidder lookup failed: " + e.getMessage());
+            LOG.fine("losingBidders lookup failed: " + e.getMessage());
         }
-        return null;
+        return out;
     }
 
     private static void safe(Runnable r) {

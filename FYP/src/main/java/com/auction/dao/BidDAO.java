@@ -81,6 +81,68 @@ public class BidDAO {
         WRONG_AUCTION_TYPE
     }
 
+    /**
+     * What {@link #placeBid} did, including who lost the lead because of it.
+     *
+     * <p>The leader is captured twice — before the manual bid is inserted and again after
+     * {@link AutoBidDAO#processAutoBids} has resolved every proxy counter-bid — because those
+     * two facts together are the only reliable way to know who was displaced. Reading the bid
+     * table afterwards cannot tell them apart: by the time the transaction commits, an
+     * auto-bidder who counter-bid is simultaneously the current leader and the highest bidder
+     * other than the caller, so any "runner-up" query names the winner.</p>
+     */
+    public static final class BidOutcome {
+        public final BidResult result;
+        /** Who held the top bid before this bid was placed; {@code null} if there were none. */
+        public final Integer previousTopBidderId;
+        /** Who holds the top bid now, after proxy auto-bids; {@code null} if there are none. */
+        public final Integer finalTopBidderId;
+        /** The buyer whose manual bid this was. */
+        public final int buyerId;
+
+        BidOutcome(BidResult result, Integer previousTopBidderId, Integer finalTopBidderId, int buyerId) {
+            this.result = result;
+            this.previousTopBidderId = previousTopBidderId;
+            this.finalTopBidderId = finalTopBidderId;
+            this.buyerId = buyerId;
+        }
+
+        /** A rejection, with no leader information to report. */
+        public static BidOutcome of(BidResult result) {
+            return new BidOutcome(result, null, null, 0);
+        }
+
+        public boolean isSuccess() {
+            return result == BidResult.SUCCESS;
+        }
+
+        /**
+         * The bidder this bid actually knocked off the top, or {@code null} when nobody was.
+         *
+         * <p>Two cases. If the caller's bid still stands, they took the lead from whoever held
+         * it before. If it does not, a proxy auto-bid outbid them within the same transaction,
+         * and the person displaced is the caller themselves — which is exactly the case the
+         * old runner-up lookup got backwards.</p>
+         *
+         * <p>Returns {@code null} when the answer would be the current leader, so nobody is
+         * ever told they were outbid by themselves.</p>
+         */
+        public Integer displacedBidderId() {
+            // No known leader means no leader information was captured, not that the caller
+            // displaced somebody — a successful bid always leaves someone on top.
+            if (!isSuccess() || finalTopBidderId == null) {
+                return null;
+            }
+            Integer displaced = finalTopBidderId == buyerId
+                    ? previousTopBidderId
+                    : Integer.valueOf(buyerId);
+            if (displaced == null || displaced.equals(finalTopBidderId)) {
+                return null;
+            }
+            return displaced;
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Place bid (SCRUM-263 + SCRUM-265)
     // -------------------------------------------------------------------------
@@ -95,11 +157,12 @@ public class BidDAO {
      * @param auctionId  ID of the target auction (parsed server-side, not trusted from client)
      * @param buyerId    ID of the authenticated buyer (read from session, not from request)
      * @param bidAmount  proposed bid amount; must be positive
-     * @return a {@link BidResult} indicating success or the specific rejection reason
+     * @return a {@link BidOutcome} carrying success or the specific rejection reason, plus
+     *         the leader before and after auto-bid resolution
      */
-    public BidResult placeBid(long auctionId, int buyerId, BigDecimal bidAmount) {
+    public BidOutcome placeBid(long auctionId, int buyerId, BigDecimal bidAmount) {
         if (bidAmount == null || bidAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            return BidResult.BID_TOO_LOW;
+            return BidOutcome.of(BidResult.BID_TOO_LOW);
         }
 
         Connection conn = null;
@@ -129,7 +192,7 @@ public class BidDAO {
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         conn.rollback();
-                        return BidResult.AUCTION_NOT_FOUND;
+                        return BidOutcome.of(BidResult.AUCTION_NOT_FOUND);
                     }
                     statusId = rs.getInt("status_id");
                     dateEnd = rs.getTimestamp("date_end").toInstant();
@@ -144,17 +207,17 @@ public class BidDAO {
             // SCRUM-263: auction must be ACTIVE and not expired
             if (statusId != AuctionStatus.ACTIVE.getId() || Instant.now().isAfter(dateEnd)) {
                 conn.rollback();
-                return BidResult.AUCTION_CLOSED;
+                return BidOutcome.of(BidResult.AUCTION_CLOSED);
             }
             // Moderation check
             if (!"active".equals(moderationState)) {
                 conn.rollback();
-                return BidResult.AUCTION_REMOVED;
+                return BidOutcome.of(BidResult.AUCTION_REMOVED);
             }
             // SCRUM-266: self-bid guard
             if (sellerId == buyerId) {
                 conn.rollback();
-                return BidResult.SELF_BID;
+                return BidOutcome.of(BidResult.SELF_BID);
             }
 
             // Fetch current highest bid (within same transaction)
@@ -174,14 +237,18 @@ public class BidDAO {
             // SCRUM-263/SCRUM-267: bid must be strictly greater than floor
             if (bidAmount.compareTo(floor) <= 0) {
                 conn.rollback();
-                return BidResult.BID_TOO_LOW;
+                return BidOutcome.of(BidResult.BID_TOO_LOW);
             }
 
             // Max-price cap check (SCRUM-263)
             if (maxPrice != null && bidAmount.compareTo(maxPrice) > 0) {
                 conn.rollback();
-                return BidResult.EXCEEDS_MAX_PRICE;
+                return BidOutcome.of(BidResult.EXCEEDS_MAX_PRICE);
             }
+
+            // Who is being displaced has to be read before the insert: afterwards the caller
+            // is the leader and the previous holder is indistinguishable from any other bidder.
+            Integer previousTopBidder = topBidderId(conn, auctionId);
 
             // All checks passed — insert manual bid
             String insertSql =
@@ -197,8 +264,12 @@ public class BidDAO {
             // SCRUM-52: trigger proxy auto-bids within the same transaction
             autoBidDAO.processAutoBids(conn, auctionId);
 
+            // Read the leader again: a proxy auto-bid may already have taken the lead back
+            // off the caller, in which case the caller is the one who has been outbid.
+            Integer finalTopBidder = topBidderId(conn, auctionId);
+
             conn.commit();
-            return BidResult.SUCCESS;
+            return new BidOutcome(BidResult.SUCCESS, previousTopBidder, finalTopBidder, buyerId);
 
         } catch (Exception e) {
             if (conn != null) {
@@ -211,6 +282,26 @@ public class BidDAO {
                     conn.setAutoCommit(true);
                     conn.close();
                 } catch (SQLException ignored) { }
+            }
+        }
+    }
+
+    /**
+     * Who holds the top bid, read inside the caller's transaction, or {@code null} when there
+     * are no bids.
+     *
+     * <p>Ordered {@code bid_amount DESC, bid_time ASC} to match {@code AuctionFinalizer} and
+     * {@link AutoBidDAO#processAutoBids} — that is, whoever this returns is the person who
+     * would win if the auction ended now. Ties on time cannot decide anything here because
+     * every bid on an auction has a distinct amount.</p>
+     */
+    public static Integer topBidderId(Connection conn, long auctionId) throws SQLException {
+        String sql = "SELECT user_id FROM bids WHERE auction_id = ? "
+                + "ORDER BY bid_amount DESC, bid_time ASC LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt("user_id") : null;
             }
         }
     }

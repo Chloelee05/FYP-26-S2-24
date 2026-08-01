@@ -168,10 +168,15 @@ public class SetAutoBidServlet extends HttpServlet {
 
         // SCRUM-296: no client-trusted auto-bid logic — fire proxy resolution server-side
         try {
-            com.auction.util.DBUtil.runInTransaction(conn -> {
+            Integer displaced = com.auction.util.DBUtil.runInTransaction(conn -> {
+                Integer before = com.auction.dao.BidDAO.topBidderId(conn, auctionId);
                 autoBidDAO.processAutoBids(conn, auctionId);
-                return null;
+                Integer after = com.auction.dao.BidDAO.topBidderId(conn, auctionId);
+                return (before != null && !before.equals(after)) ? before : null;
             });
+            if (displaced != null) {
+                com.auction.notification.NotificationService.notifyOutbid(auctionId, displaced);
+            }
         } catch (Exception e) {
             // Auto-bid stored; processing failed — log and continue (bid will fire next cycle)
             LOGGER.warning("SetAutoBidServlet processAutoBids failed: " + e.getMessage());

@@ -77,6 +77,9 @@ public class OrderApiServlet extends ApiBase {
         if (r.status == DeclareStatus.SUCCESS) {
             AuctionEventPublisher.publishSnapshot(auctionId);
             NotificationService.notifyAuctionWon(auctionId, r.winnerId);
+            // Declaring a winner — early or at the end — concludes the auction for everyone
+            // else who bid, so they are told too.
+            NotificationService.notifyAuctionLost(auctionId, r.winnerId);
             okMsg(resp, early ? "Winner declared early and order created." : "Winner declared and order created.");
         } else {
             error(resp, 400, declareMessage(r.status));
