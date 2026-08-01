@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { UploadCloud, X } from 'lucide-react';
 import { uploadAuctionImage } from '../api/seller';
 import { publicPath } from '../utils/appBase';
+import { apiErrorMessage } from '../utils/apiError';
 
 /**
  * Props:
@@ -20,6 +21,15 @@ export default function ImageUploader({ existingImages = [], onChange }) {
   const [deletedIds, setDeletedIds] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+
+  // Preview thumbnails are blob: URLs, which the browser holds until they are
+  // revoked. Mirror the list into a ref so unmount can release whatever is left
+  // without the cleanup re-running on every add or remove.
+  const uploadedRef = useRef(uploaded);
+  useEffect(() => { uploadedRef.current = uploaded; }, [uploaded]);
+  useEffect(() => () => {
+    uploadedRef.current.forEach(u => URL.revokeObjectURL(u.localUrl));
+  }, []);
 
   const notify = (nextUploaded, nextDeletedIds) => {
     onChange(
@@ -40,8 +50,7 @@ export default function ImageUploader({ existingImages = [], onChange }) {
         const res = await uploadAuctionImage(file);
         results.push({ localUrl: URL.createObjectURL(file), serverUrl: res.data.imageUrl });
       } catch (err) {
-        const msg = err.response?.data?.error || err.response?.data?.message;
-        setError(msg || `Upload failed (HTTP ${err.response?.status ?? 'network error'})`);
+        setError(apiErrorMessage(err, `Upload failed (HTTP ${err.response?.status ?? 'network error'})`));
       }
     }
     const nextUploaded = [...uploaded, ...results];
@@ -59,6 +68,8 @@ export default function ImageUploader({ existingImages = [], onChange }) {
   };
 
   const removeUploaded = (serverUrl) => {
+    const removed = uploaded.find(u => u.serverUrl === serverUrl);
+    if (removed) URL.revokeObjectURL(removed.localUrl);
     const nextUploaded = uploaded.filter(u => u.serverUrl !== serverUrl);
     setUploaded(nextUploaded);
     notify(nextUploaded, deletedIds);
@@ -81,7 +92,7 @@ export default function ImageUploader({ existingImages = [], onChange }) {
         <div className="flex flex-wrap gap-2">
           {allImages.map((img, i) => (
             <div key={img.key} className="relative w-20 h-20 shrink-0 group">
-              <img src={img.src} alt="" className="w-full h-full object-cover rounded-xl border border-ink-200" />
+              <img src={img.src} alt="" className="w-full h-full object-contain bg-ink-50 p-1 rounded-xl border border-ink-200" />
               {i === 0 && (
                 <span className="absolute bottom-1 left-1 rounded bg-ink-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   Cover

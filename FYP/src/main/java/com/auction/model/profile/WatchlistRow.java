@@ -14,6 +14,8 @@ public final class WatchlistRow implements Serializable {
     private Instant endDate;
     private int bidCount;
     private int userId;
+    /** First listing image, so the row can show the item instead of a placeholder. */
+    private String thumbnailUrl;
 
     public WatchlistRow()
     {
@@ -21,6 +23,11 @@ public final class WatchlistRow implements Serializable {
 
     public WatchlistRow(long auctionId, String title, int statusId, Instant addedAt,
                         BigDecimal currentBid, Instant endDate, int bidCount) {
+        this(auctionId, title, statusId, addedAt, currentBid, endDate, bidCount, null);
+    }
+
+    public WatchlistRow(long auctionId, String title, int statusId, Instant addedAt,
+                        BigDecimal currentBid, Instant endDate, int bidCount, String thumbnailUrl) {
         this.auctionId  = auctionId;
         this.title      = title;
         this.statusId   = statusId;
@@ -28,6 +35,7 @@ public final class WatchlistRow implements Serializable {
         this.currentBid = currentBid;
         this.endDate    = endDate;
         this.bidCount   = bidCount;
+        this.thumbnailUrl = thumbnailUrl;
     }
 
     public long getAuctionId()        { return auctionId; }
@@ -72,6 +80,13 @@ public final class WatchlistRow implements Serializable {
     public void setBidCount(int bidCount)
     {
         this.bidCount = bidCount;
+    }
+
+    public String getThumbnailUrl() { return thumbnailUrl; }
+
+    public void setThumbnailUrl(String thumbnailUrl)
+    {
+        this.thumbnailUrl = thumbnailUrl;
     }
 
     public int getUserId()

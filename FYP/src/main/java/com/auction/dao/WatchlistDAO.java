@@ -154,7 +154,9 @@ public class WatchlistDAO {
         String sql =
                 "SELECT a.auction_id, ad.title, a.status_id, w.added_at, a.date_end, "
                 + "COALESCE(MAX(b.bid_amount), ad.starting_price) AS current_bid, "
-                + "COUNT(b.bid_id) AS bid_count "
+                + "COUNT(b.bid_id) AS bid_count, "
+                + "(SELECT i.image_url FROM auction_images i WHERE i.auction_id = a.auction_id "
+                + " ORDER BY i.id LIMIT 1) AS thumbnail_url "
                 + "FROM watchlist w "
                 + "JOIN auction a ON a.auction_id = w.auction_id "
                 + "JOIN auction_details ad ON ad.id = a.auction_id "
@@ -181,7 +183,8 @@ public class WatchlistDAO {
                             addedAt,
                             rs.getBigDecimal("current_bid"),
                             endDate,
-                            rs.getInt("bid_count")));
+                            rs.getInt("bid_count"),
+                            rs.getString("thumbnail_url")));
                 }
             }
         } catch (Exception e) {

@@ -158,7 +158,11 @@ public class ProfileActivityDAO {
         // then compare in Java to avoid any SQL type/precision equality edge cases.
         String sql =
             "SELECT ub.auction_id, d.title, ub.my_max AS bid_amount, ub.last_bid AS bid_time, "
-          + "       a.date_end, top.max_bid AS auction_max_bid "
+          + "       a.date_end, top.max_bid AS auction_max_bid, "
+          + "       (SELECT i.image_url FROM auction_images i WHERE i.auction_id = ub.auction_id "
+          + "        ORDER BY i.id LIMIT 1) AS thumbnail_url, "
+          + "       EXISTS (SELECT 1 FROM user_reviews ur "
+          + "               WHERE ur.auction_id = ub.auction_id AND ur.reviewer_user_id = ?) AS rated "
           + "FROM (SELECT auction_id, MAX(bid_amount) AS my_max, MAX(bid_time) AS last_bid "
           + "      FROM bids WHERE user_id = ? GROUP BY auction_id) ub "
           + "JOIN auction a          ON a.auction_id = ub.auction_id "
@@ -170,8 +174,9 @@ public class ProfileActivityDAO {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, userId);
-            ps.setInt(2, size);
-            ps.setInt(3, (page - 1) * size);
+            ps.setInt(2, userId);
+            ps.setInt(3, size);
+            ps.setInt(4, (page - 1) * size);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     long auctionId = rs.getLong("auction_id");
@@ -188,7 +193,8 @@ public class ProfileActivityDAO {
                     boolean won = ended
                             && amount != null && auctionMax != null
                             && amount.compareTo(auctionMax) >= 0;
-                    list.add(new BidHistoryRow(auctionId, title, amount, bidTime, status, won));
+                    list.add(new BidHistoryRow(auctionId, title, amount, bidTime, status, won,
+                            rs.getString("thumbnail_url"), rs.getBoolean("rated")));
                 }
             }
         } catch (Exception e) {

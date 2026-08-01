@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Package, Gavel } from 'lucide-react';
+import { Star, Package, Gavel, Check } from 'lucide-react';
 import { getBiddingHistory } from '../api/auction';
 import { formatCurrency } from '../utils/helpers';
+import { publicPath } from '../utils/appBase';
 
 // Backend BidHistoryRow fields: auctionId, itemTitle, bidAmount, bidTime, auctionStatus ("Live"/"Ended"), won (boolean)
 const deriveStatus = (row) => {
@@ -69,9 +70,21 @@ export default function BiddingHistory() {
           const isLive = item.auctionStatus === 'Live';
           return (
             <div key={item.auctionId} className="card card-hover p-4 flex items-center gap-4">
-              <div className="w-16 h-16 rounded-xl bg-ink-100 grid place-items-center text-ink-400 shrink-0">
-                <Package size={22} />
-              </div>
+              <Link
+                to={`/auction/${item.auctionId}`}
+                className="w-16 h-16 rounded-xl bg-ink-50 grid place-items-center text-ink-400 shrink-0 overflow-hidden"
+              >
+                {item.thumbnailUrl ? (
+                  <img
+                    src={publicPath(item.thumbnailUrl)}
+                    alt=""
+                    loading="lazy"
+                    className="w-full h-full object-contain p-1"
+                  />
+                ) : (
+                  <Package size={22} />
+                )}
+              </Link>
 
               <div className="flex-1 min-w-0">
                 <Link to={`/auction/${item.auctionId}`} className="font-bold text-ink-900 hover:text-primary-600 text-sm transition-colors line-clamp-1">
@@ -95,14 +108,20 @@ export default function BiddingHistory() {
                     <Gavel size={13} /> Bid again
                   </Link>
                 )}
-                {status === 'won' && (
+                {/* Rating is one-per-auction, so the invite disappears once it is used
+                    rather than sending the buyer to a page that only says "already rated". */}
+                {status === 'won' && (item.rated ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-400">
+                    <Check size={13} /> Rated
+                  </span>
+                ) : (
                   <Link
                     to={`/rate-seller/${item.auctionId}`}
                     className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 transition-colors"
                   >
                     <Star size={13} /> Rate seller
                   </Link>
-                )}
+                ))}
               </div>
             </div>
           );

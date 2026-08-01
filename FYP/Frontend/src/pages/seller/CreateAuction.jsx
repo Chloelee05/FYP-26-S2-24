@@ -133,7 +133,7 @@ export default function CreateAuction() {
             {imageUrls.length > 1 && (
               <div className="flex gap-2 mb-4 overflow-x-auto">
                 {imageUrls.map((url, i) => (
-                  <img key={i} src={publicPath(url)} alt="" className="w-16 h-12 object-cover rounded-lg border border-ink-200 shrink-0" />
+                  <img key={i} src={publicPath(url)} alt="" className="w-16 h-12 object-contain bg-ink-50 rounded-lg border border-ink-200 shrink-0" />
                 ))}
               </div>
             )}

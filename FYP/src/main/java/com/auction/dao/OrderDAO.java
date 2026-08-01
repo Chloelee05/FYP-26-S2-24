@@ -415,6 +415,8 @@ public class OrderDAO {
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
           + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
           + "  bu.username AS buyer_name, su.username AS seller_name, "
+          + "  (SELECT i.image_url FROM auction_images i WHERE i.auction_id = o.auction_id "
+          + "   ORDER BY i.id LIMIT 1) AS thumbnail_url, "
           + "  EXISTS (SELECT 1 FROM user_reviews ur WHERE ur.auction_id = o.auction_id AND ur.reviewer_user_id = ?) AS has_rated "
           + "FROM orders o "
           + "JOIN auction_details d ON d.id = o.auction_id "
@@ -449,7 +451,10 @@ public class OrderDAO {
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
           + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
-          + "  bu.username AS buyer_name, su.username AS seller_name, false AS has_rated "
+          + "  bu.username AS buyer_name, su.username AS seller_name, "
+          + "  (SELECT i.image_url FROM auction_images i WHERE i.auction_id = o.auction_id "
+          + "   ORDER BY i.id LIMIT 1) AS thumbnail_url, "
+          + "  false AS has_rated "
           + "FROM orders o "
           + "JOIN auction_details d ON d.id = o.auction_id "
           + "JOIN users bu ON bu.id = o.buyer_id "
@@ -486,6 +491,22 @@ public class OrderDAO {
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT 1 FROM orders WHERE id = ? AND UPPER(COALESCE(shipping_status, '')) = 'DELIVERED'")) {
             ps.setLong(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * {@code true} once a winner has been declared for this auction, i.e. an order
+     * exists. Declaring is a one-shot action, so the UI uses this to retire the
+     * control rather than offer a button that can only answer "already finalised".
+     */
+    public boolean existsForAuction(long auctionId) {
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM orders WHERE auction_id = ?")) {
+            ps.setLong(1, auctionId);
             try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -538,7 +559,8 @@ public class OrderDAO {
                 hasRated,
                 rs.getString("refund_status"),
                 rs.getString("refund_reason"),
-                instant(rs.getTimestamp("refund_requested_at")));
+                instant(rs.getTimestamp("refund_requested_at")),
+                rs.getString("thumbnail_url"));
     }
 
     private static Instant instant(Timestamp ts) { return ts != null ? ts.toInstant() : null; }

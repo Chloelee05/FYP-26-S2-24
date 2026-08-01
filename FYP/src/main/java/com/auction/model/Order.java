@@ -28,11 +28,23 @@ public final class Order {
     private final String refundStatus;
     private final String refundReason;
     private final Instant refundRequestedAt;
+    /** First listing image, so order lists can show the item. */
+    private final String thumbnailUrl;
 
     public Order(long id, long auctionId, String auctionTitle, long buyerId, long sellerId,
                  BigDecimal amount, String status, Instant createdAt, Instant paidAt, Instant completedAt,
                  String role, String counterparty, String shippingStatus, Instant shippingUpdatedAt,
                  boolean hasRated, String refundStatus, String refundReason, Instant refundRequestedAt) {
+        this(id, auctionId, auctionTitle, buyerId, sellerId, amount, status, createdAt, paidAt,
+             completedAt, role, counterparty, shippingStatus, shippingUpdatedAt, hasRated,
+             refundStatus, refundReason, refundRequestedAt, null);
+    }
+
+    public Order(long id, long auctionId, String auctionTitle, long buyerId, long sellerId,
+                 BigDecimal amount, String status, Instant createdAt, Instant paidAt, Instant completedAt,
+                 String role, String counterparty, String shippingStatus, Instant shippingUpdatedAt,
+                 boolean hasRated, String refundStatus, String refundReason, Instant refundRequestedAt,
+                 String thumbnailUrl) {
         this.id = id;
         this.auctionId = auctionId;
         this.auctionTitle = auctionTitle;
@@ -51,6 +63,7 @@ public final class Order {
         this.refundStatus = refundStatus;
         this.refundReason = refundReason;
         this.refundRequestedAt = refundRequestedAt;
+        this.thumbnailUrl = thumbnailUrl;
     }
 
     public long getId()            { return id; }
@@ -71,4 +84,5 @@ public final class Order {
     public String getRefundStatus()       { return refundStatus; }
     public String getRefundReason()       { return refundReason; }
     public Instant getRefundRequestedAt() { return refundRequestedAt; }
+    public String getThumbnailUrl()       { return thumbnailUrl; }
 }
