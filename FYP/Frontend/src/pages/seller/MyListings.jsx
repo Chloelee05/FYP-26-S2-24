@@ -11,6 +11,7 @@ import {
 } from '../../api/seller';
 import { getOrders } from '../../api/orders';
 import { formatCurrency } from '../../utils/helpers';
+import { groupListings, listingStatusLabel } from '../../utils/listings';
 import { publicPath } from '../../utils/appBase';
 import CountdownTimer from '../../components/CountdownTimer';
 import StarRating from '../../components/StarRating';
@@ -19,7 +20,7 @@ import Modal from '../../components/Modal';
 // Backend SellerAuctionRow fields: auctionId, title, startingPrice, maxPrice,
 //   currentBid, bidCount, startDate (Instant), endDate (Instant), statusName (String),
 //   quantity, thumbnailUrl, watchCount
-// statusName values e.g. "ACTIVE", "ENDED", "CANCELLED"
+// statusName mirrors the AuctionStatus enum: "ACTIVE", "FINISHED", "CANCELLED", "PENDING"
 
 const STATUS_STYLE = {
   ACTIVE: 'badge-success',
@@ -28,7 +29,7 @@ const STATUS_STYLE = {
   CANCELLED: 'badge-neutral',
 };
 
-const TABS = [['ACTIVE', 'Active'], ['ENDED', 'Ended'], ['CANCELLED', 'Cancelled']];
+const TABS = [['ACTIVE', 'Active'], ['FINISHED', 'Finished'], ['CANCELLED', 'Cancelled']];
 
 const SORTS = [
   { key: 'newest',    label: 'Newest listed' },
@@ -82,15 +83,12 @@ export default function MyListings() {
       .catch(() => {});
   }, []);
 
-  const s = (a) => a.statusName?.toUpperCase();
-  const active    = auctions.filter(a => s(a) === 'ACTIVE' || s(a) === 'PENDING');
-  const ended     = auctions.filter(a => s(a) === 'FINISHED');
-  const cancelled = auctions.filter(a => s(a) === 'CANCELLED');
+  const { active, finished, cancelled } = groupListings(auctions);
 
-  const counts = { ACTIVE: active.length, ENDED: ended.length, CANCELLED: cancelled.length };
+  const counts = { ACTIVE: active.length, FINISHED: finished.length, CANCELLED: cancelled.length };
 
   const visible = useMemo(() => {
-    const base = tab === 'ACTIVE' ? active : tab === 'ENDED' ? ended : cancelled;
+    const base = tab === 'ACTIVE' ? active : tab === 'FINISHED' ? finished : cancelled;
     const q = query.trim().toLowerCase();
     const filtered = q ? base.filter(a => (a.title ?? '').toLowerCase().includes(q)) : base;
 
@@ -125,7 +123,7 @@ export default function MyListings() {
         ? { ...a, quantity: Math.max(1, (a.quantity ?? 1) - 1) }
         : a));
     } catch (err) {
-      alert(err.response?.data?.error || 'Could not remove unit.');
+      alert(apiErrorMessage(err, 'Could not remove unit.'));
     }
   };
 
@@ -135,7 +133,7 @@ export default function MyListings() {
       // Take the seller straight to the edit form so they can set new dates.
       navigate(`/seller/auction/${id}/edit`);
     } catch (err) {
-      alert(err.response?.data?.error || 'Could not relist this auction.');
+      alert(apiErrorMessage(err, 'Could not relist this auction.'));
     }
   };
 
@@ -146,7 +144,7 @@ export default function MyListings() {
       setFeaturedIds(prev => new Set([...prev, id]));
       alert(r.data.message || 'Listing featured!');
     } catch (err) {
-      alert(err.response?.data?.error || 'Could not feature this listing.');
+      alert(apiErrorMessage(err, 'Could not feature this listing.'));
     }
   };
 
@@ -160,7 +158,7 @@ export default function MyListings() {
       setRatingScore(0);
       setRatingComment('');
     } catch (err) {
-      alert(err.response?.data?.error || err.response?.data?.message || 'Failed to submit rating.');
+      alert(apiErrorMessage(err, 'Failed to submit rating.'));
     } finally {
       setRatingLoading(false);
     }
@@ -298,14 +296,14 @@ export default function MyListings() {
                       <div className="flex items-center gap-3.5">
                         <Link
                           to={`/auction/${auction.auctionId}`}
-                          className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-ink-100 grid place-items-center"
+                          className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-ink-50 grid place-items-center"
                         >
                           {auction.thumbnailUrl ? (
                             <img
                               src={publicPath(auction.thumbnailUrl)}
                               alt=""
                               loading="lazy"
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain p-1"
                             />
                           ) : (
                             <ImageIcon size={18} className="text-ink-300" />
@@ -319,8 +317,8 @@ export default function MyListings() {
                             >
                               {auction.title}
                             </Link>
-                            <span className={`${STATUS_STYLE[auction.statusName?.toUpperCase()] || 'badge-neutral'} shrink-0`}>
-                              {auction.statusName}
+                            <span className={`${STATUS_STYLE[listingStatusLabel(auction)?.toUpperCase()] || 'badge-neutral'} shrink-0`}>
+                              {listingStatusLabel(auction)}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-ink-400">
@@ -382,7 +380,7 @@ export default function MyListings() {
                             <button onClick={() => handleRelist(auction.auctionId)} className="p-2 rounded-lg text-ink-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="Relist">
                               <RotateCcw size={16} />
                             </button>
-                            {tab === 'ENDED' && !ratedIds.has(auction.auctionId) && (
+                            {tab === 'FINISHED' && !ratedIds.has(auction.auctionId) && (
                               <button
                                 onClick={() => { setRatingAuction(auction); setRatingScore(0); }}
                                 className="p-2 rounded-lg text-ink-400 hover:text-amber-500 hover:bg-amber-50 transition-colors"

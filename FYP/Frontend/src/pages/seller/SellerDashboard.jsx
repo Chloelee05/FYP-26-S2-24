@@ -4,8 +4,11 @@ import { Plus, ListOrdered, Star, BarChart3, Mail } from 'lucide-react';
 import { getSellerAuctions, getSellerAnalytics, emailSellerAnalytics } from '../../api/seller';
 import { getTransactionHistory } from '../../api/user';
 import { formatCurrency } from '../../utils/helpers';
+import { groupListings } from '../../utils/listings';
+import { apiErrorMessage } from '../../utils/apiError';
 
-// Listing counts come from SellerAuctionRow.statusName ("ACTIVE", "FINISHED", "CANCELLED").
+// Listing counts are grouped by the same rules as My listings, so the two pages
+// never report different totals — see utils/listings.
 
 export default function SellerDashboard() {
   const [auctions, setAuctions] = useState([]);
@@ -37,16 +40,13 @@ export default function SellerDashboard() {
         setInlineReport(r.data.report);
       }
     } catch (err) {
-      setAnalyticsMsg(err.response?.data?.error || 'Could not send report.');
+      setAnalyticsMsg(apiErrorMessage(err, 'Could not send report.'));
     } finally {
       setEmailing(false);
     }
   };
 
-  const s = (a) => a.statusName?.toUpperCase();
-  const active    = auctions.filter(a => s(a) === 'ACTIVE' || s(a) === 'PENDING');
-  const ended     = auctions.filter(a => s(a) === 'FINISHED');
-  const cancelled = auctions.filter(a => s(a) === 'CANCELLED');
+  const { active, finished, cancelled } = groupListings(auctions);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -69,7 +69,7 @@ export default function SellerDashboard() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
           { label: 'Active', value: active.length, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Ended', value: ended.length, color: 'text-primary-600', bg: 'bg-primary-50' },
+          { label: 'Finished', value: finished.length, color: 'text-primary-600', bg: 'bg-primary-50' },
           { label: 'Cancelled', value: cancelled.length, color: 'text-ink-500', bg: 'bg-ink-100' },
         ].map(stat => (
           <Link key={stat.label} to="/seller/listings" className="card card-hover p-5 text-center">
