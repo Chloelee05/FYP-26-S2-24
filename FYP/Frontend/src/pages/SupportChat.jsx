@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage, markSupportThreadRead } from '../api/support';
 import { apiErrorMessage } from '../utils/apiError';
+import usePolling from '../hooks/usePolling';
 import ChatMessage from '../components/ChatMessage';
 import SupportChatInput from '../components/SupportChatInput';
 
@@ -16,26 +17,36 @@ export default function SupportChat() {
   const [msg, setMsg] = useState('');
   const bottomRef = useRef(null);
 
-  const loadThreads = () => getSupportThreads().then(r => {
-    const list = r.data ?? [];
-    setThreads(list);
-    setSelectedId(prev => {
-      const id = prev ?? list[0]?.id;
-      return id != null ? Number(id) : null;
-    });
-  }).catch(err => setMsg(apiErrorMessage(err, 'Could not load threads.')));
+  const loadThreads = useCallback(async (config) => {
+    try {
+      const r = await getSupportThreads(config);
+      const list = r.data ?? [];
+      setThreads(list);
+      setSelectedId(prev => {
+        const id = prev ?? list[0]?.id;
+        return id != null ? Number(id) : null;
+      });
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not load threads.'));
+    }
+  }, []);
 
-  useEffect(() => { loadThreads(); }, []);
+  const loadMessages = useCallback(async (config) => {
+    if (!selectedId) return;
+    try {
+      const r = await getSupportMessages(selectedId, config);
+      setMessages(r.data ?? []);
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not load messages.'));
+    }
+  }, [selectedId]);
+
+  usePolling(loadThreads, 30000);
+  usePolling(loadMessages, 5000, Boolean(selectedId));
 
   useEffect(() => {
     if (!selectedId) return;
-    const load = () => getSupportMessages(selectedId)
-      .then(r => setMessages(r.data ?? []))
-      .catch(err => setMsg(apiErrorMessage(err, 'Could not load messages.')));
     markSupportThreadRead(selectedId).catch(() => {});
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
   }, [selectedId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);

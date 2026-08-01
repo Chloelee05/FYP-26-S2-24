@@ -4,6 +4,7 @@ import { User, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getOrderMessages, sendOrderMessage } from '../api/messages';
 import { apiErrorMessage } from '../utils/apiError';
+import usePolling from '../hooks/usePolling';
 import ChatMessage from './ChatMessage';
 import Modal from './Modal';
 
@@ -22,19 +23,18 @@ export default function OrderMessageModal({ order, onClose }) {
   const isSeller = order?.role === 'seller';
   const peerLabel = order?.counterparty || (isSeller ? 'Buyer' : 'Seller');
 
-  const load = useCallback(() => {
+  const load = useCallback(async (config) => {
     if (!order) return;
-    getOrderMessages(order.id)
-      .then(r => { setMessages(r.data ?? []); setError(''); })
-      .catch(err => setError(apiErrorMessage(err, 'Could not load messages.')));
+    try {
+      const r = await getOrderMessages(order.id, config);
+      setMessages(r.data ?? []);
+      setError('');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load messages.'));
+    }
   }, [order]);
 
-  useEffect(() => {
-    if (!order) return;
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, [order, load]);
+  usePolling(load, 5000, Boolean(order));
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 

@@ -7,7 +7,7 @@ const form = (obj) => {
 };
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
-export const getNotifications = () => api.get('/notifications');
+export const getNotifications = (config) => api.get('/notifications', config);
 export const markNotificationRead = (id) => api.post('/notifications', form({ action: 'read', id }), F);
 export const markAllNotificationsRead = () => api.post('/notifications', form({ action: 'readAll' }), F);
 

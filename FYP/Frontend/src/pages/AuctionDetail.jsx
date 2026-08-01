@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
@@ -11,6 +11,9 @@ import { declareWinner } from '../api/orders';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, decodeHtmlEntities } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
+import useNow from '../hooks/useNow';
+import usePolling from '../hooks/usePolling';
+import { apiErrorMessage } from '../utils/apiError';
 
 /** Inline status line shared by every panel in the right column. */
 function Feedback({ message, error }) {
@@ -50,8 +53,7 @@ export default function AuctionDetail() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [showReport, setShowReport] = useState(false);
-  const [watched, setWatched] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [watchedByMe, setWatchedByMe] = useState(false);
   const [sellerProfile, setSellerProfile] = useState(null);
   const [similar, setSimilar] = useState([]);
   const [copied, setCopied] = useState(false);
@@ -60,6 +62,9 @@ export default function AuctionDetail() {
   // signed-in member. Whether this particular listing is biddable is decided by
   // auction.isOwner (you cannot bid on your own) rather than by account type.
   const canBuy = Boolean(user) && user.role !== 'ADMIN';
+  // Only members have a watchlist, so signed-out visitors and admins always read false
+  // rather than needing an effect to reset the flag when the account changes.
+  const watched = canBuy && watchedByMe;
 
   useEffect(() => {
     getAuctionDetail(id).then(r => {
@@ -79,43 +84,35 @@ export default function AuctionDetail() {
     getSimilarAuctions(id, 4).then(r => setSimilar(r.data.results ?? [])).catch(() => setSimilar([]));
   }, [id]);
 
-  // Local 1s tick so the Dutch descending clock animates smoothly between SSE frames.
-  useEffect(() => {
-    if (auction?.auctionType !== 2 || !auction?.open) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [auction?.auctionType, auction?.open]);
+  // Shared 1s tick so the Dutch descending clock animates smoothly between polls.
+  const now = useNow();
 
   // Real-time price sync via polling (SSE is blocked by Cloudflare on Render).
   // Poll every 4s while the auction is open; stop once it closes so a closed
   // listing left open in a tab does not keep hitting the server forever.
   const isOpen = auction?.open === true;
-  useEffect(() => {
-    if (!isOpen) return;
-    const poll = () => {
-      getAuctionDetail(id)
-        .then(r => {
-          setAuction(prev => {
-            const next = r.data;
-            if (!next) return prev;
-            if (next.myAutoBid !== undefined) setMyAutoBid(next.myAutoBid ?? null);
-            return next;
-          });
-        })
-        .catch(() => {});
-      getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
-    };
-    const t = setInterval(poll, 4000);
-    return () => clearInterval(t);
-  }, [id, isOpen]);
+  const pollAuction = useCallback(async ({ signal }) => {
+    const [detail, bidList] = await Promise.allSettled([
+      getAuctionDetail(id, { signal }),
+      getAuctionBids(id, undefined, { signal }),
+    ]);
+    if (detail.status === 'fulfilled' && detail.value.data) {
+      const next = detail.value.data;
+      if (next.myAutoBid !== undefined) setMyAutoBid(next.myAutoBid ?? null);
+      setAuction(next);
+    }
+    if (bidList.status === 'fulfilled') setBids(bidList.value.data.bids ?? []);
+  }, [id]);
+
+  usePolling(pollAuction, 4000, isOpen);
 
   // Reflect whether this auction is already in the buyer's watchlist
   useEffect(() => {
-    if (!user || user.role === 'ADMIN') { setWatched(false); return; }
+    if (!canBuy) return;
     checkWatching(id)
-      .then(r => setWatched(Boolean(r.data?.watching)))
+      .then(r => setWatchedByMe(Boolean(r.data?.watching)))
       .catch(() => {});
-  }, [id, user]);
+  }, [id, canBuy]);
 
   // Native share sheet where supported (mobile), clipboard copy everywhere else.
   const handleShare = async () => {
@@ -140,15 +137,15 @@ export default function AuctionDetail() {
     try {
       if (watched) {
         await removeFromWatchlist(id);
-        setWatched(false);
+        setWatchedByMe(false);
         setMessage('Removed from watchlist.');
       } else {
         await addToWatchlist(id);
-        setWatched(true);
+        setWatchedByMe(true);
         setMessage('Added to watchlist.');
       }
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Could not update watchlist.');
+      setError(apiErrorMessage(err, 'Could not update watchlist.'));
     }
   };
 
@@ -239,7 +236,7 @@ export default function AuctionDetail() {
       setAutoBidEditing(false);
       setMessage('Auto-bid enabled!');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to enable auto-bid.');
+      setError(apiErrorMessage(err, 'Failed to enable auto-bid.'));
     }
   };
 
@@ -251,7 +248,7 @@ export default function AuctionDetail() {
       setMyAutoBid(null);
       setMessage('Auto-bid cancelled.');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to cancel auto-bid.');
+      setError(apiErrorMessage(err, 'Failed to cancel auto-bid.'));
     }
   };
 
@@ -453,7 +450,7 @@ export default function AuctionDetail() {
                       selectedImage === i ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-ink-200 hover:border-ink-300 opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <img src={publicPath(img)} alt="" className="w-full h-full object-cover" />
+                    <img src={publicPath(img)} alt="" className="w-full h-full object-contain bg-ink-50 p-1" />
                   </button>
                 ))}
               </div>
@@ -577,21 +574,30 @@ export default function AuctionDetail() {
               <div className="flex items-center justify-between mb-1.5">
                 <span className="eyebrow">
                   {isDutch ? (auction.open ? 'Current Price' : 'Final Price')
-                    : isBlind ? (auction.open ? 'Sealed Bids' : 'Winning Bid')
+                    : isBlind ? (auction.open ? (auction.isOwner ? 'Highest Sealed Bid' : 'Sealed Bids') : 'Winning Bid')
                     : 'Current Bid'}
                 </span>
                 {!(isDutch && auction.open) && (
                   <span className="badge-neutral">{auction.numBids} bids</span>
                 )}
               </div>
-              {isBlind && auction.open ? (
+              {/* Sealed to buyers while the auction runs. The seller sees the standing
+                  bid, since early close sells at exactly that amount. */}
+              {isBlind && auction.open && !auction.isOwner ? (
                 <div className="flex items-center gap-2 text-2xl font-bold text-purple-600 mb-3">
                   <Lock size={22} /> Hidden until close
                 </div>
+              ) : isBlind && auction.open && !auction.numBids ? (
+                <div className="text-2xl font-bold text-ink-400 mb-3">No sealed bids yet</div>
               ) : (
                 <div className={`font-display text-4xl font-extrabold mb-3 tabular-nums ${isDutch && auction.open ? 'text-accent-600' : 'text-emerald-600'}`}>
                   {formatCurrency(displayPrice)}
                 </div>
+              )}
+              {isBlind && auction.open && auction.isOwner && (auction.numBids ?? 0) > 0 && (
+                <p className="flex items-center gap-1.5 -mt-1 mb-3 text-xs text-ink-500">
+                  <Lock size={12} className="shrink-0" /> Only you can see this — buyers see “Hidden until close”.
+                </p>
               )}
               <div className="pt-3 border-t border-ink-100">
                 <CountdownTimer endTime={auction.endTime} />
@@ -634,7 +640,19 @@ export default function AuctionDetail() {
               ) : (
               <div className="card p-6 text-center">
                 <p className="text-sm text-ink-500 mb-4">This auction has ended.</p>
-                {auction.isOwner && (
+                {/* Declaring is one-shot: once the order exists the button can only
+                    fail, so it is replaced by a pointer to the order itself. */}
+                {auction.isOwner && (auction.orderCreated ? (
+                  <>
+                    <Feedback message={message} error={error} />
+                    <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-emerald-600">
+                      <CheckCircle2 size={15} /> Winner declared
+                    </p>
+                    <Link to="/sales" className="btn-secondary btn-block mt-3">
+                      View in My sales
+                    </Link>
+                  </>
+                ) : (
                   <>
                     <Feedback message={message} error={error} />
                     <button onClick={() => handleDeclareWinner(false)} className="btn-dark btn-block">
@@ -642,7 +660,7 @@ export default function AuctionDetail() {
                     </button>
                     <p className="text-xs text-ink-400 mt-2.5">Finalises the sale to the highest bidder.</p>
                   </>
-                )}
+                ))}
               </div>
               )
             ) : !user ? (

@@ -4,46 +4,45 @@ import { MessageSquare, Send, Store, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getConversations, getOrderMessages, sendOrderMessage } from '../api/messages';
 import { apiErrorMessage } from '../utils/apiError';
+import usePolling from '../hooks/usePolling';
 import ChatMessage from '../components/ChatMessage';
 
 export default function Messages() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [conversations, setConversations] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [body, setBody] = useState('');
   const [error, setError] = useState('');
   const bottomRef = useRef(null);
 
-  const loadConversations = useCallback(() => {
-    getConversations()
-      .then(r => setConversations(r.data ?? []))
-      .catch(err => setError(apiErrorMessage(err, 'Could not load conversations.')));
+  // ?order= is the single source of truth for the open thread, so a conversation
+  // can be linked to and survives a refresh. Falls back to the newest conversation.
+  const selectedId = Number(searchParams.get('order')) || conversations[0]?.orderId || null;
+  const selectThread = (orderId) => setSearchParams({ order: String(orderId) }, { replace: true });
+
+  const loadConversations = useCallback(async (config) => {
+    try {
+      const r = await getConversations(config);
+      setConversations(r.data ?? []);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load conversations.'));
+    }
   }, []);
 
-  useEffect(() => {
-    loadConversations();
-    const t = setInterval(loadConversations, 12000);
-    return () => clearInterval(t);
-  }, [loadConversations]);
-
-  // Auto-select from ?order= or the first conversation.
-  useEffect(() => {
-    const fromQuery = searchParams.get('order');
-    if (fromQuery) { setSelectedId(Number(fromQuery)); return; }
-    setSelectedId(prev => prev ?? (conversations[0]?.orderId ?? null));
-  }, [searchParams, conversations]);
-
-  useEffect(() => {
+  const loadMessages = useCallback(async (config) => {
     if (!selectedId) return;
-    const load = () => getOrderMessages(selectedId)
-      .then(r => { setMessages(r.data ?? []); setError(''); })
-      .catch(err => setError(apiErrorMessage(err, 'Could not load messages.')));
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    try {
+      const r = await getOrderMessages(selectedId, config);
+      setMessages(r.data ?? []);
+      setError('');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load messages.'));
+    }
   }, [selectedId]);
+
+  usePolling(loadConversations, 12000);
+  usePolling(loadMessages, 5000, Boolean(selectedId));
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -57,9 +56,8 @@ export default function Messages() {
     try {
       await sendOrderMessage(selectedId, text);
       setBody('');
-      const r = await getOrderMessages(selectedId);
-      setMessages(r.data ?? []);
-      loadConversations();
+      await loadMessages();
+      await loadConversations();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not send message.'));
     }
@@ -93,7 +91,7 @@ export default function Messages() {
             {conversations.map(c => (
               <button
                 key={c.orderId}
-                onClick={() => { setSelectedId(c.orderId); setSearchParams({}); }}
+                onClick={() => selectThread(c.orderId)}
                 className={`w-full text-left px-4 py-3 border-b border-ink-50 hover:bg-ink-50 ${
                   selectedId === c.orderId ? 'bg-primary-50' : ''
                 }`}

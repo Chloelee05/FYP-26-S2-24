@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications';
+import usePolling from '../hooks/usePolling';
 
 const POLL_MS = 30000;
 
@@ -23,20 +24,15 @@ export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const ref = useRef(null);
 
-  const load = useCallback(() => {
-    getNotifications()
-      .then(r => {
-        setItems(r.data.notifications ?? []);
-        setUnread(r.data.unreadCount ?? 0);
-      })
-      .catch(() => {});
+  const load = useCallback(async ({ signal } = {}) => {
+    try {
+      const r = await getNotifications({ signal });
+      setItems(r.data.notifications ?? []);
+      setUnread(r.data.unreadCount ?? 0);
+    } catch { /* the badge just keeps its last known value */ }
   }, []);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
-  }, [load]);
+  usePolling(load, POLL_MS);
 
   useEffect(() => {
     const onClickOutside = (e) => {

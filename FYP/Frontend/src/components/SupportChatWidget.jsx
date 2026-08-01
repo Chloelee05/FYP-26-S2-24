@@ -6,6 +6,7 @@ import {
   getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage, markSupportThreadRead,
 } from '../api/support';
 import { apiErrorMessage } from '../utils/apiError';
+import usePolling from '../hooks/usePolling';
 import ChatMessage from './ChatMessage';
 import SupportChatInput from './SupportChatInput';
 
@@ -25,19 +26,19 @@ export default function SupportChatWidget() {
 
   const visible = user && user.role !== 'ADMIN' && !pathname.endsWith('/support');
 
-  const loadMessages = useCallback(async (threadId) => {
+  const loadMessages = useCallback(async (threadId, config) => {
     if (!threadId) return;
     try {
-      const r = await getSupportMessages(threadId);
+      const r = await getSupportMessages(threadId, config);
       setMessages(r.data ?? []);
     } catch (err) {
       setStatus(apiErrorMessage(err, 'Could not load messages.'));
     }
   }, []);
 
-  const loadThreads = useCallback(async () => {
+  const loadThreads = useCallback(async (config) => {
     try {
-      const r = await getSupportThreads();
+      const r = await getSupportThreads(config);
       const list = r.data ?? [];
       setThreads(list);
       setSelectedId(prev => {
@@ -49,21 +50,19 @@ export default function SupportChatWidget() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!visible || !open) return;
-    setStatus('');
-    loadThreads();
-    const t = setInterval(loadThreads, 12000);
-    return () => clearInterval(t);
-  }, [visible, open, loadThreads]);
+  const pollMessages = useCallback(
+    (config) => loadMessages(selectedId, config),
+    [loadMessages, selectedId],
+  );
 
+  usePolling(loadThreads, 12000, visible && open);
+  usePolling(pollMessages, 5000, Boolean(visible && open && selectedId));
+
+  // Opening a thread clears its unread flag; the poll above keeps the list fresh.
   useEffect(() => {
     if (!visible || !open || !selectedId) return;
     markSupportThreadRead(selectedId).catch(() => {});
-    loadMessages(selectedId);
-    const t = setInterval(() => loadMessages(selectedId), 5000);
-    return () => clearInterval(t);
-  }, [visible, open, selectedId, loadMessages]);
+  }, [visible, open, selectedId]);
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,7 +109,7 @@ export default function SupportChatWidget() {
         <div className="fixed bottom-6 right-6 z-50">
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => { setStatus(''); setOpen(true); }}
             className="relative flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-full shadow-pop hover:-translate-y-0.5 transition-all"
             title="Contact Admin"
           >

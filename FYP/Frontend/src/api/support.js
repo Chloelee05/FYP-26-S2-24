@@ -19,14 +19,15 @@ function authConfig(extraHeaders = {}) {
 
 const formHeaders = () => authConfig({ 'Content-Type': 'application/x-www-form-urlencoded' });
 
-export const getSupportThreads = () => api.get('/support/threads', authConfig());
+export const getSupportThreads = (config) => api.get('/support/threads', { ...authConfig(), ...config });
 export const uploadSupportImage = (file) =>
   api.post('/support/upload', file, authConfig({ 'Content-Type': file.type }))
     .then(r => r.data.imageUrl);
 
 export const createSupportThread = (subject, body, attachmentUrl) =>
   api.post('/support/threads', form({ subject, body, attachmentUrl }).toString(), formHeaders());
-export const getSupportMessages = (threadId) => api.get(`/support/threads/${threadId}/messages`, authConfig());
+export const getSupportMessages = (threadId, config) =>
+  api.get(`/support/threads/${threadId}/messages`, { ...authConfig(), ...config });
 export const sendSupportMessage = (threadId, body, attachmentUrl) =>
   api.post(`/support/threads/${threadId}/messages`, form({ body, attachmentUrl }).toString(), formHeaders());
 export const closeSupportThread = (threadId) =>

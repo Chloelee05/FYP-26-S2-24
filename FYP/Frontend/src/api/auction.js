@@ -24,13 +24,13 @@ export const getLandingContent = () => api.get('/landing-content');
 // crediting a card to it would be a false explanation. Mirrors RecommendationDAO.
 const MIN_KEYWORD_LENGTH = 2;
 let lastRecordedKeyword = '';
-export const searchAuctions = (params) => {
+export const searchAuctions = (params, config) => {
   const keyword = (params?.q ?? '').trim();
   if (keyword.length >= MIN_KEYWORD_LENGTH && keyword !== lastRecordedKeyword && (params?.page ?? 1) === 1) {
     lastRecordedKeyword = keyword;
     api.post('/recommendations/search-keyword', form({ q: keyword }), F).catch(() => {});
   }
-  return api.get('/search', { params });
+  return api.get('/search', { ...config, params });
 };
 export const getCategories   = ()       => api.get('/categories');
 export const getTags         = ()       => api.get('/auction/tags');
@@ -62,9 +62,10 @@ export const recordRecommendationImpressions = (auctionIds) =>
 export const recordRecommendationClick = (auctionId, keyword) =>
   api.post('/recommendations/events', form({ type: 'click', auctionId, keyword }), F);
 
-// Auction detail
-export const getAuctionDetail = (id) => api.get(`/auction/${id}`);
-export const getAuctionBids   = (id, params) => api.get(`/auction/${id}/bids`, { params });
+// Auction detail. Both take an optional axios config so the 4s price poll on the
+// detail page can abort in-flight requests when it tears down.
+export const getAuctionDetail = (id, config) => api.get(`/auction/${id}`, config);
+export const getAuctionBids   = (id, params, config) => api.get(`/auction/${id}/bids`, { ...config, params });
 export const getAuctionQuestions = (id) => api.get(`/auction/${id}/questions`);
 
 // Bidding

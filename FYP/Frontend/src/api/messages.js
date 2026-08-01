@@ -8,7 +8,7 @@ const form = (obj) => {
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
 // Direct buyer <-> seller conversations, keyed by order.
-export const getConversations = () => api.get('/order-messages');
-export const getOrderMessages = (orderId) => api.get(`/order-messages/${orderId}`);
+export const getConversations = (config) => api.get('/order-messages', config);
+export const getOrderMessages = (orderId, config) => api.get(`/order-messages/${orderId}`, config);
 export const sendOrderMessage = (orderId, body) =>
   api.post(`/order-messages/${orderId}`, form({ body }).toString(), F);

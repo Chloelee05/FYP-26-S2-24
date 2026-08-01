@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getSupportThreads, getSupportMessages, sendSupportMessage, closeSupportThread, markSupportThreadRead } from '../../api/support';
 import { apiErrorMessage } from '../../utils/apiError';
+import usePolling from '../../hooks/usePolling';
 import ChatMessage from '../../components/ChatMessage';
 import SupportChatInput from '../../components/SupportChatInput';
 
@@ -27,36 +28,38 @@ export default function AdminChat() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [threads, setThreads] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  // ?thread= deep-links a conversation (e.g. from Reports); clicking the list takes over.
+  const [pickedId, setPickedId] = useState(null);
+  const selectedId = pickedId ?? (Number(searchParams.get('thread')) || null);
   const [messages, setMessages] = useState([]);
   const [msg, setMsg] = useState('');
   const bottomRef = useRef(null);
 
-  const loadThreads = useCallback(async () => {
+  const loadThreads = useCallback(async (config) => {
     try {
-      const r = await getSupportThreads();
+      const r = await getSupportThreads(config);
       setThreads(r.data ?? []);
     } catch (err) {
       setMsg(apiErrorMessage(err, 'Could not load threads.'));
     }
   }, []);
 
-  useEffect(() => { loadThreads(); const t = setInterval(loadThreads, 10000); return () => clearInterval(t); }, [loadThreads]);
+  const loadMessages = useCallback(async (config) => {
+    if (!selectedId) return;
+    try {
+      const r = await getSupportMessages(selectedId, config);
+      setMessages(r.data ?? []);
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not load messages.'));
+    }
+  }, [selectedId]);
 
-  useEffect(() => {
-    const thread = searchParams.get('thread');
-    if (thread) setSelectedId(Number(thread));
-  }, [searchParams]);
+  usePolling(loadThreads, 10000);
+  usePolling(loadMessages, 5000, Boolean(selectedId));
 
   useEffect(() => {
     if (!selectedId) return;
-    const load = () => getSupportMessages(selectedId)
-      .then(r => setMessages(r.data ?? []))
-      .catch(err => setMsg(apiErrorMessage(err, 'Could not load messages.')));
     markSupportThreadRead(selectedId).catch(() => {});
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
   }, [selectedId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -88,7 +91,7 @@ export default function AdminChat() {
   };
 
   const selectThread = (t) => {
-    setSelectedId(t.id);
+    setPickedId(t.id);
     setMsg('');
     setThreads(prev => prev.map(x => x.id === t.id ? { ...x, unread: false } : x));
     markSupportThreadRead(t.id).catch(() => {});
