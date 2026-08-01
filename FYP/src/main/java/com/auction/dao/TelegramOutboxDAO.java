@@ -23,7 +23,10 @@ import java.util.List;
  * {@code dedupe_key WHERE status = 'PENDING'}. {@link #enqueue} names that index in its
  * {@code ON CONFLICT} clause, so a burst of the same event on the same listing refreshes
  * the queued row's body instead of queueing a second message. Once a row has been sent
- * the index no longer covers it, so a legitimate later repeat still queues normally.</p>
+ * the index no longer covers it, so a legitimate later repeat still queues normally.
+ * Paired with the initial delay of
+ * {@link #enqueue(int, String, Long, String, String, int)} this becomes a rate limiter as
+ * well as a deduplicator: whatever arrives during the delay is folded into the one message.</p>
  *
  * <p><b>Claiming.</b> {@link #claimDue(int)} is a single {@code UPDATE … RETURNING} that
  * pushes {@code next_attempt_at} into the future as it hands rows out. That leases each
@@ -83,8 +86,22 @@ public class TelegramOutboxDAO {
      * @param dedupeKey collapse key, or {@code null} to always queue a new row
      */
     public void enqueue(int userId, String eventType, Long auctionId, String body, String dedupeKey) {
+        enqueue(userId, eventType, auctionId, body, dedupeKey, 0);
+    }
+
+    /**
+     * Queues one message that must not be sent for {@code initialDelaySeconds}.
+     *
+     * <p>The delay is what turns the dedupe index into a coalescing window: a first bid
+     * queues a row due in two minutes, and every bid until then only rewrites its body, so
+     * the seller receives one message carrying the latest price instead of twenty carrying
+     * each step. The delay is applied on INSERT only — see {@link #enqueueWithConnection}.</p>
+     */
+    public void enqueue(int userId, String eventType, Long auctionId, String body,
+                        String dedupeKey, int initialDelaySeconds) {
         try (Connection conn = DBUtil.connectDB()) {
-            enqueueWithConnection(conn, userId, eventType, auctionId, body, dedupeKey);
+            enqueueWithConnection(conn, userId, eventType, auctionId, body, dedupeKey,
+                    initialDelaySeconds);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -92,11 +109,23 @@ public class TelegramOutboxDAO {
 
     void enqueueWithConnection(Connection conn, int userId, String eventType, Long auctionId,
                                String body, String dedupeKey) throws SQLException {
+        enqueueWithConnection(conn, userId, eventType, auctionId, body, dedupeKey, 0);
+    }
+
+    void enqueueWithConnection(Connection conn, int userId, String eventType, Long auctionId,
+                               String body, String dedupeKey, int initialDelaySeconds)
+            throws SQLException {
         // The DO UPDATE refreshes the body only. attempts and next_attempt_at are left
-        // alone on purpose: if the queued row is already backing off after a failure,
-        // re-enqueueing must not reset that backoff into a tight retry loop.
-        String sql = "INSERT INTO telegram_outbox (user_id, event_type, auction_id, body, dedupe_key) "
-                + "VALUES (?, ?, ?, ?, ?) "
+        // alone on purpose, for two reasons that happen to want the same thing:
+        //   - a row already backing off after a failure must not be pulled forward into a
+        //     tight retry loop, and
+        //   - a coalescing price alert must keep the due time its first bid set. Extending
+        //     it on every bid would starve the message exactly when the seller most wants
+        //     it: a continuously contested auction would push the deadline forever and
+        //     never actually send.
+        String sql = "INSERT INTO telegram_outbox "
+                + "(user_id, event_type, auction_id, body, dedupe_key, next_attempt_at) "
+                + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP + (? || ' seconds')::interval) "
                 + "ON CONFLICT (dedupe_key) WHERE status = 'PENDING' AND dedupe_key IS NOT NULL "
                 + "DO UPDATE SET body = EXCLUDED.body, auction_id = EXCLUDED.auction_id";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -105,7 +134,40 @@ public class TelegramOutboxDAO {
             if (auctionId != null) ps.setLong(3, auctionId); else ps.setNull(3, Types.BIGINT);
             ps.setString(4, body);
             if (dedupeKey != null) ps.setString(5, dedupeKey); else ps.setNull(5, Types.VARCHAR);
+            ps.setString(6, String.valueOf(Math.max(initialDelaySeconds, 0)));
             ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Retires any still-queued message under {@code dedupeKey} without sending it.
+     *
+     * <p>Used when an event has been overtaken: a coalescing {@code PRICE:{auctionId}} alert
+     * waiting out its cooldown becomes wrong the moment the auction concludes, and delivering
+     * it after the result message would tell the seller their closed listing is "live, no
+     * action needed". Dropping it also frees the partial unique index for a later relist.</p>
+     *
+     * @return the number of messages dropped, normally 0 or 1
+     */
+    public int cancelPending(String dedupeKey, String reason) {
+        if (dedupeKey == null) {
+            return 0;
+        }
+        try (Connection conn = DBUtil.connectDB()) {
+            return cancelPendingWithConnection(conn, dedupeKey, reason);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    int cancelPendingWithConnection(Connection conn, String dedupeKey, String reason)
+            throws SQLException {
+        String sql = "UPDATE telegram_outbox SET status = 'SKIPPED', last_error = ? "
+                + "WHERE dedupe_key = ? AND status = 'PENDING'";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, trim(reason));
+            ps.setString(2, dedupeKey);
+            return ps.executeUpdate();
         }
     }
 

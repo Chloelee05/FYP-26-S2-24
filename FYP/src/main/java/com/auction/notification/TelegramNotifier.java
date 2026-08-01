@@ -54,9 +54,29 @@ final class TelegramNotifier {
             if (!allowed(notificationDAO.getTelegramPreferences(userId), alert.eventType)) {
                 return;
             }
-            outboxDAO.enqueue(userId, alert.eventType, alert.auctionId, alert.body, alert.dedupeKey);
+            outboxDAO.enqueue(userId, alert.eventType, alert.auctionId, alert.body, alert.dedupeKey,
+                    alert.initialDelaySeconds);
         } catch (Exception e) {
             LOG.fine("Telegram alert not queued: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Drops a coalescing price alert for {@code auctionId} that is still waiting out its
+     * cooldown, because the auction has concluded and the message is now false.
+     *
+     * <p>Without this the seller of a hotly contested listing would get the result, then a
+     * minute later "your listing is at $410, bidding is live — no action needed". The queue
+     * cannot notice that on its own: the row was correct when it was written.</p>
+     */
+    static void cancelPriceAlerts(long auctionId) {
+        if (!TelegramConfig.isConfigured()) {
+            return;
+        }
+        try {
+            outboxDAO.cancelPending("PRICE:" + auctionId, "auction concluded before delivery");
+        } catch (Exception e) {
+            LOG.fine("Stale Telegram price alert not cancelled: " + e.getMessage());
         }
     }
 
@@ -64,16 +84,25 @@ final class TelegramNotifier {
      * {@code telegram_enabled} is the master switch — off silences everything without the
      * user having to unlink. An unrecognised event type is allowed through, so adding one
      * only needs a column when it should be independently opt-out-able.
+     *
+     * <p>{@code SELLER_PRICE} is the only event whose column defaults to false. It is the
+     * only one that can fire repeatedly while a member is doing nothing, so it is opt-in:
+     * a seller who never opens the Notifications tab is never messaged about live bidding.
+     * That default lives in the {@code telegram_seller_price} column, so this method needs
+     * no special case for it — it simply reads what the user has, and
+     * {@link NotificationDAO.TelegramPreferences#defaults()} agrees with the schema.</p>
      */
     static boolean allowed(NotificationDAO.TelegramPreferences p, String eventType) {
         if (!p.enabled) {
             return false;
         }
         switch (eventType) {
-            case "OUTBID": return p.outbid;
-            case "WON":    return p.won;
-            case "LOST":   return p.lost;
-            default:       return true;
+            case "OUTBID":        return p.outbid;
+            case "WON":           return p.won;
+            case "LOST":          return p.lost;
+            case "SELLER_PRICE":  return p.sellerPrice;
+            case "SELLER_RESULT": return p.sellerResult;
+            default:              return true;
         }
     }
 }

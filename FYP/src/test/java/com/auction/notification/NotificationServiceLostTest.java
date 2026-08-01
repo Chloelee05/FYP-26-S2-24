@@ -264,9 +264,11 @@ class NotificationServiceLostTest {
             withDb(true, () -> NotificationService.notifyAuctionLost(AUCTION_ID, WINNER));
 
             ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-            verify(outbox, times(2)).enqueue(anyInt(), eq("LOST"), eq(AUCTION_ID), anyString(), keys.capture());
+            verify(outbox, times(2)).enqueue(anyInt(), eq("LOST"), eq(AUCTION_ID), anyString(),
+                    keys.capture(), eq(0));
             assertEquals(List.of("LOST:42:3", "LOST:42:5"), keys.getAllValues());
-            verify(outbox, never()).enqueue(eq(WINNER), anyString(), any(), anyString(), anyString());
+            verify(outbox, never()).enqueue(eq(WINNER), anyString(), any(), anyString(),
+                    anyString(), anyInt());
         }
 
         @Test
@@ -279,7 +281,8 @@ class NotificationServiceLostTest {
             withDb(true, () -> NotificationService.notifyAuctionLost(AUCTION_ID, WINNER));
 
             ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-            verify(outbox).enqueue(eq(LOSER_A), eq("LOST"), eq(AUCTION_ID), body.capture(), anyString());
+            verify(outbox).enqueue(eq(LOSER_A), eq("LOST"), eq(AUCTION_ID), body.capture(),
+                    anyString(), anyInt());
             assertTrue(body.getValue().contains("Leica M6"), body.getValue());
             assertTrue(body.getValue().contains("$1899.00"), body.getValue());
             assertFalse(body.getValue().contains(String.valueOf(WINNER)),
@@ -298,7 +301,8 @@ class NotificationServiceLostTest {
             withDb(true, () -> NotificationService.notifyAuctionLost(AUCTION_ID, WINNER));
 
             assertEquals(List.of(LOSER_A), db.inserted);
-            verify(outbox, never()).enqueue(anyInt(), anyString(), any(), anyString(), anyString());
+            verify(outbox, never()).enqueue(anyInt(), anyString(), any(), anyString(),
+                    anyString(), anyInt());
         }
 
         @Test
@@ -310,7 +314,8 @@ class NotificationServiceLostTest {
             withDb(true, () -> NotificationService.notifyAuctionLost(AUCTION_ID, WINNER));
 
             assertEquals(List.of(LOSER_A), db.inserted);
-            verify(outbox, never()).enqueue(anyInt(), anyString(), any(), anyString(), anyString());
+            verify(outbox, never()).enqueue(anyInt(), anyString(), any(), anyString(),
+                    anyString(), anyInt());
         }
     }
 }

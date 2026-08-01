@@ -4,6 +4,7 @@ import com.auction.dao.NotificationDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
 import com.auction.telegram.TelegramAlerts;
+import com.auction.telegram.TelegramConfig;
 import com.auction.util.DBUtil;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
@@ -65,36 +66,85 @@ public final class NotificationService {
         });
     }
 
-    /** Notifies the seller that a new ascending bid was placed on their auction. */
+    /**
+     * Notifies the seller that a new ascending bid was placed on their auction.
+     *
+     * <p>The Telegram leg of this is the one high-volume alert in the system, so it is the one
+     * that is coalesced rather than sent per event: it is queued under
+     * {@code PRICE:{auctionId}} with a cooldown as its initial delay, and further bids inside
+     * that window rewrite the queued body instead of adding messages. A twenty-bid war
+     * therefore reaches the seller as a single message carrying the current figure. The
+     * cooldown tightens inside the endgame window, where a stale price is worth less — see
+     * {@link com.auction.telegram.TelegramConfig#priceCooldownSecondsFor}.</p>
+     *
+     * <p>Privacy: neither the in-app line nor the push names the bidder. A seller has no more
+     * claim on their bidders' identities mid-auction than a bidder has on their rivals'.</p>
+     */
     public static void notifySellerNewBid(long auctionId, java.math.BigDecimal bidAmount) {
         safe(() -> {
             Integer sellerId = sellerOf(auctionId);
             if (sellerId == null) return;
-            String title = auctionTitle(auctionId);
+            SellerBidSnapshot snapshot = sellerBidSnapshot(auctionId);
             String amount = bidAmount != null ? formatMoney(bidAmount) : "$?";
+            // The push carries the price as it stands now, not the bid that triggered it:
+            // by the time a coalesced message is delivered, bidAmount is history.
+            java.math.BigDecimal current = snapshot.topBid != null ? snapshot.topBid : bidAmount;
             create(sellerId, "NEW_BID",
-                    "New bid of " + amount + " on \"" + title + "\".",
+                    "New bid of " + amount + " on \"" + snapshot.title + "\".",
                     "/auction/" + auctionId,
                     "New bid on your auction",
-                    "Someone placed a bid of " + amount + " on \"" + title + "\" on AuctionHub.");
+                    "Someone placed a bid of " + amount + " on \"" + snapshot.title
+                            + "\" on AuctionHub.",
+                    TelegramAlerts.sellerPrice(auctionId, snapshot.title, current,
+                            snapshot.bidCount,
+                            TelegramConfig.priceCooldownSecondsFor(snapshot.dateEnd)));
         });
     }
 
-    /** Notifies the seller that their auction ended without a winner (can relist). */
+    /**
+     * Notifies the seller that their auction ended without a winner (can relist).
+     *
+     * <p>Deduplicated on {@code (sellerId, "AUCTION_ENDED", "/auction/{id}")} for the same
+     * reason {@link #notifyAuctionLost} is: {@code AuctionFinalizer} is re-entered by the
+     * 60-second sweep and by any page that lazily finalises the same listing. The link is
+     * per-auction rather than the seller dashboard precisely so that check can distinguish
+     * one concluded listing from the next.</p>
+     */
     public static void notifyAuctionEndedUnsold(long auctionId) {
         safe(() -> {
             Integer sellerId = sellerOf(auctionId);
             if (sellerId == null) return;
+            String link = "/auction/" + auctionId;
+            if (notificationDAO.exists(sellerId, "AUCTION_ENDED", link)) return;
             String title = auctionTitle(auctionId);
+            // A price alert still waiting out its cooldown would arrive after this one and
+            // describe the listing as live.
+            TelegramNotifier.cancelPriceAlerts(auctionId);
             create(sellerId, "AUCTION_ENDED",
                     "Your auction \"" + title + "\" ended without a sale. You can relist it from your seller dashboard.",
-                    "/seller/dashboard",
+                    link,
                     "Auction ended unsold",
-                    "Your auction \"" + title + "\" ended without a winner on AuctionHub. You can relist it from your seller dashboard.");
+                    "Your auction \"" + title + "\" ended without a winner on AuctionHub. You can relist it from your seller dashboard.",
+                    TelegramAlerts.sellerUnsold(auctionId, title));
         });
     }
 
-    /** Notifies the winner that they won, and the seller that their item sold. */
+    /**
+     * Notifies the winner that they won, and the seller that their item sold.
+     *
+     * <p>The seller's half carries the two facts it previously omitted — what the item made
+     * and who bought it — because a bare "your item has sold" makes the seller open the
+     * dashboard to learn anything at all. The buyer is identified only by a masked handle
+     * (e.g. {@code c***e}), enough to recognise the person they are now in an order with;
+     * the full identity stays on the order page behind authentication. Masking is applied
+     * inside {@link TelegramAlerts#sellerSold} so no call site can skip it.</p>
+     *
+     * <p>Deduplicated on {@code (sellerId, "SOLD", "/auction/{id}")}, so that of the four
+     * ways an auction can conclude — expiry, a declared winner, Buy It Now, Dutch acceptance
+     * — plus lazy re-entry from the finalizer, only the first announces the result. The
+     * Telegram leg carries {@code RESULT:{auctionId}} into the outbox's own dedupe index, so
+     * a re-entry that races the first still cannot double-send.</p>
+     */
     public static void notifyAuctionWon(long auctionId, int winnerId) {
         safe(() -> {
             AuctionSummary summary = auctionSummary(auctionId);
@@ -106,13 +156,24 @@ public final class NotificationService {
                     "You won \"" + title + "\" on AuctionHub. Log in to complete payment.",
                     TelegramAlerts.won(auctionId, winnerId, title, summary.topBid));
             Integer sellerId = sellerOf(auctionId);
-            if (sellerId != null) {
-                create(sellerId, "SOLD",
-                        "Your item \"" + title + "\" has sold.",
-                        "/seller/dashboard",
-                        "Your item sold",
-                        "Your auction \"" + title + "\" has a winner on AuctionHub.");
-            }
+            if (sellerId == null) return;
+            String sellerLink = "/auction/" + auctionId;
+            if (notificationDAO.exists(sellerId, "SOLD", sellerLink)) return;
+            String winnerName = usernameOf(winnerId);
+            String buyer = maskLabel(winnerName);
+            String price = summary.topBid != null ? formatMoney(summary.topBid) : null;
+            // The listing is closed, so a price alert still inside its cooldown is now wrong.
+            TelegramNotifier.cancelPriceAlerts(auctionId);
+            create(sellerId, "SOLD",
+                    "Your item \"" + title + "\" sold"
+                            + (price != null ? " for " + price : "")
+                            + " to " + buyer + ". Arrange delivery from your seller dashboard.",
+                    sellerLink,
+                    "Your item sold",
+                    "Your auction \"" + title + "\" has a winner on AuctionHub"
+                            + (price != null ? ", at " + price : "")
+                            + ". The buyer's full details are on the order in your seller dashboard.",
+                    TelegramAlerts.sellerSold(auctionId, title, summary.topBid, winnerName));
         });
     }
 
@@ -484,6 +545,82 @@ public final class NotificationService {
             LOG.fine("auctionSummary lookup failed: " + e.getMessage());
         }
         return new AuctionSummary("your item", null);
+    }
+
+    /**
+     * What the seller's live price feed needs: the figure, how contested the listing is, and
+     * when it closes — the last of which decides whether the endgame cooldown applies.
+     */
+    private static final class SellerBidSnapshot {
+        final String title;
+        final java.math.BigDecimal topBid;
+        final int bidCount;
+        final java.time.Instant dateEnd;
+
+        SellerBidSnapshot(String title, java.math.BigDecimal topBid, int bidCount,
+                          java.time.Instant dateEnd) {
+            this.title = title;
+            this.topBid = topBid;
+            this.bidCount = bidCount;
+            this.dateEnd = dateEnd;
+        }
+    }
+
+    /** One round trip for the four facts, since this runs on every bid. */
+    private static SellerBidSnapshot sellerBidSnapshot(long auctionId) {
+        String sql = "SELECT d.title, a.date_end, "
+                + "(SELECT COUNT(*) FROM bids WHERE auction_id = a.auction_id) AS bid_count, "
+                + "(SELECT MAX(bid_amount) FROM bids WHERE auction_id = a.auction_id) AS top_bid "
+                + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+                + "WHERE a.auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String title = rs.getString("title");
+                    java.sql.Timestamp end = rs.getTimestamp("date_end");
+                    return new SellerBidSnapshot(
+                            (title == null || title.isBlank()) ? "your item" : title,
+                            rs.getBigDecimal("top_bid"),
+                            rs.getInt("bid_count"),
+                            end == null ? null : end.toInstant());
+                }
+            }
+        } catch (Exception e) {
+            LOG.fine("sellerBidSnapshot lookup failed: " + e.getMessage());
+        }
+        return new SellerBidSnapshot("your item", null, 0, null);
+    }
+
+    /**
+     * The account's display name, or {@code null} when it cannot be resolved. One column
+     * rather than {@code UserDAO.getUserById}, which reads the whole profile: the only thing
+     * wanted here is a name that is about to be masked down to two characters anyway.
+     */
+    private static String usernameOf(int userId) {
+        String sql = "SELECT username FROM users WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getString(1);
+            }
+        } catch (Exception e) {
+            LOG.fine("username lookup failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * A partly-hidden display name for the counterparty, e.g. {@code c***e}. Used in the
+     * seller's in-app result line as well as the push: the notification bell is no more the
+     * right place for a full identity than a phone lock screen is, and the unmasked name is
+     * one click away on the order.
+     */
+    private static String maskLabel(String username) {
+        String masked = com.auction.util.SecurityUtil.maskUsername(username);
+        return (masked == null || masked.isBlank()) ? "a verified buyer" : masked;
     }
 
     private static String auctionTitle(long auctionId) {

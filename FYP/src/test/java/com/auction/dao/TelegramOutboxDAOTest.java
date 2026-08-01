@@ -89,6 +89,78 @@ class TelegramOutboxDAOTest {
     }
 
     @Nested
+    @DisplayName("Coalescing window (seller price feed)")
+    class CoalescingWindow {
+
+        @Test
+        @DisplayName("The initial delay is applied on INSERT, so the row is not due yet")
+        void initialDelayIsSetOnInsert() throws Exception {
+            dao.enqueueWithConnection(conn, 7, "SELLER_PRICE", 42L, "at $410", "PRICE:42", 120);
+
+            String sql = capturedSql();
+            assertTrue(sql.contains("next_attempt_at"), sql);
+            assertTrue(sql.contains("CURRENT_TIMESTAMP + (? || ' seconds')::interval"), sql);
+            verify(ps).setString(6, "120");
+        }
+
+        @Test
+        @DisplayName("A bid inside the window refreshes the body and nothing else")
+        void conflictRefreshesBodyOnly() throws Exception {
+            dao.enqueueWithConnection(conn, 7, "SELLER_PRICE", 42L, "at $460", "PRICE:42", 120);
+
+            String sql = capturedSql();
+            String doUpdate = sql.substring(sql.indexOf("DO UPDATE"));
+            assertTrue(doUpdate.contains("body = EXCLUDED.body"), doUpdate);
+            // Extending the due time on every bid would starve the message exactly when the
+            // seller wants it: a continuously contested auction would never actually send.
+            assertFalse(doUpdate.contains("next_attempt_at"),
+                    "coalescing must keep the due time the first bid set: " + doUpdate);
+            assertFalse(doUpdate.contains("attempts"), doUpdate);
+        }
+
+        @Test
+        @DisplayName("The delayed and undelayed paths are the same statement, so they cannot drift")
+        void zeroDelayIsTheDefaultPath() throws Exception {
+            dao.enqueueWithConnection(conn, 7, "OUTBID", 42L, "body", "OUTBID:42:7");
+            verify(ps).setString(6, "0");
+        }
+
+        @Test
+        @DisplayName("A negative delay is floored rather than moving the row into the past")
+        void negativeDelayIsFloored() throws Exception {
+            dao.enqueueWithConnection(conn, 7, "SELLER_PRICE", 42L, "body", "PRICE:42", -30);
+            verify(ps).setString(6, "0");
+        }
+    }
+
+    @Nested
+    @DisplayName("Cancelling an overtaken message")
+    class Cancel {
+
+        @Test
+        @DisplayName("A queued price alert is dropped when the auction concludes")
+        void cancelSkipsOnlyPendingRows() throws Exception {
+            when(ps.executeUpdate()).thenReturn(1);
+
+            int dropped = dao.cancelPendingWithConnection(conn, "PRICE:42", "auction concluded");
+
+            assertEquals(1, dropped);
+            String sql = capturedSql();
+            assertTrue(sql.contains("status = 'SKIPPED'"), sql);
+            assertTrue(sql.contains("AND status = 'PENDING'"),
+                    "an already-delivered alert must not be rewritten: " + sql);
+            verify(ps).setString(2, "PRICE:42");
+        }
+
+        @Test
+        @DisplayName("A null key is a no-op rather than a statement that matches everything")
+        void nullKeyTouchesNothing() throws Exception {
+            assertEquals(0, dao.cancelPending(null, "reason"));
+            verify(conn, never()).prepareStatement(anyString());
+        }
+    }
+
+    @Nested
     @DisplayName("Claiming a batch")
     class Claim {
 

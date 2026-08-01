@@ -106,4 +106,7 @@
 \echo '== Telegram alert bodies (outbid / won / lost) =='
 \ir migration_telegram_alerts.sql
 
+\echo '== Telegram seller alert bodies (price feed / sold / unsold) =='
+\ir migration_telegram_seller_alerts.sql
+
 \echo 'All migrations applied.'
