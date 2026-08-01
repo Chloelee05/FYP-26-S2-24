@@ -20,6 +20,22 @@ export function timeRemaining(endTime, now = Date.now()) {
   return `${h}h ${m}m ${s}s`;
 }
 
+/**
+ * Like timeRemaining, but rolls whole days up rather than showing 3-digit hours —
+ * "3d 4h 5m" instead of "76h 5m 3s". Used where a long-running listing would otherwise
+ * read as an unhelpably large hour count. Seconds are dropped once days are shown,
+ * since they are noise at that range.
+ */
+export function timeRemainingWithDays(endTime, now = Date.now()) {
+  const diff = new Date(endTime) - now;
+  if (diff <= 0) return 'Ended';
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
+}
+
 export function getInitials(name = '') {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
