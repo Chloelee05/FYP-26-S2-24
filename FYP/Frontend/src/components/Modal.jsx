@@ -1,4 +1,5 @@
 import { useEffect, useRef, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -7,6 +8,14 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * Accessible dialog shell: labelled, focus-trapped, Escape-closable, and it
  * restores focus to whatever opened it. Page scroll is locked while open.
  *
+ * Rendered through a portal on `document.body`. A `backdrop-filter`, `transform` or
+ * `filter` on any ancestor makes `position: fixed` resolve against that ancestor
+ * instead of the viewport, so a dialog opened from inside the blurred navbar was
+ * being centred on the 4rem navbar strip and clipped off the top of the screen.
+ *
+ * The panel is a flex column capped to the height of the padded backdrop: short
+ * dialogs still hug their content, tall ones keep the header put and scroll the body.
+ *
  * Props:
  *   title            — accessible name (rendered in the header unless `hideHeader`)
  *   subtitle         — optional secondary line under the title
@@ -14,6 +23,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  *   onClose          — required; called by Escape, the backdrop and the close button
  *   dismissOnBackdrop— set false for destructive/multi-step dialogs (default true)
  *   size             — 'sm' | 'md' | 'lg' | 'xl'
+ *   scrollBody       — set false when the dialog owns the panel's column itself
+ *                      (its own scroll area and a pinned footer)
  */
 const SIZES = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl' };
 
@@ -25,6 +36,7 @@ export default function Modal({
   dismissOnBackdrop = true,
   size = 'md',
   hideHeader = false,
+  scrollBody = true,
   className = '',
   children,
 }) {
@@ -74,7 +86,7 @@ export default function Modal({
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="modal-backdrop"
       onMouseDown={(e) => {
@@ -88,10 +100,10 @@ export default function Modal({
         aria-labelledby={title ? titleId : undefined}
         aria-label={title ? undefined : 'Dialog'}
         tabIndex={-1}
-        className={`modal-panel ${SIZES[size] ?? SIZES.md} max-h-[90vh] overflow-y-auto outline-none ${className}`}
+        className={`modal-panel ${SIZES[size] ?? SIZES.md} max-h-full outline-none ${className}`}
       >
         {!hideHeader && (
-          <div className="flex items-start justify-between gap-3 p-5 border-b border-ink-100">
+          <div className="flex items-start justify-between gap-3 p-5 border-b border-ink-100 shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               {Icon && (
                 <span className="grid place-items-center w-10 h-10 rounded-xl bg-primary-50 text-primary-600 shrink-0">
@@ -113,8 +125,11 @@ export default function Modal({
             </button>
           </div>
         )}
-        {children}
+        {/* `min-h-0` lets this shrink past its content once the panel hits its cap,
+            which is what makes the body the part that scrolls. */}
+        {scrollBody ? <div className="min-h-0 overflow-y-auto">{children}</div> : children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

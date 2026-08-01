@@ -37,17 +37,46 @@ describe('Modal', () => {
 
   it('closes on a backdrop press by default', () => {
     const onClose = vi.fn();
-    const { container } = open({ onClose });
-    fireEvent.mouseDown(container.querySelector('.modal-backdrop'));
+    open({ onClose });
+    fireEvent.mouseDown(document.querySelector('.modal-backdrop'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   // Destructive and multi-step dialogs opt out, so a stray click cannot discard work.
   it('ignores the backdrop when dismissOnBackdrop is false', () => {
     const onClose = vi.fn();
-    const { container } = open({ onClose, dismissOnBackdrop: false });
-    fireEvent.mouseDown(container.querySelector('.modal-backdrop'));
+    open({ onClose, dismissOnBackdrop: false });
+    fireEvent.mouseDown(document.querySelector('.modal-backdrop'));
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // `position: fixed` resolves against the nearest ancestor with a backdrop-filter,
+  // filter or transform rather than the viewport, which clipped dialogs opened from
+  // the blurred navbar. Portalling to the body keeps the overlay on the viewport.
+  it('portals onto the body so a filtered ancestor cannot capture the overlay', () => {
+    const { container } = render(
+      <nav className="backdrop-blur-lg">
+        <Modal title="Confirm" onClose={vi.fn()}>
+          <button type="button">Yes</button>
+        </Modal>
+      </nav>,
+    );
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(screen.getByRole('dialog').closest('.modal-backdrop').parentElement).toBe(document.body);
+  });
+
+  it('scrolls the body inside the panel so the header stays put', () => {
+    open();
+    const body = screen.getByRole('button', { name: 'Yes' }).parentElement;
+    expect(body).toHaveClass('overflow-y-auto');
+    expect(body.parentElement).toHaveClass('modal-panel');
+  });
+
+  // Dialogs that lay out their own column (a chat pane, a pinned footer) need their
+  // children to stay direct flex items of the panel.
+  it('leaves children directly on the panel when scrollBody is false', () => {
+    open({ scrollBody: false });
+    expect(screen.getByRole('button', { name: 'Yes' }).parentElement).toHaveClass('modal-panel');
   });
 
   it('ignores a press that starts inside the panel', () => {

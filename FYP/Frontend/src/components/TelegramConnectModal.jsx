@@ -172,6 +172,8 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
     .map(line => line.trim())
     .filter(Boolean);
 
+  const hasAlert = Boolean(error) || !available;
+
   return (
     <Modal
       title={step === 'success' ? 'Telegram connected' : copy['telegram.connect.heading']}
@@ -180,29 +182,36 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
       onClose={onClose}
       dismissOnBackdrop={false}
       size="md"
+      // This dialog splits itself into a scrolling body and a pinned footer, so the
+      // consent step stays usable on a short window without hiding its actions.
+      scrollBody={false}
     >
-      <div className="p-5 space-y-4">
-        {error && (
-          <div className="alert-error">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+      {hasAlert && (
+        <div className="shrink-0 px-5 pt-5 space-y-3">
+          {error && (
+            <div className="alert-error">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-        {!available && (
-          <div className="alert-warning">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <span>Telegram alerts aren’t switched on for this server yet. Please try again later.</span>
-          </div>
-        )}
+          {!available && (
+            <div className="alert-warning">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>Telegram alerts aren’t switched on for this server yet. Please try again later.</span>
+            </div>
+          )}
+        </div>
+      )}
 
+      <div className={`min-h-0 overflow-y-auto px-5 pb-5 space-y-3.5 ${hasAlert ? 'pt-4' : 'pt-5'}`}>
         {/* ── Step 1: what you get, what we keep, and consent ─────────────── */}
         {step === 'explain' && (
           <>
             <p className="text-sm text-ink-600 leading-relaxed">{copy['telegram.connect.body']}</p>
 
             {events.length > 0 && (
-              <ul className="space-y-2">
+              <ul className="space-y-1.5">
                 {events.map(event => (
                   <li key={event} className="flex items-start gap-2.5 text-sm text-ink-700">
                     <Check size={15} className="mt-0.5 shrink-0 text-emerald-600" />
@@ -212,7 +221,7 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
               </ul>
             )}
 
-            <div className="surface-muted p-4">
+            <div className="surface-muted p-3.5">
               <div className="flex items-start gap-2.5">
                 <ShieldCheck size={16} className="mt-0.5 shrink-0 text-ink-500" />
                 <div className="min-w-0">
@@ -223,21 +232,6 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
                   </Link>
                 </div>
               </div>
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <button type="button" onClick={onClose} className="btn-secondary flex-1">
-                Not now
-              </button>
-              <button
-                type="button"
-                onClick={beginLink}
-                disabled={busy || !available}
-                className="btn-primary flex-1"
-              >
-                {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                {busy ? 'Preparing…' : 'Agree & connect'}
-              </button>
             </div>
           </>
         )}
@@ -316,10 +310,6 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
                 </div>
               )}
             </div>
-
-            <button type="button" onClick={onClose} className="btn-ghost btn-block">
-              Cancel
-            </button>
           </>
         )}
 
@@ -337,7 +327,37 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
                   : 'Alerts will arrive in your linked Telegram chat.'}
               </p>
             </div>
+          </>
+        )}
+      </div>
 
+      {/* Actions stay out of the scroll area so they are reachable at any window height. */}
+      <div className="shrink-0 border-t border-ink-100 p-5">
+        {step === 'explain' && (
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">
+              Not now
+            </button>
+            <button
+              type="button"
+              onClick={beginLink}
+              disabled={busy || !available}
+              className="btn-primary flex-1"
+            >
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              {busy ? 'Preparing…' : 'Agree & connect'}
+            </button>
+          </div>
+        )}
+
+        {step === 'waiting' && (
+          <button type="button" onClick={onClose} className="btn-ghost btn-block">
+            Cancel
+          </button>
+        )}
+
+        {step === 'success' && (
+          <div className="space-y-2">
             <Link
               to="/profile/settings?tab=notifications"
               onClick={onClose}
@@ -348,7 +368,7 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
             <button type="button" onClick={onClose} className="btn-primary btn-block">
               Done
             </button>
-          </>
+          </div>
         )}
       </div>
     </Modal>

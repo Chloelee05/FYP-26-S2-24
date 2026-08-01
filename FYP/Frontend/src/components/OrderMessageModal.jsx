@@ -63,7 +63,8 @@ export default function OrderMessageModal({ order, onClose }) {
       subtitle={`${isSeller ? 'Buyer' : 'Seller'} · ${order.auctionTitle}`}
       onClose={onClose}
       size="md"
-      className="h-[min(80vh,560px)] flex flex-col overflow-hidden bg-ink-50"
+      scrollBody={false}
+      className="h-[min(80vh,560px)] bg-ink-50"
     >
       <>
         {!isSeller && order.sellerId && (
