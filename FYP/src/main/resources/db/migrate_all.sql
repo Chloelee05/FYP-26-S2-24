@@ -109,4 +109,7 @@
 \echo '== Telegram seller alert bodies (price feed / sold / unsold) =='
 \ir migration_telegram_seller_alerts.sql
 
+\echo '== Telegram order lifecycle alert bodies (payment / shipping / delivery / refunds) =='
+\ir migration_telegram_order_alerts.sql
+
 \echo 'All migrations applied.'

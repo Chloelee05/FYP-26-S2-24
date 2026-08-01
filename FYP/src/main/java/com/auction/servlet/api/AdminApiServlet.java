@@ -662,11 +662,8 @@ public class AdminApiServlet extends ApiBase {
             OrderDAO.RefundDecision d = orderDAO.adminResolveRefund(orderId, approve);
             switch (d) {
                 case SUCCESS:
-                    int[] parties = orderDAO.partiesAndAuction(orderId);
-                    if (parties != null) {
-                        com.auction.notification.NotificationService
-                                .notifyBuyerRefundResolved(parties[2], parties[0], approve, "An AuctionHub admin");
-                    }
+                    com.auction.notification.NotificationService
+                            .notifyBuyerRefundResolved(orderId, approve, "An AuctionHub admin");
                     okMsg(resp, approve
                             ? "Refund approved — the order was cancelled and the buyer was notified."
                             : "Refund declined — the order stays active and the buyer was notified.");

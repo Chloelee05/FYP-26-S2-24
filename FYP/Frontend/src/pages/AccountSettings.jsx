@@ -520,6 +520,7 @@ const TELEGRAM_PREF_ITEMS = [
   { key: 'lost',         label: 'Auction lost',      desc: 'An auction you bid on closed without you.' },
   { key: 'sellerResult', label: 'My listing closed', desc: 'One of your listings sold or ended.' },
   { key: 'sellerPrice',  label: 'Bids on my listings', desc: 'Every new bid on something you are selling. Can be chatty.' },
+  { key: 'orderUpdates', label: 'Order updates',    desc: 'Payment, despatch, delivery and refunds on orders you are part of.' },
 ];
 
 /** The one switch used everywhere on this page, so every row behaves identically. */
@@ -700,6 +701,7 @@ function TelegramPreferences({ prefs, onChange }) {
 
 const DEFAULT_TELEGRAM_PREFS = {
   enabled: true, outbid: true, won: true, lost: true, sellerResult: true, sellerPrice: false,
+  orderUpdates: true,
 };
 
 function NotificationPreferencesSection() {

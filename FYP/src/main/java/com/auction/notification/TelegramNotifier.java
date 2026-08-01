@@ -91,18 +91,32 @@ final class TelegramNotifier {
      * That default lives in the {@code telegram_seller_price} column, so this method needs
      * no special case for it — it simply reads what the user has, and
      * {@link NotificationDAO.TelegramPreferences#defaults()} agrees with the schema.</p>
+     *
+     * <p>Every post-sale event shares {@code telegram_order_updates}. They are listed
+     * individually rather than left to the {@code default} branch so that the gate is
+     * explicit: an event that reaches this method without a case is one nobody chose to
+     * make opt-out-able, which should be visible here rather than inferred.</p>
      */
     static boolean allowed(NotificationDAO.TelegramPreferences p, String eventType) {
         if (!p.enabled) {
             return false;
         }
         switch (eventType) {
-            case "OUTBID":        return p.outbid;
-            case "WON":           return p.won;
-            case "LOST":          return p.lost;
-            case "SELLER_PRICE":  return p.sellerPrice;
-            case "SELLER_RESULT": return p.sellerResult;
-            default:              return true;
+            case "OUTBID":           return p.outbid;
+            case "WON":              return p.won;
+            case "LOST":             return p.lost;
+            case "SELLER_PRICE":     return p.sellerPrice;
+            case "SELLER_RESULT":    return p.sellerResult;
+            case "ORDER_PAYMENT":
+            case "ORDER_PAID":
+            case "ORDER_SHIPPED":
+            case "ORDER_IN_TRANSIT":
+            case "ORDER_DELIVERED":
+            case "ORDER_COMPLETED":
+            case "REFUND_REQUESTED":
+            case "REFUND_APPROVED":
+            case "REFUND_REJECTED":  return p.orderUpdates;
+            default:                 return true;
         }
     }
 }

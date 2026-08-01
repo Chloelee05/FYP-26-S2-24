@@ -296,7 +296,7 @@ class NotificationServiceLostTest {
             when(links.findByUserId(anyInt())).thenReturn(
                     new TelegramLinkDAO.LinkInfo("someone", Instant.now(), "ciphertext"));
             when(telegramPrefs.getTelegramPreferences(LOSER_A)).thenReturn(
-                    new NotificationDAO.TelegramPreferences(true, true, true, false, true, false));
+                    new NotificationDAO.TelegramPreferences(true, true, true, false, true, false, true));
 
             withDb(true, () -> NotificationService.notifyAuctionLost(AUCTION_ID, WINNER));
 

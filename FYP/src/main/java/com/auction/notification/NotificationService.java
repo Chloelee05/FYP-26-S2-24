@@ -287,31 +287,45 @@ public final class NotificationService {
                 "Your AuctionHub registration was not approved."));
     }
 
+    // ── Order lifecycle ───────────────────────────────────────────────────────
+    //
+    // These take an order id and nothing else, because everything they need — both parties,
+    // the item, the amount — hangs off the order and was previously being fetched piecemeal
+    // by the servlets to pass back in. It also gives the Telegram leg the one identifier its
+    // dedupe keys are built on, so a stage cannot be announced twice.
+
     /** Notifies the seller that the winning buyer has paid. */
-    public static void notifyOrderPaid(long auctionId, int sellerId) {
+    public static void notifyOrderPaid(long orderId) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
-            create(sellerId, "ORDER_PAID",
-                    "Payment received for \"" + title + "\". You can now arrange delivery.",
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.sellerId, "ORDER_PAID",
+                    "Payment received for \"" + o.title + "\". You can now arrange delivery.",
                     "/seller/dashboard",
                     "Payment received",
-                    "The winning buyer paid for \"" + title + "\" on AuctionHub.");
+                    "The winning buyer paid for \"" + o.title + "\" on AuctionHub.",
+                    TelegramAlerts.orderPaidToSeller(orderId, o.auctionId, o.title, o.amount,
+                            o.buyerUsername));
         });
     }
 
     /**
-     * Sends the buyer a payment confirmation and itemised receipt (in-app + email) after
-     * a successful order payment. {@code paymentLabel} describes the method used
-     * (e.g. "Visa ****4242", "PayPal (a@b.com)"); pass null when unknown.
+     * Sends the buyer a payment confirmation and itemised receipt after a successful order
+     * payment. {@code paymentLabel} describes the method used (e.g. "Visa ****4242",
+     * "PayPal (a@b.com)"); pass null when unknown.
+     *
+     * <p>The method label goes in the in-app line and the emailed receipt, which is where a
+     * proof-of-payment record belongs, but deliberately not into the push: a card hint on a
+     * lock screen buys the reader nothing they did not just do themselves.</p>
      */
-    public static void notifyBuyerPaymentReceipt(long orderId, int buyerId, String paymentLabel) {
+    public static void notifyBuyerPaymentReceipt(long orderId, String paymentLabel) {
         safe(() -> {
-            OrderReceipt r = orderReceipt(orderId);
-            String title = r != null ? r.title : "your order";
-            String amount = r != null && r.amount != null ? formatMoney(r.amount) : "";
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            String amount = o.amount != null ? formatMoney(o.amount) : "";
             String method = (paymentLabel == null || paymentLabel.isBlank()) ? "your payment method" : paymentLabel;
 
-            String inApp = "Payment confirmed for \"" + title + "\""
+            String inApp = "Payment confirmed for \"" + o.title + "\""
                     + (amount.isEmpty() ? "" : " (" + amount + ")") + ". A receipt has been emailed to you.";
 
             StringBuilder body = new StringBuilder();
@@ -319,71 +333,138 @@ public final class NotificationService {
             body.append("Payment confirmation / receipt\n");
             body.append("------------------------------\n");
             body.append("Order #: ").append(orderId).append('\n');
-            body.append("Item: ").append(title).append('\n');
+            body.append("Item: ").append(o.title).append('\n');
             if (!amount.isEmpty()) body.append("Amount paid: ").append(amount).append('\n');
             body.append("Payment method: ").append(method).append('\n');
             body.append("Status: PAID\n\n");
             body.append("Keep this email as proof of your transaction. "
                     + "You can track delivery and confirm receipt from your Orders page.");
 
-            create(buyerId, "PAYMENT_RECEIPT", inApp, "/profile",
-                    "Your AuctionHub payment receipt (Order #" + orderId + ")", body.toString());
+            create(o.buyerId, "PAYMENT_RECEIPT", inApp, "/purchases",
+                    "Your AuctionHub payment receipt (Order #" + orderId + ")", body.toString(),
+                    TelegramAlerts.orderPaymentConfirmed(orderId, o.auctionId, o.title, o.amount));
         });
     }
 
-    /** Notifies the buyer that the package was marked delivered — confirm receipt when ready. */
-    public static void notifyOrderDelivered(long auctionId, int buyerId) {
+    /**
+     * Tells the buyer their order moved to {@code shippingStatus}.
+     *
+     * <p>Until now only the last of these steps said anything: a seller could mark an order
+     * shipped and then out for delivery and the buyer, who is the one person waiting for it,
+     * would learn nothing in any channel. So this covers the whole
+     * {@code SHIPPED → IN_TRANSIT → DELIVERED} tail.</p>
+     *
+     * <p>{@code PREPARING} is intentionally silent. It is set by the payment itself rather
+     * than by any decision of the seller's, so announcing it would mean two messages for one
+     * event, and the payment confirmation already says the seller is getting the item ready.</p>
+     */
+    public static void notifyOrderShippingAdvanced(long orderId, String shippingStatus) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
-            create(buyerId, "ORDER_DELIVERED",
-                    "Your order \"" + title + "\" was marked delivered. Please confirm receipt in Orders.",
-                    "/profile",
+            if (shippingStatus == null) return;
+            switch (shippingStatus.toUpperCase()) {
+                case "SHIPPED":
+                    notifyBuyerShippingStage(orderId, "ORDER_SHIPPED",
+                            " has been shipped. Track it from My purchases.",
+                            "Your order has shipped",
+                            " has been handed over for delivery.", true);
+                    break;
+                case "IN_TRANSIT":
+                    notifyBuyerShippingStage(orderId, "ORDER_IN_TRANSIT",
+                            " is out for delivery and should arrive shortly.",
+                            "Your order is out for delivery",
+                            " is out for delivery and should reach you shortly.", false);
+                    break;
+                case "DELIVERED":
+                    notifyOrderDelivered(orderId);
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+
+    /** The two mid-flight shipping steps, which differ only in their wording. */
+    private static void notifyBuyerShippingStage(long orderId, String type, String inAppTail,
+                                                 String emailSubject, String emailTail,
+                                                 boolean shipped) {
+        OrderSummary o = orderSummary(orderId);
+        if (o == null) return;
+        create(o.buyerId, type,
+                "Your order \"" + o.title + "\"" + inAppTail,
+                "/purchases",
+                emailSubject,
+                "Your AuctionHub order \"" + o.title + "\"" + emailTail,
+                shipped ? TelegramAlerts.orderShipped(orderId, o.auctionId, o.title)
+                        : TelegramAlerts.orderOutForDelivery(orderId, o.auctionId, o.title));
+    }
+
+    /** Notifies the buyer that the package was marked delivered — confirm receipt when ready. */
+    public static void notifyOrderDelivered(long orderId) {
+        safe(() -> {
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.buyerId, "ORDER_DELIVERED",
+                    "Your order \"" + o.title + "\" was marked delivered. Please confirm receipt in Orders.",
+                    "/purchases",
                     "Package delivered",
-                    "Your order \"" + title + "\" was marked delivered on AuctionHub. Confirm receipt when you receive it.");
+                    "Your order \"" + o.title + "\" was marked delivered on AuctionHub. Confirm receipt when you receive it.",
+                    TelegramAlerts.orderDelivered(orderId, o.auctionId, o.title));
         });
     }
 
     /** Notifies the seller that the buyer confirmed receipt; payment/earnings are complete. */
-    public static void notifySellerReceiptConfirmed(long auctionId, int sellerId) {
+    public static void notifySellerReceiptConfirmed(long orderId) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
-            create(sellerId, "ORDER_COMPLETED",
-                    "The buyer confirmed receipt for \"" + title
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.sellerId, "ORDER_COMPLETED",
+                    "The buyer confirmed receipt for \"" + o.title
                             + "\". Payment is complete and funds are reflected in your earnings summary.",
-                    "/seller/dashboard",
+                    "/sales",
                     "Payment complete — receipt confirmed",
-                    "The buyer confirmed receipt for \"" + title
-                            + "\" on AuctionHub. Payment is complete and the sale is reflected in your earnings.");
+                    "The buyer confirmed receipt for \"" + o.title
+                            + "\" on AuctionHub. Payment is complete and the sale is reflected in your earnings.",
+                    TelegramAlerts.orderCompleted(orderId, o.auctionId, o.title, o.amount,
+                            o.buyerUsername));
         });
     }
 
-    /** Notifies the seller that the buyer requested a refund. */
-    public static void notifySellerRefundRequested(long auctionId, int sellerId) {
+    /**
+     * Notifies the seller that the buyer requested a refund.
+     *
+     * <p>The buyer's reason reaches the seller through the order page, not the alert: it is
+     * free text written in a dispute, and the seller has to open the order to answer it.</p>
+     */
+    public static void notifySellerRefundRequested(long orderId) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
-            create(sellerId, "REFUND_REQUESTED",
-                    "The buyer requested a refund for \"" + title + "\". Review it in your Orders.",
-                    "/profile",
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.sellerId, "REFUND_REQUESTED",
+                    "The buyer requested a refund for \"" + o.title + "\". Review it in your Orders.",
+                    "/sales",
                     "Refund requested",
-                    "The buyer requested a refund for \"" + title + "\" on AuctionHub.");
+                    "The buyer requested a refund for \"" + o.title + "\" on AuctionHub.",
+                    TelegramAlerts.refundRequested(orderId, o.auctionId, o.title, o.buyerUsername));
         });
     }
 
     /** Notifies the buyer that the seller approved or declined their refund request. */
-    public static void notifyBuyerRefundResolved(long auctionId, int buyerId, boolean approved) {
-        notifyBuyerRefundResolved(auctionId, buyerId, approved, "The seller");
+    public static void notifyBuyerRefundResolved(long orderId, boolean approved) {
+        notifyBuyerRefundResolved(orderId, approved, "The seller");
     }
 
     /** Same as above, but names a different decision maker (e.g. "An AuctionHub admin"). */
-    public static void notifyBuyerRefundResolved(long auctionId, int buyerId, boolean approved, String actor) {
+    public static void notifyBuyerRefundResolved(long orderId, boolean approved, String actor) {
         safe(() -> {
-            String title = auctionTitle(auctionId);
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
             String verb = approved ? "approved" : "declined";
-            create(buyerId, approved ? "REFUND_APPROVED" : "REFUND_REJECTED",
-                    actor + " " + verb + " your refund request for \"" + title + "\".",
-                    "/profile",
+            create(o.buyerId, approved ? "REFUND_APPROVED" : "REFUND_REJECTED",
+                    actor + " " + verb + " your refund request for \"" + o.title + "\".",
+                    "/purchases",
                     "Refund " + verb,
-                    actor + " " + verb + " your refund request for \"" + title + "\" on AuctionHub.");
+                    actor + " " + verb + " your refund request for \"" + o.title + "\" on AuctionHub.",
+                    TelegramAlerts.refundResolved(orderId, o.auctionId, o.title, o.amount, approved));
         });
     }
 
@@ -473,7 +554,7 @@ public final class NotificationService {
      * delivery without knowing Telegram exists.</p>
      *
      * @param telegram the Telegram body for this event, or {@code null} for the event types
-     *                 that have no push equivalent (admin alerts, receipts, order chatter)
+     *                 that have no push equivalent (admin alerts, Q&amp;A replies, order chatter)
      */
     private static void create(int userId, String type, String message, String link,
                                String emailSubject, String emailBody,
@@ -637,24 +718,54 @@ public final class NotificationService {
         return "your item";
     }
 
-    /** Lightweight order fields needed to build a payment receipt. */
-    private static final class OrderReceipt {
-        final String title;
+    /**
+     * Everything an order-stage notification needs: who the two parties are, what the item
+     * was and what it cost. The buyer's raw username is included only so the builders can
+     * mask it — nothing here writes it out.
+     */
+    private static final class OrderSummary {
+        final long auctionId;
+        final int buyerId;
+        final int sellerId;
         final java.math.BigDecimal amount;
-        OrderReceipt(String title, java.math.BigDecimal amount) { this.title = title; this.amount = amount; }
+        final String title;
+        final String buyerUsername;
+
+        OrderSummary(long auctionId, int buyerId, int sellerId, java.math.BigDecimal amount,
+                     String title, String buyerUsername) {
+            this.auctionId = auctionId;
+            this.buyerId = buyerId;
+            this.sellerId = sellerId;
+            this.amount = amount;
+            this.title = (title == null || title.isBlank()) ? "your order" : title;
+            this.buyerUsername = buyerUsername;
+        }
     }
 
-    private static OrderReceipt orderReceipt(long orderId) {
-        String sql = "SELECT d.title, o.amount FROM orders o "
-                + "JOIN auction_details d ON d.id = o.auction_id WHERE o.id = ?";
+    /** One round trip, since every order-stage notification needs the same six facts. */
+    private static OrderSummary orderSummary(long orderId) {
+        String sql = "SELECT o.auction_id, o.buyer_id, o.seller_id, o.amount, d.title, "
+                + "b.username AS buyer_username "
+                + "FROM orders o "
+                + "JOIN auction_details d ON d.id = o.auction_id "
+                + "LEFT JOIN users b ON b.id = o.buyer_id "
+                + "WHERE o.id = ?";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, orderId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return new OrderReceipt(rs.getString("title"), rs.getBigDecimal("amount"));
+                if (rs.next()) {
+                    return new OrderSummary(
+                            rs.getLong("auction_id"),
+                            rs.getInt("buyer_id"),
+                            rs.getInt("seller_id"),
+                            rs.getBigDecimal("amount"),
+                            rs.getString("title"),
+                            rs.getString("buyer_username"));
+                }
             }
         } catch (Exception e) {
-            LOG.fine("orderReceipt lookup failed: " + e.getMessage());
+            LOG.fine("orderSummary lookup failed: " + e.getMessage());
         }
         return null;
     }

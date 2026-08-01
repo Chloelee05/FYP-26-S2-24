@@ -17,7 +17,7 @@ import java.util.Map;
  * GET  /api/notifications/preferences — the user's notification preferences
  * POST /api/notifications/preferences — save preferences (params: outbid, endingSoon, wonAuction,
  *      plus optional telegramEnabled / telegramOutbid / telegramWon / telegramLost /
- *      telegramSellerResult / telegramSellerPrice)
+ *      telegramSellerResult / telegramSellerPrice / telegramOrderUpdates)
  * Requires any authenticated user.
  */
 @WebServlet({"/api/notifications", "/api/notifications/preferences"})
@@ -122,12 +122,14 @@ public class NotificationApiServlet extends ApiBase {
         body.put("lost", t.lost);
         body.put("sellerResult", t.sellerResult);
         body.put("sellerPrice", t.sellerPrice);
+        body.put("orderUpdates", t.orderUpdates);
         return body;
     }
 
     private static final String[] TELEGRAM_PARAMS = {
         "telegramEnabled", "telegramOutbid", "telegramWon",
         "telegramLost", "telegramSellerResult", "telegramSellerPrice",
+        "telegramOrderUpdates",
     };
 
     private boolean hasTelegramParams(HttpServletRequest req) {
@@ -151,7 +153,8 @@ public class NotificationApiServlet extends ApiBase {
                 boolParam(req, "telegramWon", current.won),
                 boolParam(req, "telegramLost", current.lost),
                 boolParam(req, "telegramSellerResult", current.sellerResult),
-                boolParam(req, "telegramSellerPrice", current.sellerPrice));
+                boolParam(req, "telegramSellerPrice", current.sellerPrice),
+                boolParam(req, "telegramOrderUpdates", current.orderUpdates));
     }
 
     private boolean boolParam(HttpServletRequest req, String name, boolean fallback) {

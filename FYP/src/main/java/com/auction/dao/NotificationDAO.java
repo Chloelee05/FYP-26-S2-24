@@ -184,27 +184,37 @@ public class NotificationDAO {
         public final boolean lost;
         public final boolean sellerResult;
         public final boolean sellerPrice;
+        /**
+         * One switch for the whole post-sale lifecycle — payment, despatch, delivery,
+         * completion and refunds. Deliberately not a column per stage: they are the
+         * bounded, non-repeating consequences of a transaction the member is already
+         * party to, and nobody sensibly wants to be told their parcel shipped but not
+         * that it arrived.
+         */
+        public final boolean orderUpdates;
 
         public TelegramPreferences(boolean enabled, boolean outbid, boolean won,
-                                   boolean lost, boolean sellerResult, boolean sellerPrice) {
+                                   boolean lost, boolean sellerResult, boolean sellerPrice,
+                                   boolean orderUpdates) {
             this.enabled = enabled;
             this.outbid = outbid;
             this.won = won;
             this.lost = lost;
             this.sellerResult = sellerResult;
             this.sellerPrice = sellerPrice;
+            this.orderUpdates = orderUpdates;
         }
 
         /** Matches the column defaults: everything on except the noisy seller price feed. */
         public static TelegramPreferences defaults() {
-            return new TelegramPreferences(true, true, true, true, true, false);
+            return new TelegramPreferences(true, true, true, true, true, false, true);
         }
     }
 
     /** The user's Telegram preferences, defaulting to {@link TelegramPreferences#defaults()}. */
     public TelegramPreferences getTelegramPreferences(int userId) {
         String sql = "SELECT telegram_enabled, telegram_outbid, telegram_won, telegram_lost, "
-                + "telegram_seller_result, telegram_seller_price "
+                + "telegram_seller_result, telegram_seller_price, telegram_order_updates "
                 + "FROM notification_preference WHERE user_id = ?";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -217,7 +227,8 @@ public class NotificationDAO {
                             rs.getBoolean("telegram_won"),
                             rs.getBoolean("telegram_lost"),
                             rs.getBoolean("telegram_seller_result"),
-                            rs.getBoolean("telegram_seller_price"));
+                            rs.getBoolean("telegram_seller_price"),
+                            rs.getBoolean("telegram_order_updates"));
                 }
             }
         } catch (Exception e) {
@@ -230,15 +241,16 @@ public class NotificationDAO {
     public boolean saveTelegramPreferences(int userId, TelegramPreferences p) throws Exception {
         String sql = "INSERT INTO notification_preference "
                 + "(user_id, telegram_enabled, telegram_outbid, telegram_won, telegram_lost, "
-                + " telegram_seller_result, telegram_seller_price) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + " telegram_seller_result, telegram_seller_price, telegram_order_updates) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT (user_id) DO UPDATE SET "
                 + "telegram_enabled = EXCLUDED.telegram_enabled, "
                 + "telegram_outbid = EXCLUDED.telegram_outbid, "
                 + "telegram_won = EXCLUDED.telegram_won, "
                 + "telegram_lost = EXCLUDED.telegram_lost, "
                 + "telegram_seller_result = EXCLUDED.telegram_seller_result, "
-                + "telegram_seller_price = EXCLUDED.telegram_seller_price";
+                + "telegram_seller_price = EXCLUDED.telegram_seller_price, "
+                + "telegram_order_updates = EXCLUDED.telegram_order_updates";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, userId);
@@ -248,6 +260,7 @@ public class NotificationDAO {
             ps.setBoolean(5, p.lost);
             ps.setBoolean(6, p.sellerResult);
             ps.setBoolean(7, p.sellerPrice);
+            ps.setBoolean(8, p.orderUpdates);
             return ps.executeUpdate() > 0;
         } catch (Exception e) {
             throw new Exception("Failed to save Telegram notification preferences", e);

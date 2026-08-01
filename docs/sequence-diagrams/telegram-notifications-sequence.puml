@@ -106,7 +106,7 @@ note over NS
   JSP bid path gets Telegram without knowing it exists.
 end note
 
-U -> NS : bid placed / auction concluded\n(BidApiServlet, OrderApiServlet,\nAuctionFinalizer, PlaceBidServlet)
+U -> NS : bid placed / auction concluded /\norder stage advanced\n(BidApiServlet, OrderApiServlet,\nAuctionFinalizer, PlaceBidServlet)
 activate NS
 NS -> DB : SELECT title, price, bid count, date_end
 alt event type is opted out (allowedByPreference)
@@ -122,7 +122,9 @@ note right of TN
   2. user has an active link
   3. per-event column on notification_preference
      (telegram_seller_price defaults FALSE —
-      the price feed is opt-in)
+      the price feed is opt-in; the nine
+      post-sale events share one column,
+      telegram_order_updates, defaulting TRUE)
 end note
 alt not configured, not linked, or opted out
     TN --> NS : return (nothing queued)
@@ -211,11 +213,16 @@ note over U, TG
   <b>Privacy (PDPA) enforced by signature, not by memory.</b>
   TelegramAlerts.outbid / lost / sellerPrice take no user id or username
   at all, so naming the other party would require changing a signature a
-  reviewer would notice. sellerSold is the one bounded exception — the
-  seller is about to ship to this person — and it masks the handle
-  (c***e) <i>inside</i> the builder, so no call site can skip it. Titles
-  are user input and every substitution is HTML-escaped before markup is
-  added around it. The bot token appears in no log, error or stored row.
+  reviewer would notice. sellerSold and the seller-facing order alerts are
+  the bounded exception — the seller is about to ship to this person — and
+  they mask the handle (c***e) <i>inside</i> the builder, so no call site
+  can skip it. Buyer-facing order alerts name nobody: sellerFacing=false
+  leaves the counterparty slot unfilled, so there is nothing to forget.
+  No order alert carries a delivery address, a phone number, an email
+  address, a card hint or the buyer's free-text refund reason — those stay
+  on the order page behind a login, not on a lock screen. Titles are user
+  input and every substitution is HTML-escaped before markup is added
+  around it. The bot token appears in no log, error or stored row.
 end note
 
 @enduml

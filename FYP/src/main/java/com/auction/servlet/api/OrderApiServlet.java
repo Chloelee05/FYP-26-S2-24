@@ -98,11 +98,10 @@ public class OrderApiServlet extends ApiBase {
         boolean ok = orderDAO.pay(orderId, buyerId, pmId);
         if (!ok) { badRequest(resp, "Order not found or not awaiting payment."); return; }
 
-        int[] parties = orderDAO.partiesAndAuction(orderId);
-        if (parties != null) NotificationService.notifyOrderPaid(parties[2], parties[1]);
+        NotificationService.notifyOrderPaid(orderId);
 
         String paymentLabel = pmId != null ? paymentDAO.labelFor(buyerId, pmId) : null;
-        NotificationService.notifyBuyerPaymentReceipt(orderId, buyerId, paymentLabel);
+        NotificationService.notifyBuyerPaymentReceipt(orderId, paymentLabel);
 
         okMsg(resp, "Payment successful. A receipt has been emailed to you and the seller has been notified.");
     }
@@ -120,8 +119,7 @@ public class OrderApiServlet extends ApiBase {
             return;
         }
 
-        int[] parties = orderDAO.partiesAndAuction(orderId);
-        if (parties != null) NotificationService.notifySellerReceiptConfirmed(parties[2], parties[1]);
+        NotificationService.notifySellerReceiptConfirmed(orderId);
         try {
             platformRevenueDAO.recordCommission(orderId);
         } catch (Exception ignored) { }
@@ -142,8 +140,7 @@ public class OrderApiServlet extends ApiBase {
         OrderDAO.RefundResult r = orderDAO.requestRefund(orderId, buyerId, reason);
         switch (r) {
             case SUCCESS:
-                int[] parties = orderDAO.partiesAndAuction(orderId);
-                if (parties != null) NotificationService.notifySellerRefundRequested(parties[2], parties[1]);
+                NotificationService.notifySellerRefundRequested(orderId);
                 okMsg(resp, "Refund request sent to the seller. They will approve or decline it.");
                 break;
             case NOT_FOUND:
@@ -174,8 +171,7 @@ public class OrderApiServlet extends ApiBase {
         OrderDAO.RefundDecision d = orderDAO.resolveRefund(orderId, sellerId, approve);
         switch (d) {
             case SUCCESS:
-                int[] parties = orderDAO.partiesAndAuction(orderId);
-                if (parties != null) NotificationService.notifyBuyerRefundResolved(parties[2], parties[0], approve);
+                NotificationService.notifyBuyerRefundResolved(orderId, approve);
                 okMsg(resp, approve
                         ? "Refund approved. The order was cancelled and the buyer notified."
                         : "Refund request declined. The buyer has been notified.");
@@ -196,7 +192,8 @@ public class OrderApiServlet extends ApiBase {
         OrderDAO.ShippingAdvanceResult r = orderDAO.advanceShipping(orderId, sellerId);
         switch (r) {
             case SUCCESS:
-                notifyIfDelivered(orderId);
+                NotificationService.notifyOrderShippingAdvanced(orderId,
+                        orderDAO.shippingStatusOf(orderId));
                 okMsg(resp, "Shipping status updated.");
                 break;
             case NOT_FOUND:
@@ -213,14 +210,6 @@ public class OrderApiServlet extends ApiBase {
                 break;
             default:
                 error(resp, 400, "Could not update shipping.");
-        }
-    }
-
-    private void notifyIfDelivered(long orderId) {
-        int[] parties = orderDAO.partiesAndAuction(orderId);
-        if (parties == null) return;
-        if (orderDAO.isDelivered(orderId)) {
-            NotificationService.notifyOrderDelivered(parties[2], parties[0]);
         }
     }
 

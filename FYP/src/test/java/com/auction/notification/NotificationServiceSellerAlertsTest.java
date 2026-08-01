@@ -198,7 +198,7 @@ class NotificationServiceSellerAlertsTest {
         when(links.findByUserId(anyInt())).thenReturn(
                 new TelegramLinkDAO.LinkInfo("someone", Instant.now(), "ciphertext"));
         when(telegramPrefs.getTelegramPreferences(anyInt())).thenReturn(
-                new NotificationDAO.TelegramPreferences(true, true, true, true, true, true));
+                new NotificationDAO.TelegramPreferences(true, true, true, true, true, true, true));
         TelegramNotifier.setDaos(links, outbox, telegramPrefs);
         // The copy cache is process-wide and lives 60s. Dropping it here means the bodies
         // asserted below come from TelegramAlerts' built-in defaults (the faked database has
@@ -345,7 +345,7 @@ class NotificationServiceSellerAlertsTest {
         @DisplayName("The master switch silences the price feed even when its own column is on")
         void masterSwitchWins() {
             when(telegramPrefs.getTelegramPreferences(anyInt())).thenReturn(
-                    new NotificationDAO.TelegramPreferences(false, true, true, true, true, true));
+                    new NotificationDAO.TelegramPreferences(false, true, true, true, true, true, true));
 
             withDb(() -> NotificationService.notifySellerNewBid(AUCTION_ID, new BigDecimal("410")));
 
@@ -415,7 +415,7 @@ class NotificationServiceSellerAlertsTest {
         @DisplayName("Opting out of seller results suppresses the push but not the in-app row")
         void optingOutOfResults() {
             when(telegramPrefs.getTelegramPreferences(SELLER)).thenReturn(
-                    new NotificationDAO.TelegramPreferences(true, true, true, true, false, true));
+                    new NotificationDAO.TelegramPreferences(true, true, true, true, false, true, true));
 
             withDb(() -> NotificationService.notifyAuctionWon(AUCTION_ID, WINNER));
 

@@ -486,12 +486,21 @@ public class OrderDAO {
         }
     }
 
-    public boolean isDelivered(long orderId) {
+    /**
+     * The order's current shipping step, or null if it has none yet.
+     *
+     * <p>Read after {@link #advanceShipping} so the caller can say which step was reached,
+     * rather than only whether it was the last one — every step now tells the buyer
+     * something.</p>
+     */
+    public String shippingStatusOf(long orderId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT 1 FROM orders WHERE id = ? AND UPPER(COALESCE(shipping_status, '')) = 'DELIVERED'")) {
+                     "SELECT shipping_status FROM orders WHERE id = ?")) {
             ps.setLong(1, orderId);
-            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

@@ -116,6 +116,45 @@ class TestOrderApiServlet {
         verify(mockOrderDAO, never()).pay(anyLong(), anyInt(), any());
     }
 
+    // ── Shipping ────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("POST shipping advances the step and reads back which one it reached")
+    void shippingAdvanceReportsTheStage() throws Exception {
+        var s = ApiTestSupport.newSellerSession(9);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getPathInfo()).thenReturn("/shipping");
+        when(req.getParameter("orderId")).thenReturn("5");
+        when(mockOrderDAO.advanceShipping(5L, 9))
+                .thenReturn(OrderDAO.ShippingAdvanceResult.SUCCESS);
+        when(mockOrderDAO.shippingStatusOf(5L)).thenReturn("SHIPPED");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        // Every step now tells the buyer something, so the stage has to be known — asking
+        // only "is it delivered yet?" would have left SHIPPED and IN_TRANSIT silent.
+        verify(mockOrderDAO).shippingStatusOf(5L);
+    }
+
+    @Test
+    @DisplayName("POST shipping on an unpaid order → 400 and no stage lookup")
+    void shippingRejectsUnpaidOrder() throws Exception {
+        var s = ApiTestSupport.newSellerSession(9);
+        ApiTestSupport.withBearer(req, s);
+        when(req.getPathInfo()).thenReturn("/shipping");
+        when(req.getParameter("orderId")).thenReturn("5");
+        when(mockOrderDAO.advanceShipping(5L, 9))
+                .thenReturn(OrderDAO.ShippingAdvanceResult.NOT_PAID);
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(400);
+        verify(mockOrderDAO, never()).shippingStatusOf(anyLong());
+    }
+
     // ── Refund ──────────────────────────────────────────────────────────────────
 
     @Test

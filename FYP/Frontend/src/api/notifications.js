@@ -27,4 +27,5 @@ export const saveTelegramPreferences = (t) =>
     telegramLost:         t.lost,
     telegramSellerResult: t.sellerResult,
     telegramSellerPrice:  t.sellerPrice,
+    telegramOrderUpdates: t.orderUpdates,
   }), F);
