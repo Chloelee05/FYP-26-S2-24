@@ -1,10 +1,12 @@
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown, ShoppingBag, Tag } from 'lucide-react';
+import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown, ShoppingBag, Tag, Send } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { publicPath } from '../utils/appBase';
 import useDebouncedValue from '../hooks/useDebouncedValue';
 import NotificationBell from './NotificationBell';
+import TelegramConnectModal from './TelegramConnectModal';
+import { getTelegramStatus } from '../api/telegram';
 
 /** Same treatment as the notification bell, so the icon row reads as one group. */
 const iconLinkClass = ({ isActive }) =>
@@ -19,6 +21,8 @@ export default function Navbar() {
   const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [telegram, setTelegram] = useState(null); // null until the dropdown asks for it
+  const [telegramModalOpen, setTelegramModalOpen] = useState(false);
   const menuRef = useRef(null);
   // Enter is optional, so results follow the typing. This guards the effect below
   // from running on mount, where it would otherwise wipe the q of a /search URL
@@ -33,6 +37,16 @@ export default function Navbar() {
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
+
+  // Only asked for when the account menu is first opened, so signed-in visitors who never
+  // touch the menu don't pay for a request they can't see the result of.
+  const isTelegramEligible = Boolean(user) && user.role !== 'ADMIN';
+  useEffect(() => {
+    if (!menuOpen || telegram || !isTelegramEligible) return;
+    getTelegramStatus()
+      .then(({ data }) => setTelegram({ available: data.available !== false, linked: Boolean(data.linked) }))
+      .catch(() => setTelegram({ available: false, linked: false }));
+  }, [menuOpen, telegram, isTelegramEligible]);
 
   // Search as the term settles rather than on submit. Debounced so a word is one
   // navigation instead of one per keystroke.
@@ -168,6 +182,31 @@ export default function Navbar() {
                   <Link to="/profile" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     <User size={15} className="text-ink-400" /> My account
                   </Link>
+                  {/* Connection state is legible at a glance: a green dot when alerts are
+                      flowing, a plain call to action when they are not. */}
+                  {isTelegramEligible && telegram?.available && (
+                    telegram.linked ? (
+                      <Link
+                        to="/profile/settings?tab=notifications"
+                        className={menuItemClass}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <span className="relative shrink-0">
+                          <Send size={15} className="text-ink-400" />
+                          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+                        </span>
+                        Telegram connected
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setMenuOpen(false); setTelegramModalOpen(true); }}
+                        className={`${menuItemClass} w-full text-left`}
+                      >
+                        <Send size={15} className="text-ink-400" /> Connect Telegram
+                      </button>
+                    )
+                  )}
                   {/* Orders live on their own pages, split by which side of the deal
                       the member is on, rather than as a tab inside the profile. */}
                   {isMember && (
@@ -244,6 +283,13 @@ export default function Navbar() {
             )}
           </div>
         </div>
+      )}
+
+      {telegramModalOpen && (
+        <TelegramConnectModal
+          onClose={() => setTelegramModalOpen(false)}
+          onLinked={() => setTelegram({ available: true, linked: true })}
+        />
       )}
     </nav>
   );

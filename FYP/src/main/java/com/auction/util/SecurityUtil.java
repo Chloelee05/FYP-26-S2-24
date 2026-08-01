@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,13 +32,19 @@ public final class SecurityUtil {
     private static final int GCM_IV_LENGTH = 12;
     private static final int GCM_TAG_BITS = 128;
 
+    /** Environment variable holding the master secret for field-level encryption. */
+    private static final String AES_SECRET_ENV = "AUCTION_AES_SECRET";
+
     /**
-     * TODO: Replace with secure key management — load from an environment variable
-     * (e.g. {@code System.getenv("AUCTION_AES_SECRET")}), a sealed properties file, or
-     * your deployment secret store. Never commit production secrets to source control.
+     * Development-only fallback used when {@value #AES_SECRET_ENV} is unset, so local
+     * runs and unit tests work without provisioning a secret. Deployments must set the
+     * environment variable; a warning is logged once when this fallback is used.
      */
     private static final String PLACEHOLDER_AES_SECRET =
             "CHANGE_ME_AUCTION_AES_SECRET_USE_ENV_OR_KEYSTORE";
+
+    /** Keeps the fallback warning to one line per JVM rather than one per encrypt call. */
+    private static final AtomicBoolean FALLBACK_KEY_WARNED = new AtomicBoolean(false);
 
     private SecurityUtil() {
     }
@@ -106,8 +113,9 @@ public final class SecurityUtil {
     /**
      * Encrypts sensitive PII (e.g. phone, address) with AES-256 in GCM mode.
      * <p>
-     * Requirement: NFR1 (secure data encryption). The key material is ultimately derived from
-     * {@link #PLACEHOLDER_AES_SECRET} until secure configuration is wired (see TODO on that field).
+     * Requirement: NFR1 (secure data encryption). The key is derived from the
+     * {@value #AES_SECRET_ENV} environment variable, falling back to a development
+     * placeholder when it is unset.
      * </p>
      *
      * @param data plaintext; {@code null} yields {@code null}
@@ -316,8 +324,25 @@ public final class SecurityUtil {
 
     private static SecretKey resolveAes256Key() throws NoSuchAlgorithmException {
         MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-        byte[] keyBytes = sha256.digest(PLACEHOLDER_AES_SECRET.getBytes(StandardCharsets.UTF_8));
+        byte[] keyBytes = sha256.digest(aesSecret().getBytes(StandardCharsets.UTF_8));
         return new SecretKeySpec(keyBytes, "AES");
+    }
+
+    /**
+     * The master secret behind {@link #encrypt(String)} / {@link #decrypt(String)}: the
+     * {@value #AES_SECRET_ENV} environment variable, or the development placeholder.
+     * The secret itself is never logged.
+     */
+    private static String aesSecret() {
+        String env = System.getenv(AES_SECRET_ENV);
+        if (env != null && !env.trim().isEmpty()) {
+            return env.trim();
+        }
+        if (FALLBACK_KEY_WARNED.compareAndSet(false, true)) {
+            LOGGER.warning(AES_SECRET_ENV + " is not set — falling back to the built-in development "
+                    + "encryption key. Set " + AES_SECRET_ENV + " in every deployed environment.");
+        }
+        return PLACEHOLDER_AES_SECRET;
     }
 
     private static String maskLocalToken(String token) {

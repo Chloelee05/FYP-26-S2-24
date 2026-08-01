@@ -25,12 +25,23 @@ class UserDAODeleteAccountTest {
     void deleteAccountWithConnection_updatesExpectedColumns() throws Exception {
         Connection conn = mock(Connection.class);
         PreparedStatement ps = mock(PreparedStatement.class);
+        PreparedStatement unlinkPs = mock(PreparedStatement.class);
+        PreparedStatement outboxPs = mock(PreparedStatement.class);
         when(conn.getAutoCommit()).thenReturn(true);
         when(conn.prepareStatement(contains("UPDATE users"))).thenReturn(ps);
+        when(conn.prepareStatement(contains("UPDATE telegram_links"))).thenReturn(unlinkPs);
+        when(conn.prepareStatement(contains("UPDATE telegram_outbox"))).thenReturn(outboxPs);
         when(ps.executeUpdate()).thenReturn(1);
 
         UserDAO dao = new UserDAO();
         assertTrue(dao.deleteAccountWithConnection(conn, 7));
+
+        // Closing the account must also close the Telegram channel, or a deleted user
+        // keeps receiving alerts.
+        verify(unlinkPs).setInt(1, 7);
+        verify(unlinkPs).executeUpdate();
+        verify(outboxPs).setInt(1, 7);
+        verify(outboxPs).executeUpdate();
 
         ArgumentCaptor<String> emailCap = ArgumentCaptor.forClass(String.class);
         verify(ps).setString(eq(1), emailCap.capture());

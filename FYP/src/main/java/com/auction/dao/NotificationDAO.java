@@ -168,6 +168,92 @@ public class NotificationDAO {
         return new Preferences(true, true, true);
     }
 
+    /**
+     * Per-user Telegram delivery preferences.
+     *
+     * <p>Kept apart from {@link Preferences} because the two answer different questions —
+     * "should this event produce a notification at all" versus "should it also go to
+     * Telegram" — and because reading them separately means an un-migrated database only
+     * fails the Telegram query rather than the in-app one.</p>
+     */
+    public static final class TelegramPreferences {
+        /** Master switch: false silences every Telegram message without unlinking. */
+        public final boolean enabled;
+        public final boolean outbid;
+        public final boolean won;
+        public final boolean lost;
+        public final boolean sellerResult;
+        public final boolean sellerPrice;
+
+        public TelegramPreferences(boolean enabled, boolean outbid, boolean won,
+                                   boolean lost, boolean sellerResult, boolean sellerPrice) {
+            this.enabled = enabled;
+            this.outbid = outbid;
+            this.won = won;
+            this.lost = lost;
+            this.sellerResult = sellerResult;
+            this.sellerPrice = sellerPrice;
+        }
+
+        /** Matches the column defaults: everything on except the noisy seller price feed. */
+        public static TelegramPreferences defaults() {
+            return new TelegramPreferences(true, true, true, true, true, false);
+        }
+    }
+
+    /** The user's Telegram preferences, defaulting to {@link TelegramPreferences#defaults()}. */
+    public TelegramPreferences getTelegramPreferences(int userId) {
+        String sql = "SELECT telegram_enabled, telegram_outbid, telegram_won, telegram_lost, "
+                + "telegram_seller_result, telegram_seller_price "
+                + "FROM notification_preference WHERE user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new TelegramPreferences(
+                            rs.getBoolean("telegram_enabled"),
+                            rs.getBoolean("telegram_outbid"),
+                            rs.getBoolean("telegram_won"),
+                            rs.getBoolean("telegram_lost"),
+                            rs.getBoolean("telegram_seller_result"),
+                            rs.getBoolean("telegram_seller_price"));
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return TelegramPreferences.defaults();
+    }
+
+    /** UPSERTs only the Telegram columns, leaving the in-app preferences untouched. */
+    public boolean saveTelegramPreferences(int userId, TelegramPreferences p) throws Exception {
+        String sql = "INSERT INTO notification_preference "
+                + "(user_id, telegram_enabled, telegram_outbid, telegram_won, telegram_lost, "
+                + " telegram_seller_result, telegram_seller_price) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (user_id) DO UPDATE SET "
+                + "telegram_enabled = EXCLUDED.telegram_enabled, "
+                + "telegram_outbid = EXCLUDED.telegram_outbid, "
+                + "telegram_won = EXCLUDED.telegram_won, "
+                + "telegram_lost = EXCLUDED.telegram_lost, "
+                + "telegram_seller_result = EXCLUDED.telegram_seller_result, "
+                + "telegram_seller_price = EXCLUDED.telegram_seller_price";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setBoolean(2, p.enabled);
+            ps.setBoolean(3, p.outbid);
+            ps.setBoolean(4, p.won);
+            ps.setBoolean(5, p.lost);
+            ps.setBoolean(6, p.sellerResult);
+            ps.setBoolean(7, p.sellerPrice);
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            throw new Exception("Failed to save Telegram notification preferences", e);
+        }
+    }
+
     public boolean saveUserPreferences(int userId, boolean out_bided, boolean ending_soon, boolean won_auction) throws Exception {
         String sql = "INSERT INTO notification_preference (user_id, out_bided, ending_soon, won_auction) " +
                 "VALUES (?, ?, ?, ?) " +

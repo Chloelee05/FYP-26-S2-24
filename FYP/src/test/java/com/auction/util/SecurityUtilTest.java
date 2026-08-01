@@ -73,4 +73,30 @@ class SecurityUtilTest {
         assertFalse(clean.toLowerCase().contains("<script>"));
         assertTrue(clean.contains("Hello"));
     }
+
+    @Test
+    @DisplayName("The encryption key comes from AUCTION_AES_SECRET, falling back for local runs")
+    void aesSecretPrefersTheEnvironment() throws Exception {
+        java.lang.reflect.Method aesSecret = SecurityUtil.class.getDeclaredMethod("aesSecret");
+        aesSecret.setAccessible(true);
+        String resolved = (String) aesSecret.invoke(null);
+
+        String configured = System.getenv("AUCTION_AES_SECRET");
+        if (configured != null && !configured.isBlank()) {
+            assertEquals(configured.trim(), resolved);
+        } else {
+            assertEquals("CHANGE_ME_AUCTION_AES_SECRET_USE_ENV_OR_KEYSTORE", resolved,
+                    "unset environment must fall back so local development keeps working");
+        }
+    }
+
+    @Test
+    @DisplayName("Each encryption uses a fresh IV, so ciphertext is not searchable")
+    void encryptUsesRandomIv() {
+        String first = SecurityUtil.encrypt("55501");
+        String second = SecurityUtil.encrypt("55501");
+        assertNotEquals(first, second);
+        assertEquals("55501", SecurityUtil.decrypt(first));
+        assertEquals("55501", SecurityUtil.decrypt(second));
+    }
 }

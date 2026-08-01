@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   AlertCircle, CheckCircle2, User, KeyRound,
   ShieldCheck, Bell, Trash2, Upload, ArrowLeft, Copy, Loader2, Lock,
-  CreditCard, Wallet, Landmark, Plus,
+  CreditCard, Wallet, Landmark, Plus, Send,
 } from 'lucide-react';
 import {
   getProfile, updateProfile, uploadProfilePhoto, deleteAccount,
@@ -12,9 +12,13 @@ import {
 } from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
-import { getNotificationPreferences, saveNotificationPreferences } from '../api/notifications';
+import {
+  getNotificationPreferences, saveNotificationPreferences, saveTelegramPreferences,
+} from '../api/notifications';
+import { getTelegramStatus, unlinkTelegram } from '../api/telegram';
 import PasswordField from '../components/PasswordField';
 import CodeInput from '../components/CodeInput';
+import TelegramConnectModal from '../components/TelegramConnectModal';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { publicPath } from '../utils/appBase';
@@ -510,8 +514,197 @@ const PREF_ITEMS = [
   { key: 'wonAuction', label: 'Auction won',           desc: 'Tell me when I win an auction.' },
 ];
 
+const TELEGRAM_PREF_ITEMS = [
+  { key: 'outbid',       label: 'Outbid',            desc: 'Someone has bid above you.' },
+  { key: 'won',          label: 'Auction won',       desc: 'You won an auction you were bidding on.' },
+  { key: 'lost',         label: 'Auction lost',      desc: 'An auction you bid on closed without you.' },
+  { key: 'sellerResult', label: 'My listing closed', desc: 'One of your listings sold or ended.' },
+  { key: 'sellerPrice',  label: 'Bids on my listings', desc: 'Every new bid on something you are selling. Can be chatty.' },
+];
+
+/** The one switch used everywhere on this page, so every row behaves identically. */
+function PrefSwitch({ checked, label, disabled, saving, onToggle }) {
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      {saving && <Loader2 size={14} className="animate-spin text-ink-400" />}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onToggle}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+          checked ? 'bg-primary-500' : 'bg-ink-300'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Telegram connection card plus its per-event switches.
+ *
+ * The master switch stays usable while the children grey out, so turning Telegram off is
+ * one click and turning it back on restores the choices underneath rather than resetting them.
+ */
+function TelegramPreferences({ prefs, onChange }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [savingKey, setSavingKey] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadStatus = () =>
+    getTelegramStatus()
+      .then(r => setStatus(r.data))
+      .catch(() => setStatus({ available: false, linked: false }))
+      .finally(() => setLoading(false));
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const handleDisconnect = async () => {
+    setBusy(true); setError('');
+    try {
+      await unlinkTelegram();
+      await loadStatus();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not disconnect Telegram.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleToggle = async (key) => {
+    const next = { ...prefs, [key]: !prefs[key] };
+    onChange(next);
+    setError(''); setSavingKey(key);
+    try {
+      await saveTelegramPreferences(next);
+    } catch (err) {
+      onChange(prefs); // revert on failure
+      setError(apiErrorMessage(err, 'Failed to save Telegram preferences.'));
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  if (loading) return <div className="skeleton h-28" aria-busy="true" />;
+  if (!status?.available) return null;
+
+  const linked = Boolean(status.linked);
+  const linkedDate = status.linkedAt ? new Date(status.linkedAt).toLocaleDateString() : null;
+  const childrenDisabled = !linked || !prefs.enabled || savingKey !== null;
+
+  return (
+    <>
+      <div className="card overflow-hidden">
+        <div className="p-5 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <span
+              className={`grid place-items-center w-10 h-10 rounded-xl shrink-0 ${
+                linked ? 'bg-emerald-50 text-emerald-600' : 'bg-primary-50 text-primary-600'
+              }`}
+            >
+              <Send size={18} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-semibold text-sm text-ink-900">Telegram</p>
+                <span className={linked ? 'badge-success' : 'badge-neutral'}>
+                  {linked ? 'Connected' : 'Not connected'}
+                </span>
+              </div>
+              <p className="text-sm text-ink-500 mt-0.5">
+                {linked
+                  ? <>Alerts go to {status.telegramUsername ? <span className="font-medium text-ink-700">@{status.telegramUsername}</span> : 'your linked chat'}{linkedDate ? ` · connected ${linkedDate}` : ''}.</>
+                  : 'Get outbid, won and listing alerts as Telegram messages.'}
+              </p>
+            </div>
+          </div>
+          {linked ? (
+            <button type="button" onClick={handleDisconnect} disabled={busy} className="btn-secondary btn-sm shrink-0">
+              {busy ? 'Removing…' : 'Disconnect'}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setConnectOpen(true)} className="btn-primary btn-sm shrink-0">
+              Connect
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <div className="px-5 pb-4">
+            <div className="alert-error">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          </div>
+        )}
+
+        {linked && (
+          <>
+            <div className="px-5 py-4 border-t border-ink-100 flex items-center justify-between gap-4 bg-ink-50/40">
+              <div className="min-w-0">
+                <p className="font-semibold text-sm text-ink-900">Send me Telegram messages</p>
+                <p className="text-sm text-ink-500 mt-0.5">Turn everything off without disconnecting.</p>
+              </div>
+              <PrefSwitch
+                checked={prefs.enabled}
+                label="Send me Telegram messages"
+                disabled={savingKey !== null}
+                saving={savingKey === 'enabled'}
+                onToggle={() => handleToggle('enabled')}
+              />
+            </div>
+
+            <div
+              className={`divide-y divide-ink-100 transition-opacity ${prefs.enabled ? '' : 'opacity-50'}`}
+            >
+              {TELEGRAM_PREF_ITEMS.map(({ key, label, desc }) => (
+                <div key={key} className="px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm text-ink-800">{label}</p>
+                    <p className="text-xs text-ink-500 mt-0.5">{desc}</p>
+                  </div>
+                  <PrefSwitch
+                    checked={prefs[key]}
+                    label={`${label} on Telegram`}
+                    disabled={childrenDisabled}
+                    saving={savingKey === key}
+                    onToggle={() => handleToggle(key)}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {connectOpen && (
+        <TelegramConnectModal
+          onClose={() => { setConnectOpen(false); loadStatus(); }}
+          onLinked={loadStatus}
+        />
+      )}
+    </>
+  );
+}
+
+const DEFAULT_TELEGRAM_PREFS = {
+  enabled: true, outbid: true, won: true, lost: true, sellerResult: true, sellerPrice: false,
+};
+
 function NotificationPreferencesSection() {
   const [prefs, setPrefs] = useState({ outbid: true, endingSoon: true, wonAuction: true });
+  const [telegramPrefs, setTelegramPrefs] = useState(DEFAULT_TELEGRAM_PREFS);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(null);
   const [message, setMessage] = useState('');
@@ -519,11 +712,14 @@ function NotificationPreferencesSection() {
 
   useEffect(() => {
     getNotificationPreferences()
-      .then(r => setPrefs({
-        outbid:     r.data.outbid     ?? true,
-        endingSoon: r.data.endingSoon ?? true,
-        wonAuction: r.data.wonAuction ?? true,
-      }))
+      .then(r => {
+        setPrefs({
+          outbid:     r.data.outbid     ?? true,
+          endingSoon: r.data.endingSoon ?? true,
+          wonAuction: r.data.wonAuction ?? true,
+        });
+        setTelegramPrefs({ ...DEFAULT_TELEGRAM_PREFS, ...(r.data.telegram ?? {}) });
+      })
       .catch(() => setError('Could not load notification preferences.'))
       .finally(() => setLoading(false));
   }, []);
@@ -562,26 +758,13 @@ function NotificationPreferencesSection() {
               <p className="font-semibold text-sm text-ink-900">{label}</p>
               <p className="text-sm text-ink-500 mt-0.5">{desc}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {savingKey === key && <Loader2 size={14} className="animate-spin text-ink-400" />}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={prefs[key]}
-                aria-label={label}
-                disabled={savingKey !== null}
-                onClick={() => handleToggle(key)}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-                  prefs[key] ? 'bg-primary-500' : 'bg-ink-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                    prefs[key] ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
+            <PrefSwitch
+              checked={prefs[key]}
+              label={label}
+              disabled={savingKey !== null}
+              saving={savingKey === key}
+              onToggle={() => handleToggle(key)}
+            />
           </div>
         ))}
       </div>
@@ -589,6 +772,11 @@ function NotificationPreferencesSection() {
       <p className="text-xs text-ink-400">
         Each switch saves on its own — there is no separate save button.
       </p>
+
+      <div className="pt-1">
+        <h3 className="eyebrow mb-2">Telegram</h3>
+        <TelegramPreferences prefs={telegramPrefs} onChange={setTelegramPrefs} />
+      </div>
     </div>
   );
 }

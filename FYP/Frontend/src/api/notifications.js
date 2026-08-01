@@ -14,3 +14,17 @@ export const markAllNotificationsRead = () => api.post('/notifications', form({ 
 export const getNotificationPreferences = () => api.get('/notifications/preferences');
 export const saveNotificationPreferences = ({ outbid, endingSoon, wonAuction }) =>
   api.post('/notifications/preferences', form({ outbid, endingSoon, wonAuction }), F);
+
+/**
+ * Saves the Telegram delivery switches. Sent to the same endpoint as the in-app
+ * preferences, but as a separate call so a Telegram toggle never rewrites the in-app ones.
+ */
+export const saveTelegramPreferences = (t) =>
+  api.post('/notifications/preferences', form({
+    telegramEnabled:      t.enabled,
+    telegramOutbid:       t.outbid,
+    telegramWon:          t.won,
+    telegramLost:         t.lost,
+    telegramSellerResult: t.sellerResult,
+    telegramSellerPrice:  t.sellerPrice,
+  }), F);

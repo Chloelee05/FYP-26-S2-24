@@ -259,6 +259,7 @@ public class UserDAO {
      * PDPA-aligned account closure: removes identifying data in place (email, username, password,
      * phone, address, 2FA secrets) and marks the row {@link Status#DELETED}. The primary key is
      * retained so auction/bid foreign keys remain valid without exposing the data subject.
+     * Any Telegram link and queued Telegram messages are revoked in the same transaction.
      */
     public boolean deleteAccount(int userId) {
         try (Connection conn = DBUtil.connectDB()) {
@@ -292,6 +293,7 @@ public class UserDAO {
             ps.setInt(4, Status.DELETED.getId());
             ps.setInt(5, userId);
             boolean updated = ps.executeUpdate() == 1;
+            revokeTelegramChannel(conn, userId);
             conn.commit();
             return updated;
         } catch (SQLException e) {
@@ -299,6 +301,31 @@ public class UserDAO {
             throw e;
         } finally {
             conn.setAutoCommit(previousAutoCommit);
+        }
+    }
+
+    /**
+     * Closes the Telegram channel as part of account deletion, in the caller's transaction.
+     *
+     * <p>Two things have to happen together with the anonymisation, or a deleted account
+     * keeps receiving messages: the link stops being active and its encrypted chat id is
+     * erased (it is personal data that account closure is supposed to remove), and any
+     * queued messages are marked {@code SKIPPED} so the delivery worker never sends them.</p>
+     */
+    private static void revokeTelegramChannel(Connection conn, int userId) throws SQLException {
+        String unlink = "UPDATE telegram_links SET active = FALSE, "
+                + "unlinked_at = CURRENT_TIMESTAMP, chat_id_encrypted = '' "
+                + "WHERE user_id = ? AND active";
+        try (PreparedStatement ps = conn.prepareStatement(unlink)) {
+            ps.setInt(1, userId);
+            ps.executeUpdate();
+        }
+
+        String skip = "UPDATE telegram_outbox SET status = 'SKIPPED', "
+                + "last_error = 'Account deleted' WHERE user_id = ? AND status = 'PENDING'";
+        try (PreparedStatement ps = conn.prepareStatement(skip)) {
+            ps.setInt(1, userId);
+            ps.executeUpdate();
         }
     }
 

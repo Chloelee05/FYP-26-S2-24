@@ -100,4 +100,7 @@
 \echo '== auction card CTA labels (View Auction / View Result) =='
 \ir migration_landing_content_card_cta.sql
 
+\echo '== Telegram notifications (links, one-time codes, outbox, preferences, copy) =='
+\ir migration_telegram_notifications.sql
+
 \echo 'All migrations applied.'

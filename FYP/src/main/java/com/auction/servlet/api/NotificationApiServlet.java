@@ -15,7 +15,9 @@ import java.util.Map;
  * GET  /api/notifications             — recent notifications + unread count for the user
  * POST /api/notifications   action=read [id] | readAll
  * GET  /api/notifications/preferences — the user's notification preferences
- * POST /api/notifications/preferences — save preferences (params: outbid, endingSoon, wonAuction)
+ * POST /api/notifications/preferences — save preferences (params: outbid, endingSoon, wonAuction,
+ *      plus optional telegramEnabled / telegramOutbid / telegramWon / telegramLost /
+ *      telegramSellerResult / telegramSellerPrice)
  * Requires any authenticated user.
  */
 @WebServlet({"/api/notifications", "/api/notifications/preferences"})
@@ -47,6 +49,7 @@ public class NotificationApiServlet extends ApiBase {
             body.put("outbid", p.outbid);
             body.put("endingSoon", p.endingSoon);
             body.put("wonAuction", p.wonAuction);
+            body.put("telegram", telegramBody(userId));
             ok(resp, body);
             return;
         }
@@ -72,6 +75,11 @@ public class NotificationApiServlet extends ApiBase {
             boolean won        = boolParam(req, "wonAuction", current.wonAuction);
             try {
                 dao.saveUserPreferences(userId, outbid, endingSoon, won);
+                // Only written when the caller actually sent Telegram fields, so the in-app
+                // toggles keep working unchanged against a database without those columns.
+                if (hasTelegramParams(req)) {
+                    dao.saveTelegramPreferences(userId, telegramFromRequest(req, userId));
+                }
             } catch (Exception e) {
                 serverError(resp, "Failed to save notification preferences.");
                 return;
@@ -97,6 +105,53 @@ public class NotificationApiServlet extends ApiBase {
 
         dao.markRead(userId, id);
         okMsg(resp, "Notification marked read.");
+    }
+
+    /** Telegram preferences as a nested object, or defaults if the columns are missing. */
+    private Map<String, Object> telegramBody(int userId) {
+        NotificationDAO.TelegramPreferences t;
+        try {
+            t = dao.getTelegramPreferences(userId);
+        } catch (RuntimeException e) {
+            t = NotificationDAO.TelegramPreferences.defaults();
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("enabled", t.enabled);
+        body.put("outbid", t.outbid);
+        body.put("won", t.won);
+        body.put("lost", t.lost);
+        body.put("sellerResult", t.sellerResult);
+        body.put("sellerPrice", t.sellerPrice);
+        return body;
+    }
+
+    private static final String[] TELEGRAM_PARAMS = {
+        "telegramEnabled", "telegramOutbid", "telegramWon",
+        "telegramLost", "telegramSellerResult", "telegramSellerPrice",
+    };
+
+    private boolean hasTelegramParams(HttpServletRequest req) {
+        for (String name : TELEGRAM_PARAMS) {
+            if (req.getParameter(name) != null) return true;
+        }
+        return false;
+    }
+
+    /** Missing fields keep their stored value, so a partial update never silently resets a switch. */
+    private NotificationDAO.TelegramPreferences telegramFromRequest(HttpServletRequest req, int userId) {
+        NotificationDAO.TelegramPreferences current;
+        try {
+            current = dao.getTelegramPreferences(userId);
+        } catch (RuntimeException e) {
+            current = NotificationDAO.TelegramPreferences.defaults();
+        }
+        return new NotificationDAO.TelegramPreferences(
+                boolParam(req, "telegramEnabled", current.enabled),
+                boolParam(req, "telegramOutbid", current.outbid),
+                boolParam(req, "telegramWon", current.won),
+                boolParam(req, "telegramLost", current.lost),
+                boolParam(req, "telegramSellerResult", current.sellerResult),
+                boolParam(req, "telegramSellerPrice", current.sellerPrice));
     }
 
     private boolean boolParam(HttpServletRequest req, String name, boolean fallback) {
