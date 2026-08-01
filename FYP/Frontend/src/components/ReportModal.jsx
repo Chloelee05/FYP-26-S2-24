@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Flag, CheckCircle2 } from 'lucide-react';
 import { reportListing } from '../api/auction';
 import Modal from './Modal';
+import { apiErrorMessage } from '../utils/apiError';
 
 const REASONS = [
   'Counterfeit / Fake item',
@@ -29,7 +30,7 @@ export default function ReportModal({ auctionId, auctionTitle, onClose }) {
       await reportListing(auctionId, `${reason}: ${details.trim()}`);
       setDone(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit report. Please try again.');
+      setError(apiErrorMessage(err, 'Failed to submit report. Please try again.'));
     } finally {
       setSubmitting(false);
     }

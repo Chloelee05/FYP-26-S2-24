@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getAdminReports, resolveReport, dismissReport, replyToReport } from '../../api/admin';
 import Modal from '../../components/Modal';
+import { apiErrorMessage } from '../../utils/apiError';
 
 export default function AdminReports() {
   const [reports, setReports] = useState([]);
@@ -60,7 +61,7 @@ export default function AdminReports() {
       patch(selected, { admin_reply: replyText.trim(), type: reportType });
       setMsg('Reply saved.');
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Failed to save reply.');
+      setMsg(apiErrorMessage(err, 'Failed to save reply.'));
     }
   };
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { getAdminOrders, adminResolveRefund } from '../../api/admin';
 import { formatCurrency, decodeHtmlEntities } from '../../utils/helpers';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const STATUS_STYLE = {
   PENDING_PAYMENT: 'bg-amber-50 text-amber-700 ring-amber-200',
@@ -71,7 +72,7 @@ export default function AdminOrders() {
       setMsg(r.data?.message ?? `Refund ${verb}d.`);
       load();
     } catch (err) {
-      setMsg(err.response?.data?.error || `Could not ${verb} the refund.`);
+      setMsg(apiErrorMessage(err, `Could not ${verb} the refund.`));
     } finally {
       setBusyId(null);
     }

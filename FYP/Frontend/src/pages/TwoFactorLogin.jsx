@@ -5,6 +5,7 @@ import { verifyLogin } from '../api/twoFactor';
 import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 import CodeInput from '../components/CodeInput';
+import { apiErrorMessage } from '../utils/apiError';
 
 export default function TwoFactorLogin() {
   const navigate = useNavigate();
@@ -26,7 +27,7 @@ export default function TwoFactorLogin() {
       if (role === 'ADMIN') navigate('/admin');
       else navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid code. Please try again.');
+      setError(apiErrorMessage(err, 'Invalid code. Please try again.'));
     } finally {
       setLoading(false);
     }

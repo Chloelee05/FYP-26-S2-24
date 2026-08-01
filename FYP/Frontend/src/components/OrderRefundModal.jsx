@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { requestOrderRefund } from '../api/orders';
 import Modal from './Modal';
+import { apiErrorMessage } from '../utils/apiError';
 
 const REASONS = [
   'Item not received',
@@ -33,7 +34,7 @@ export default function OrderRefundModal({ order, onClose, onSubmitted }) {
       onSubmitted?.();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not submit refund request.');
+      setError(apiErrorMessage(err, 'Could not submit refund request.'));
     } finally {
       setLoading(false);
     }

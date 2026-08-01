@@ -70,7 +70,7 @@ export default function AdminCategories() {
         : c));
       setEditing(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update category.');
+      alert(apiErrorMessage(err, 'Failed to update category.'));
     } finally {
       setSaving(false);
     }

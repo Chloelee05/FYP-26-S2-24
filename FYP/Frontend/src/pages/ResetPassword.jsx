@@ -5,6 +5,7 @@ import { resetPassword, forgotPassword } from '../api/auth';
 import AuthLayout from '../components/AuthLayout';
 import CodeInput from '../components/CodeInput';
 import PasswordField from '../components/PasswordField';
+import { apiErrorMessage } from '../utils/apiError';
 
 /** Server-side rejections that mean "the code is the problem", not the password. */
 const CODE_ERROR = /code|otp|expire/i;
@@ -37,7 +38,7 @@ export default function ResetPassword() {
       await forgotPassword(form.identifier);
       setCodeSent(true);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Could not send code. Please try again.');
+      setError(apiErrorMessage(err, 'Could not send code. Please try again.'));
     } finally {
       setSending(false);
     }
@@ -63,7 +64,7 @@ export default function ResetPassword() {
       });
       navigate('/login?reset=1');
     } catch (err) {
-      const msg = err.response?.data?.error || err.response?.data?.message || 'Reset failed. The code may have expired.';
+      const msg = apiErrorMessage(err, 'Reset failed. The code may have expired.');
       setError(msg);
       // A bad or expired code is fixed on the previous step, so go back to it.
       if (CODE_ERROR.test(msg)) { setForm(f => ({ ...f, otp: '' })); setStep('code'); }
@@ -171,7 +172,7 @@ export default function ResetPassword() {
                 required
               />
               <p className="field-hint">
-                8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+                Password should be at least least 8 characters including uppercase, lowercase, a number, and a special character.
               </p>
             </div>
 

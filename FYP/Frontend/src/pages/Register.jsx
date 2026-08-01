@@ -75,10 +75,10 @@ export default function Register() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="field-label" htmlFor="reg-name">Full name</label>
+          <label className="field-label" htmlFor="reg-name">Username</label>
           <input
             id="reg-name"
-            placeholder="Jane Tan"
+            placeholder="username"
             value={form.username}
             onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
             required
@@ -90,7 +90,7 @@ export default function Register() {
           <input
             id="reg-email"
             type="email"
-            placeholder="you@example.com"
+            placeholder="email"
             value={form.email}
             onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
             required
@@ -108,7 +108,7 @@ export default function Register() {
             autoComplete="new-password"
           />
           <p className="field-hint">
-            8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+            Password should be at least least 8 characters including uppercase, lowercase, a number, and a special character.
           </p>
         </div>
         <div>

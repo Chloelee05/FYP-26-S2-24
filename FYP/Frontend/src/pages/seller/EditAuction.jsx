@@ -4,6 +4,7 @@ import { getAuctionForEdit, editAuction } from '../../api/seller';
 import { getCategories } from '../../api/auction';
 import { normalizeCategories } from '../../utils/helpers';
 import ImageUploader from '../../components/ImageUploader';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const CONDITIONS = [
   { label: 'Brand New',     id: 1 },
@@ -81,7 +82,7 @@ export default function EditAuction() {
       });
       navigate('/seller/listings');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to update auction.');
+      setError(apiErrorMessage(err, 'Failed to update auction.'));
     } finally {
       setLoading(false);
     }

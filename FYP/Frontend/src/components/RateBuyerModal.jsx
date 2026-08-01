@@ -3,6 +3,7 @@ import { Star } from 'lucide-react';
 import { rateBuyer } from '../api/seller';
 import StarRating from './StarRating';
 import Modal from './Modal';
+import { apiErrorMessage } from '../utils/apiError';
 
 export default function RateBuyerModal({ order, onClose, onRated }) {
   const [score, setScore] = useState(0);
@@ -21,7 +22,7 @@ export default function RateBuyerModal({ order, onClose, onRated }) {
       onRated?.();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not submit rating.');
+      setError(apiErrorMessage(err, 'Could not submit rating.'));
     } finally {
       setLoading(false);
     }

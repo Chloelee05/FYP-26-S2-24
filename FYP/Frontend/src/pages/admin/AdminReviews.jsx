@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Trash2, Star } from 'lucide-react';
 import { getAdminReviews, adminDeleteReview } from '../../api/admin';
 import { decodeHtmlEntities } from '../../utils/helpers';
+import { apiErrorMessage } from '../../utils/apiError';
 
 // Backend row fields: id, auctionId, auctionTitle, reviewerName, revieweeName,
 //   rating, comment, createdAt
@@ -26,7 +27,7 @@ export default function AdminReviews() {
       setReviews(prev => prev.filter(r => r.id !== id));
       setMsg('Review removed.');
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Could not remove the review.');
+      setMsg(apiErrorMessage(err, 'Could not remove the review.'));
     }
   };
 

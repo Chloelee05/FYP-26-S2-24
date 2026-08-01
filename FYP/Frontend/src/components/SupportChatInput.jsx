@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Send, X } from 'lucide-react';
 import { uploadSupportImage } from '../api/support';
+import { apiErrorMessage } from '../utils/apiError';
 
 export default function SupportChatInput({ onSend, disabled, placeholder = 'Type a message…' }) {
   const fileRef = useRef(null);
@@ -32,7 +33,7 @@ export default function SupportChatInput({ onSend, disabled, placeholder = 'Type
       const url = await uploadSupportImage(file);
       setPendingUrl(url);
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload failed.');
+      setError(apiErrorMessage(err, 'Upload failed.'));
       clearAttachment();
     } finally {
       setUploading(false);

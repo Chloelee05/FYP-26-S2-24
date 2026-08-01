@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import AuthLayout from '../components/AuthLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import { oauthLogin } from '../api/auth';
+import { apiErrorMessage } from '../utils/apiError';
 
 const HIGHLIGHTS = [
   { icon: TrendingUp, title: 'Live bidding', text: 'Prices update in real time as buyers compete.' },
@@ -42,7 +43,7 @@ export default function Login() {
       if (res.data?.role === 'ADMIN') navigate('/admin');
       else navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Google sign-in failed.');
+      setError(apiErrorMessage(err, 'Google sign-in failed.'));
     }
   };
 
@@ -58,7 +59,7 @@ export default function Login() {
       else if (user?.role === 'ADMIN') navigate('/admin');
       else navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Invalid email or password.');
+      setError(apiErrorMessage(err, 'Invalid email or password.'));
     } finally {
       setLoading(false);
     }

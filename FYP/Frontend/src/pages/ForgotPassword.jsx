@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { forgotPassword } from '../api/auth';
 import AuthLayout from '../components/AuthLayout';
+import { apiErrorMessage } from '../utils/apiError';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ export default function ForgotPassword() {
       await forgotPassword(email);
       navigate(`/reset-password?email=${encodeURIComponent(email)}`);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Something went wrong. Please try again.');
+      setError(apiErrorMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -46,7 +47,7 @@ export default function ForgotPassword() {
           <input
             id="forgot-email"
             type="email"
-            placeholder="you@example.com"
+            placeholder="Enter your email"
             value={email}
             onChange={e => setEmail(e.target.value)}
             autoComplete="email"
