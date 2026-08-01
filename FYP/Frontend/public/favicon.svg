@@ -1,19 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="AuctionHub">
   <title>AuctionHub</title>
-  <!-- Same mark as the navbar logo: the primary-500 → primary-700 tile with a gavel. -->
-  <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3b76f6"/>
-      <stop offset="1" stop-color="#1d4dd8"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="15" fill="url(#tile)"/>
-  <g transform="translate(13 13) scale(1.583)"
-     fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m14 13-8.381 8.38a1 1 0 0 1-3.001-3l8.384-8.381"/>
-    <path d="m16 16 6-6"/>
-    <path d="m21.5 10.5-8-8"/>
-    <path d="m8 8 6-6"/>
-    <path d="m8.5 7.5 8 8"/>
+  <!-- Ascending bid mark. The tile behind the bars is dropped here on purpose: a
+       favicon renders at 16px, where the bars inside a filled square collapse into a
+       blue blob. Bars alone fill the canvas and stay readable on light and dark tabs.
+       Flat primary-600 rather than the primary-600 → primary-800 gradient of the
+       512px source, which is imperceptible at this size. The leading bar keeps
+       accent-400, the colour the product reserves for live auction states. -->
+  <g fill="#2560eb">
+    <rect x="3"  y="36" width="14" height="22" rx="7"/>
+    <rect x="25" y="21" width="14" height="37" rx="7"/>
   </g>
+  <rect x="47" y="6" width="14" height="52" rx="7" fill="#ffa020"/>
 </svg>
