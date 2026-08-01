@@ -149,8 +149,6 @@ export default function Home() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    setLoadError('');
-    setLoadingTrending(true);
     getCategories().then(r => setCategories(r.data)).catch(() => {});
     // Genuinely trending, ranked server-side. /api/search has no bid-count sort and
     // ignores unknown params, so it cannot produce this list.
@@ -525,7 +523,14 @@ export default function Home() {
               </span>
               <p className="font-semibold text-ink-800">Couldn’t load auctions</p>
               <p className="text-sm text-ink-500 mt-1">{loadError}</p>
-              <button onClick={() => setReloadKey(k => k + 1)} className="btn-primary mt-5">
+              <button
+                onClick={() => {
+                  setLoadError('');
+                  setLoadingTrending(true);
+                  setReloadKey(k => k + 1);
+                }}
+                className="btn-primary mt-5"
+              >
                 <RotateCcw size={16} /> Try again
               </button>
             </div>
