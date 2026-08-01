@@ -301,7 +301,7 @@ public final class NotificationService {
             if (o == null) return;
             create(o.sellerId, "ORDER_PAID",
                     "Payment received for \"" + o.title + "\". You can now arrange delivery.",
-                    "/seller/dashboard",
+                    "/sales",
                     "Payment received",
                     "The winning buyer paid for \"" + o.title + "\" on AuctionHub.",
                     TelegramAlerts.orderPaidToSeller(orderId, o.auctionId, o.title, o.amount,
