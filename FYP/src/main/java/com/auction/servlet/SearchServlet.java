@@ -36,6 +36,7 @@ import java.util.logging.Logger;
  *   <li>{@code condition} — {@link ItemCondition} name whitelist (SCRUM-345)</li>
  *   <li>{@code location}  — free-text location hint; max {@value #LOCATION_MAX_LENGTH} chars</li>
  *   <li>{@code endWithin} — positive integer hours; auction must end within this window</li>
+ *   <li>{@code endAfter} — positive integer hours; auction must end later than this</li>
  *   <li>{@code sortBy}    — {@link SearchSort} whitelist: {@code newest}, {@code endingSoon},
  *       {@code priceLow}, {@code priceHigh}; invalid → default {@code newest} (SCRUM-349)</li>
  *   <li>{@code page}      — 1-based page number, default 1</li>
@@ -249,6 +250,18 @@ public class SearchServlet extends HttpServlet {
                 int hours = Integer.parseInt(endStr.trim());
                 if (hours > 0) {
                     b.endWithinHours(hours);
+                    hasAny = true;
+                }
+            } catch (NumberFormatException ignored) { }
+        }
+
+        // --- endAfter: positive integer hours (the "ending later than" half) ---
+        String afterStr = req.getParameter("endAfter");
+        if (afterStr != null && !afterStr.isBlank()) {
+            try {
+                int hours = Integer.parseInt(afterStr.trim());
+                if (hours > 0) {
+                    b.endAfterHours(hours);
                     hasAny = true;
                 }
             } catch (NumberFormatException ignored) { }

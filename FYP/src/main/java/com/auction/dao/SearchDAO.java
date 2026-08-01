@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionType;
 import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
 import com.auction.model.SearchSort;
@@ -150,6 +151,17 @@ public class SearchDAO {
     // =========================================================================
 
     /**
+     * The {@code current_price} column. Blind auctions resolve to their starting
+     * price instead of the leading bid: every row these queries return is still
+     * open, so the top sealed bid must not leave the server — not in the payload,
+     * and not inferable through the price filter that runs on this same column.
+     */
+    private static final String SEALED_SAFE_PRICE =
+            "CASE WHEN a.auction_type = " + AuctionType.BLIND.getId() + " THEN d.starting_price "
+          + "     ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
+          + "                   d.starting_price) END AS current_price, ";
+
+    /**
      * Builds the inner part of the FROM + WHERE clause (shared by search and count).
      * Appends all inner-query parameter values to {@code params} in the correct order.
      */
@@ -181,6 +193,11 @@ public class SearchDAO {
             params.add(Timestamp.from(Instant.now().plusSeconds(
                     (long) filter.getEndWithinHours() * 3600)));
         }
+        if (filter != null && filter.getEndAfterHours() != null) {
+            sb.append("  AND a.date_end > ? ");
+            params.add(Timestamp.from(Instant.now().plusSeconds(
+                    (long) filter.getEndAfterHours() * 3600)));
+        }
         if (filter != null && filter.getLocation() != null && !filter.getLocation().isBlank()) {
             String locPat = "%" + filter.getLocation() + "%";
             sb.append("  AND (d.title ILIKE ? OR d.description ILIKE ?) ");
@@ -201,9 +218,8 @@ public class SearchDAO {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
         params.add(pageSize);
         params.add(offset);
-        return "SELECT a.auction_id, d.title, d.category, "
-                + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
-                + "         d.starting_price) AS current_price, "
+        return "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+                + SEALED_SAFE_PRICE
                 + "a.date_end, u.username AS seller_username, "
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url "
@@ -221,9 +237,8 @@ public class SearchDAO {
                                                       List<Object> params,
                                                       int pageSize, int offset) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
-        String inner = "SELECT a.auction_id, d.title, d.category, a.date_created, "
-                + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
-                + "         d.starting_price) AS current_price, "
+        String inner = "SELECT a.auction_id, d.title, d.category, a.date_created, a.auction_type, "
+                + SEALED_SAFE_PRICE
                 + "a.date_end, u.username AS seller_username, "
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url "
@@ -309,6 +324,7 @@ public class SearchDAO {
                 price,
                 endTs != null ? endTs.toInstant() : null,
                 rs.getString("seller_username"),
-                rs.getString("thumbnail_url"));
+                rs.getString("thumbnail_url"),
+                rs.getInt("auction_type"));
     }
 }

@@ -64,11 +64,13 @@ public class SearchApiServlet extends ApiBase {
         String cond = param(req, "condition");
         String loc  = param(req, "location");
         String endW = param(req, "endWithin");
+        String endA = param(req, "endAfter");
 
         if (minP != null) { try { b.minPrice(new BigDecimal(minP)); } catch (NumberFormatException ignored) {} }
         if (maxP != null) { try { b.maxPrice(new BigDecimal(maxP)); } catch (NumberFormatException ignored) {} }
         if (loc  != null) b.location(loc.length() > 100 ? loc.substring(0, 100) : loc);
         if (endW != null) { try { int v = Integer.parseInt(endW); if (v > 0) b.endWithinHours(v); } catch (NumberFormatException ignored) {} }
+        if (endA != null) { try { int v = Integer.parseInt(endA); if (v > 0) b.endAfterHours(v); } catch (NumberFormatException ignored) {} }
         if (cond != null) {
             for (ItemCondition ic : ItemCondition.values()) {
                 if (ic.name().equalsIgnoreCase(cond)) {

@@ -40,12 +40,20 @@ public final class SearchFilter {
      */
     private final Integer endWithinHours;
 
+    /**
+     * Auction must end later than this many hours from now; {@code null} = any end time.
+     * The mirror image of {@link #endWithinHours}, which is what "ending more than N
+     * days out" needs. Must be a positive integer when set.
+     */
+    private final Integer endAfterHours;
+
     private SearchFilter(Builder b) {
         this.minPrice       = b.minPrice;
         this.maxPrice       = b.maxPrice;
         this.itemConditionId = b.itemConditionId;
         this.location       = b.location;
         this.endWithinHours = b.endWithinHours;
+        this.endAfterHours  = b.endAfterHours;
     }
 
     public BigDecimal getMinPrice()       { return minPrice; }
@@ -53,11 +61,13 @@ public final class SearchFilter {
     public Integer    getItemConditionId(){ return itemConditionId; }
     public String     getLocation()       { return location; }
     public Integer    getEndWithinHours() { return endWithinHours; }
+    public Integer    getEndAfterHours()  { return endAfterHours; }
 
     /** Returns {@code true} when no filter dimension is active. */
     public boolean isEmpty() {
         return minPrice == null && maxPrice == null
-                && itemConditionId == null && location == null && endWithinHours == null;
+                && itemConditionId == null && location == null
+                && endWithinHours == null && endAfterHours == null;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -68,12 +78,14 @@ public final class SearchFilter {
         private Integer    itemConditionId;
         private String     location;
         private Integer    endWithinHours;
+        private Integer    endAfterHours;
 
         public Builder minPrice(BigDecimal v)       { this.minPrice        = v; return this; }
         public Builder maxPrice(BigDecimal v)       { this.maxPrice        = v; return this; }
         public Builder itemConditionId(Integer v)   { this.itemConditionId = v; return this; }
         public Builder location(String v)           { this.location        = v; return this; }
         public Builder endWithinHours(Integer v)    { this.endWithinHours  = v; return this; }
+        public Builder endAfterHours(Integer v)     { this.endAfterHours   = v; return this; }
         public SearchFilter build()                 { return new SearchFilter(this); }
     }
 }

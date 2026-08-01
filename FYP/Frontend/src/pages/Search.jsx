@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, SlidersHorizontal, X, SearchX, AlertCircle, MapPin } from 'lucide-react';
 import AuctionCard from '../components/AuctionCard';
 import { searchAuctions, getCategories } from '../api/auction';
 import { apiErrorMessage } from '../utils/apiError';
+import useDebouncedValue from '../hooks/useDebouncedValue';
 
 // Condition labels must match ItemCondition.displayName on the backend.
 const CONDITIONS = [
@@ -19,13 +20,17 @@ const SORTS = [
   { value: 'priceLow',   label: 'Price: Low to High' },
   { value: 'priceHigh',  label: 'Price: High to Low' },
 ];
-// `endWithin` is sent to the backend in hours (SearchFilter.endWithinHours).
-const END_WITHIN = [
-  { value: '1',  label: 'Next hour' },
-  { value: '6',  label: 'Next 6 hours' },
-  { value: '24', label: 'Next 24 hours' },
-  { value: '72', label: 'Next 3 days' },
+// The end-time window. Every option but the last narrows to auctions closing
+// *within* N hours (SearchFilter.endWithinHours); "More than 7 days" is the
+// mirror image and uses endAfter, so the two never overlap.
+const END_WINDOWS = [
+  { value: '24',   label: 'Within a day',     params: { endWithin: 24 } },
+  { value: '72',   label: 'Within 3 days',    params: { endWithin: 72 } },
+  { value: '168',  label: 'Within 7 days',    params: { endWithin: 168 } },
+  { value: '168+', label: 'More than 7 days', params: { endAfter: 168 } },
 ];
+
+const END_WINDOW_PARAMS = Object.fromEntries(END_WINDOWS.map(o => [o.value, o.params]));
 
 const PAGE_SIZE = 12;
 
@@ -43,78 +48,124 @@ function CardSkeleton() {
   );
 }
 
+const EMPTY_SIDEBAR = {
+  minPrice: '', maxPrice: '', condition: '', location: '', endWithin: '', sortBy: 'endingSoon',
+};
+
+/** Drop blank filters so they are never sent as empty query params. */
+const pruneParams = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v));
+
+/**
+ * Turns the query into request params. `endWithin` holds the picker's own value
+ * ("168+" and friends), which has to be expanded into the hour-based params the
+ * API understands before it goes over the wire.
+ */
+const toRequest = ({ endWithin, ...rest }) => ({
+  ...pruneParams(rest),
+  ...(END_WINDOW_PARAMS[endWithin] ?? {}),
+});
+
 export default function Search() {
+  // The keyword and category arrive from the navbar and category links, so the URL
+  // owns them; everything else is sidebar-local.
   const [searchParams, setSearchParams] = useSearchParams();
-  const [results, setResults] = useState([]);
+  const q = searchParams.get('q') || '';
+  const category = searchParams.get('category') || '';
+
+  const [sidebar, setSidebar] = useState(EMPTY_SIDEBAR);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
-  const [error, setError] = useState('');
-  const [filters, setFilters] = useState({
-    q: searchParams.get('q') || '',
-    category: searchParams.get('category') || '',
-    minPrice: '',
-    maxPrice: '',
-    condition: '',
-    location: '',
-    endWithin: '',
-    sortBy: 'endingSoon',
-  });
+
+  // Price and location are typed, so they settle before searching — otherwise every
+  // keystroke of "1500" would fire its own request.
+  const minPrice = useDebouncedValue(sidebar.minPrice);
+  const maxPrice = useDebouncedValue(sidebar.maxPrice);
+  const location = useDebouncedValue(sidebar.location);
+  const { condition, endWithin, sortBy } = sidebar;
+
+  // One object identifying the search to run. Its identity is what the fetch effect
+  // keys off, so a filter that settles back to its old value does not refetch.
+  const query = useMemo(
+    () => ({ q, category, minPrice, maxPrice, condition, location, endWithin, sortBy }),
+    [q, category, minPrice, maxPrice, condition, location, endWithin, sortBy],
+  );
+
+  // `forQuery` records which query the results belong to, so "still loading" is derived
+  // rather than tracked as its own flag that has to be set and unset in the right order.
+  const [data, setData] = useState({ forQuery: null, results: [], totalPages: 1, error: '' });
+  const { results, totalPages, error } = data;
+  const loading = data.forQuery !== query;
 
   useEffect(() => {
     getCategories().then(r => setCategories(r.data)).catch(() => {});
   }, []);
 
+  // Filters changed → reset to page 1 and replace results. The abort matters: without
+  // it a slow earlier search can resolve last and overwrite newer results.
   useEffect(() => {
-    const q = searchParams.get('q') || '';
-    const category = searchParams.get('category') || '';
-    setFilters(f => (f.q === q && f.category === category ? f : { ...f, q, category }));
-  }, [searchParams]);
-
-  // Filters changed → reset to page 1 and replace results
-  useEffect(() => {
-    setLoading(true);
-    setPage(1);
-    setError('');
-    const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-    searchAuctions({ ...params, page: 1, size: PAGE_SIZE })
+    const controller = new AbortController();
+    searchAuctions({ ...toRequest(query), page: 1, size: PAGE_SIZE }, { signal: controller.signal })
       .then(r => {
-        setResults(r.data.results ?? r.data);
-        setTotalPages(r.data.totalPages ?? 1);
+        setPage(1);
+        setData({
+          forQuery: query,
+          results: r.data.results ?? r.data,
+          totalPages: r.data.totalPages ?? 1,
+          error: '',
+        });
       })
       .catch(err => {
-        setResults([]);
-        setError(apiErrorMessage(err, 'Search failed. Please try again.'));
-      })
-      .finally(() => setLoading(false));
-  }, [filters]);
+        if (controller.signal.aborted) return;
+        setPage(1);
+        setData({
+          forQuery: query,
+          results: [],
+          totalPages: 1,
+          error: apiErrorMessage(err, 'Search failed. Please try again.'),
+        });
+      });
+    return () => controller.abort();
+  }, [query]);
 
   const handleLoadMore = () => {
     const nextPage = page + 1;
     setLoadingMore(true);
-    setError('');
-    const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-    searchAuctions({ ...params, page: nextPage, size: PAGE_SIZE })
+    searchAuctions({ ...toRequest(query), page: nextPage, size: PAGE_SIZE })
       .then(r => {
-        setResults(prev => [...prev, ...(r.data.results ?? r.data)]);
         setPage(nextPage);
-        setTotalPages(r.data.totalPages ?? totalPages);
+        // Only append if the filters have not moved on while this was in flight.
+        setData(prev => prev.forQuery !== query ? prev : {
+          ...prev,
+          results: [...prev.results, ...(r.data.results ?? r.data)],
+          totalPages: r.data.totalPages ?? prev.totalPages,
+          error: '',
+        });
       })
-      .catch(err => setError(apiErrorMessage(err, 'Could not load more results.')))
+      .catch(err => {
+        setData(prev => prev.forQuery !== query
+          ? prev
+          : { ...prev, error: apiErrorMessage(err, 'Could not load more results.') });
+      })
       .finally(() => setLoadingMore(false));
   };
 
-  const update = (key, val) => setFilters(f => ({ ...f, [key]: val }));
+  // Read-side view of every filter, so the panel below does not care where each lives.
+  const filters = { q, category, ...sidebar };
+
+  const update = (key, val) => {
+    if (key === 'q' || key === 'category') {
+      const next = pruneParams({ q, category, [key]: val });
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    setSidebar(f => ({ ...f, [key]: val }));
+  };
 
   const clearAll = () => {
-    setSearchParams({});
-    setFilters({
-      q: '', category: '', minPrice: '', maxPrice: '', condition: '',
-      location: '', endWithin: '', sortBy: filters.sortBy,
-    });
+    setSearchParams({}, { replace: true });
+    setSidebar(f => ({ ...EMPTY_SIDEBAR, sortBy: f.sortBy }));
   };
 
   const activeCount = ['category', 'minPrice', 'maxPrice', 'condition', 'location', 'endWithin']
@@ -151,6 +202,7 @@ export default function Search() {
         <div className="flex items-center gap-2">
           <input
             placeholder="Min"
+            aria-label="Minimum price"
             type="number"
             value={filters.minPrice}
             onChange={e => update('minPrice', e.target.value)}
@@ -159,6 +211,7 @@ export default function Search() {
           <span className="text-ink-300">–</span>
           <input
             placeholder="Max"
+            aria-label="Maximum price"
             type="number"
             value={filters.maxPrice}
             onChange={e => update('maxPrice', e.target.value)}
@@ -168,7 +221,7 @@ export default function Search() {
       </div>
 
       <div>
-        <label className="field-label" htmlFor="filter-end-within">Ending within</label>
+        <label className="field-label" htmlFor="filter-end-within">Ending</label>
         <select
           id="filter-end-within"
           value={filters.endWithin}
@@ -176,7 +229,7 @@ export default function Search() {
           className="select-field"
         >
           <option value="">Any time</option>
-          {END_WITHIN.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {END_WINDOWS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
 
@@ -289,7 +342,7 @@ export default function Search() {
               )}
               {(filters.minPrice || filters.maxPrice) && (
                 <button
-                  onClick={() => setFilters(f => ({ ...f, minPrice: '', maxPrice: '' }))}
+                  onClick={() => setSidebar(f => ({ ...f, minPrice: '', maxPrice: '' }))}
                   className="badge-info hover:bg-primary-100 transition-colors"
                 >
                   ${filters.minPrice || '0'} – ${filters.maxPrice || '∞'} <X size={12} />
@@ -297,7 +350,7 @@ export default function Search() {
               )}
               {filters.endWithin && (
                 <button onClick={() => update('endWithin', '')} className="badge-info hover:bg-primary-100 transition-colors">
-                  {END_WITHIN.find(o => o.value === filters.endWithin)?.label} <X size={12} />
+                  {END_WINDOWS.find(o => o.value === filters.endWithin)?.label} <X size={12} />
                 </button>
               )}
               {filters.location && (
