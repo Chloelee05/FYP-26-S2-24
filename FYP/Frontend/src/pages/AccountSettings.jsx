@@ -2,10 +2,14 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  Store, Check, AlertCircle, CheckCircle2, LayoutDashboard, User, KeyRound,
+  AlertCircle, CheckCircle2, User, KeyRound,
   ShieldCheck, Bell, Trash2, Upload, ArrowLeft, Copy, Loader2, Lock,
+  CreditCard, Wallet, Landmark, Plus,
 } from 'lucide-react';
-import { getProfile, updateProfile, uploadProfilePhoto, deleteAccount, enableSelling } from '../api/user';
+import {
+  getProfile, updateProfile, uploadProfilePhoto, deleteAccount,
+  getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
+} from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
 import { getNotificationPreferences, saveNotificationPreferences } from '../api/notifications';
@@ -17,7 +21,7 @@ import { publicPath } from '../utils/appBase';
 
 const TABS = [
   { key: 'profile',       label: 'Profile',          icon: User,        title: 'Profile details',      desc: 'How your account appears to other people on AuctionHub.' },
-  { key: 'selling',       label: 'Selling',          icon: Store,       title: 'Selling',              desc: 'One account covers buying and selling — switch selling on when you need it.' },
+  { key: 'payment',       label: 'Payment methods',  icon: CreditCard,  title: 'Payment methods',      desc: 'Cards, PayPal and bank accounts you can pay for an order with.' },
   { key: 'password',      label: 'Password',         icon: KeyRound,    title: 'Change password',      desc: 'Use a password you don’t reuse anywhere else.' },
   { key: '2fa',           label: 'Two-factor auth',  icon: ShieldCheck, title: 'Two-factor authentication', desc: 'Ask for a code from your authenticator app when signing in.' },
   { key: 'notifications', label: 'Notifications',    icon: Bell,        title: 'Notifications',        desc: 'Choose which events we tell you about, in-app and by email.' },
@@ -88,6 +92,13 @@ function ProfileSection() {
     [form, initial, selectedFile],
   );
 
+  // The preview is a blob: URL the browser keeps alive until it is revoked. This
+  // releases the previous one when another photo is picked, and the last one on unmount.
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -108,7 +119,7 @@ function ProfileSection() {
           const res = await uploadProfilePhoto(selectedFile);
           setCurrentImageUrl(res.data.profileImageUrl);
         } catch (err) {
-          setError(err.response?.data?.error || 'Photo upload failed.');
+          setError(apiErrorMessage(err, 'Photo upload failed.'));
           return;
         } finally {
           setUploading(false);
@@ -124,7 +135,7 @@ function ProfileSection() {
       setMessage('Profile updated. Taking you to your profile…');
       setTimeout(() => navigate('/profile'), 1500);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Update failed.');
+      setError(apiErrorMessage(err, 'Update failed.'));
     } finally {
       setSaving(false);
     }
@@ -235,7 +246,7 @@ function ChangePasswordSection() {
       setMessage('Password changed. Taking you to your profile…');
       setTimeout(() => navigate('/profile'), 1500);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to change password.');
+      setError(apiErrorMessage(err, 'Failed to change password.'));
     } finally {
       setLoading(false);
     }
@@ -271,7 +282,7 @@ function ChangePasswordSection() {
             required
           />
           <p className="field-hint">
-            8–128 characters with uppercase, lowercase, a number, and a special character (!@#$%^&amp;* etc.)
+            Password should be at least least 8 characters including uppercase, lowercase, a number, and a special character.
           </p>
         </div>
         <div>
@@ -320,7 +331,7 @@ function TwoFactorSection() {
       setTotpSecret(res.data.totpSecret);
       setStep('setup');
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not start 2FA setup.');
+      setError(apiErrorMessage(err, 'Could not start 2FA setup.'));
     } finally {
       setLoading(false);
     }
@@ -335,7 +346,7 @@ function TwoFactorSection() {
       setStep('idle'); setConfirmCode('');
       setMessage('Two-factor authentication is now enabled on your account.');
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid code. Please try again.');
+      setError(apiErrorMessage(err, 'Invalid code. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -350,7 +361,7 @@ function TwoFactorSection() {
       setShowDisable(false); setDisableCode('');
       setMessage('Two-factor authentication has been disabled.');
     } catch (err) {
-      setError(err.response?.data?.error || 'Incorrect password. Please try again.');
+      setError(apiErrorMessage(err, 'Incorrect password. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -526,7 +537,7 @@ function NotificationPreferencesSection() {
       setMessage('Notification preferences saved.');
     } catch (err) {
       setPrefs(prefs); // revert on failure
-      setError(err.response?.data?.error || 'Failed to save preferences.');
+      setError(apiErrorMessage(err, 'Failed to save preferences.'));
     } finally {
       setSavingKey(null);
     }
@@ -601,7 +612,7 @@ function DeleteAccountSection() {
       await logout();
       navigate('/login');
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete account.');
+      setError(apiErrorMessage(err, 'Failed to delete account.'));
       setLoading(false);
     }
   };
@@ -645,101 +656,283 @@ function DeleteAccountSection() {
   );
 }
 
-// ── Selling section ───────────────────────────────────────────────────────────
-/**
- * Buying and selling live on one account. Buyers opt into selling here rather than
- * registering a second account.
- */
-function SellingSection() {
-  const navigate = useNavigate();
-  const { user, refreshUser } = useAuth();
-  const [loading, setLoading] = useState(false);
+// ── Payment methods section ───────────────────────────────────────────────────
+// Saved methods are an account setting rather than part of the public-facing
+// profile, so they live here next to password and 2FA.
+const METHOD_ICONS = { CARD: CreditCard, PAYPAL: Wallet, BANK_TRANSFER: Landmark };
+
+const METHOD_TYPES = [
+  { key: 'card',   label: 'Card',          icon: CreditCard },
+  { key: 'paypal', label: 'PayPal',        icon: Wallet },
+  { key: 'bank',   label: 'Bank transfer', icon: Landmark },
+];
+
+const EMPTY_CARD   = { cardHolder: '', cardNumber: '', expMonth: '', expYear: '', makeDefault: false };
+const EMPTY_PAYPAL = { paypalEmail: '', makeDefault: false };
+const EMPTY_BANK   = { accountHolder: '', accountNumber: '', bankName: '', makeDefault: false };
+
+function PaymentMethodsSection() {
+  const [cards, setCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [methodType, setMethodType] = useState('card'); // card | paypal | bank
+  const [cardForm, setCardForm] = useState(EMPTY_CARD);
+  const [paypalForm, setPaypalForm] = useState(EMPTY_PAYPAL);
+  const [bankForm, setBankForm] = useState(EMPTY_BANK);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const alreadySelling = Boolean(user?.canSell);
+  const loadCards = () =>
+    getPaymentMethods()
+      .then(r => setCards(r.data ?? []))
+      .catch(() => setError('Could not load your payment methods.'))
+      .finally(() => setLoading(false));
 
-  const handleEnable = async () => {
-    setError(''); setLoading(true);
+  useEffect(() => { loadCards(); }, []);
+
+  const handleAddMethod = async (e) => {
+    e.preventDefault();
+    setError(''); setMessage('');
     try {
-      await enableSelling();
-      await refreshUser();
-      navigate('/seller/dashboard');
+      if (methodType === 'paypal') {
+        await addPaymentMethod({ type: 'paypal', ...paypalForm });
+        setPaypalForm(EMPTY_PAYPAL);
+      } else if (methodType === 'bank') {
+        await addPaymentMethod({ type: 'bank_transfer', ...bankForm });
+        setBankForm(EMPTY_BANK);
+      } else {
+        await addPaymentMethod(cardForm);
+        setCardForm(EMPTY_CARD);
+      }
+      setMessage('Payment method added.');
+      loadCards();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not enable selling. Please try again.'));
-      setLoading(false);
+      setError(apiErrorMessage(err, 'Could not add payment method.'));
     }
   };
 
-  if (alreadySelling) {
-    return (
-      <div className="card card-pad">
-        <div className="flex items-start gap-4">
-          <span className="grid place-items-center w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 shrink-0">
-            <Store size={22} />
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h2 className="section-title text-base">Selling is switched on</h2>
-              <span className="badge-success">Active</span>
-            </div>
-            <p className="text-sm text-ink-500 mt-1 leading-relaxed">
-              You can list items and manage orders from your seller dashboard. Buying,
-              bidding and your watchlist run on this same account — there is only one.
-            </p>
-            <div className="flex flex-wrap gap-3 mt-5">
-              <button onClick={() => navigate('/seller/dashboard')} className="btn-primary">
-                <LayoutDashboard size={16} /> Seller dashboard
-              </button>
-              <button onClick={() => navigate('/seller/create')} className="btn-secondary">
-                Create a listing
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleDeleteCard = async (id) => {
+    setError(''); setMessage('');
+    try { await deletePaymentMethod(id); loadCards(); }
+    catch (err) { setError(apiErrorMessage(err, 'Could not remove that payment method.')); }
+  };
+
+  const handleDefaultCard = async (id) => {
+    setError(''); setMessage('');
+    try { await setDefaultPaymentMethod(id); loadCards(); }
+    catch (err) { setError(apiErrorMessage(err, 'Could not change the default.')); }
+  };
 
   return (
     <div className="card card-pad">
-      <div className="flex items-start gap-4">
-        <span className="grid place-items-center w-12 h-12 rounded-2xl bg-primary-50 text-primary-600 shrink-0">
-          <Store size={22} />
-        </span>
-        <div className="min-w-0">
-          <h2 className="section-title text-base">Start selling</h2>
-          <p className="text-sm text-ink-500 mt-1 leading-relaxed">
-            Switch selling on to list your own items. It’s the same account either
-            way — your bids, watchlist and order history are unaffected. You can also
-            do this straight from My listings in the navigation bar.
-          </p>
+      <Feedback message={message} error={error} />
 
-          <ul className="mt-5 space-y-2.5">
-            {[
-              'List items with ascending, Dutch or sealed-bid auctions',
-              'Track bids, orders and shipping from a seller dashboard',
-              'Answer buyer questions and rate the buyers you sell to',
-            ].map(point => (
-              <li key={point} className="flex items-start gap-2.5 text-sm text-ink-600">
-                <Check size={16} className="text-emerald-600 mt-0.5 shrink-0" />
-                {point}
-              </li>
-            ))}
-          </ul>
+      <p className="text-sm text-ink-500 mb-4">
+        Card numbers are encrypted (AES-GCM) before storage. We never store your CVV.
+      </p>
 
-          {error && (
-            <div className="alert-error mt-5">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
+      <div className="space-y-2 mb-6">
+        {loading ? (
+          Array.from({ length: 2 }, (_, i) => <div key={i} className="skeleton h-16 rounded-xl" />)
+        ) : cards.length === 0 ? (
+          <div className="text-center py-10 surface-muted">
+            <span className="grid place-items-center w-12 h-12 rounded-2xl bg-ink-100 text-ink-400 mx-auto mb-3">
+              <CreditCard size={20} />
+            </span>
+            <p className="font-semibold text-sm text-ink-700">No saved payment methods</p>
+            <p className="text-sm text-ink-400 mt-1">Add one below so you can pay for an order in one click.</p>
+          </div>
+        ) : cards.map(c => {
+          const MethodIcon = METHOD_ICONS[c.methodType] ?? CreditCard;
+          return (
+            <div key={c.id} className="flex items-center justify-between gap-3 border border-ink-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="grid place-items-center w-9 h-9 rounded-xl bg-ink-100 text-ink-500 shrink-0">
+                  <MethodIcon size={17} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink-900 truncate">
+                    {c.displayLabel ?? `${c.cardBrand} •••• ${c.last4}`}
+                    {c.default && <span className="badge-info ml-2">Default</span>}
+                  </p>
+                  {c.methodType === 'CARD' && (
+                    <p className="text-xs text-ink-400">
+                      {c.cardHolder} · Exp {String(c.expMonth).padStart(2, '0')}/{c.expYear}
+                    </p>
+                  )}
+                  {c.methodType === 'BANK_TRANSFER' && c.cardHolder && (
+                    <p className="text-xs text-ink-400">{c.cardHolder}</p>
+                  )}
+                  {c.methodType === 'PAYPAL' && <p className="text-xs text-ink-400">PayPal account</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {!c.default && (
+                  <button onClick={() => handleDefaultCard(c.id)} className="link-subtle text-xs">
+                    Set default
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDeleteCard(c.id)}
+                  aria-label="Remove payment method"
+                  className="text-ink-400 hover:text-red-500 transition-colors p-1"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
-          )}
-
-          <button onClick={handleEnable} disabled={loading} className="btn-primary btn-lg mt-6">
-            {loading ? 'Enabling…' : 'Enable selling on my account'}
-          </button>
-          <p className="field-hint">You can start listing straight away — nothing to pay up front.</p>
-        </div>
+          );
+        })}
       </div>
+
+      <form onSubmit={handleAddMethod} className="divider pt-5 space-y-3">
+        <h3 className="text-sm font-semibold text-ink-900 flex items-center gap-1.5">
+          <Plus size={14} /> Add a payment method
+        </h3>
+
+        <div className="flex flex-wrap gap-2">
+          {METHOD_TYPES.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { setMethodType(key); setError(''); setMessage(''); }}
+              aria-pressed={methodType === key}
+              className={`tab-pill btn-sm inline-flex items-center gap-1.5 ${methodType === key ? 'tab-pill-active' : ''}`}
+            >
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
+
+        {methodType === 'card' && (
+          <div className="space-y-3">
+            <div>
+              <label className="field-label" htmlFor="pm-holder">Cardholder name</label>
+              <input
+                id="pm-holder"
+                type="text" required placeholder="Jane Tan"
+                value={cardForm.cardHolder}
+                onChange={e => setCardForm(f => ({ ...f, cardHolder: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="pm-number">Card number</label>
+              <input
+                id="pm-number"
+                type="text" required inputMode="numeric" placeholder="4242 4242 4242 4242"
+                value={cardForm.cardNumber}
+                onChange={e => setCardForm(f => ({ ...f, cardNumber: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="field-label" htmlFor="pm-month">Exp. month</label>
+                <input
+                  id="pm-month"
+                  type="number" required min="1" max="12" placeholder="MM"
+                  value={cardForm.expMonth}
+                  onChange={e => setCardForm(f => ({ ...f, expMonth: e.target.value }))}
+                  className="input-field w-24"
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="pm-year">Exp. year</label>
+                <input
+                  id="pm-year"
+                  type="number" required min="2024" placeholder="YYYY"
+                  value={cardForm.expYear}
+                  onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
+                  className="input-field w-28"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-ink-600 pb-2.5">
+                <input
+                  type="checkbox"
+                  checked={cardForm.makeDefault}
+                  onChange={e => setCardForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                  className="w-4 h-4 rounded border-ink-300 text-primary-600"
+                />
+                Make default
+              </label>
+            </div>
+          </div>
+        )}
+
+        {methodType === 'paypal' && (
+          <div className="space-y-3">
+            <div>
+              <label className="field-label" htmlFor="pm-paypal">PayPal email</label>
+              <input
+                id="pm-paypal"
+                type="email" required placeholder="you@example.com"
+                value={paypalForm.paypalEmail}
+                onChange={e => setPaypalForm(f => ({ ...f, paypalEmail: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-ink-600">
+              <input
+                type="checkbox"
+                checked={paypalForm.makeDefault}
+                onChange={e => setPaypalForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                className="w-4 h-4 rounded border-ink-300 text-primary-600"
+              />
+              Make default
+            </label>
+          </div>
+        )}
+
+        {methodType === 'bank' && (
+          <div className="space-y-3">
+            <div>
+              <label className="field-label" htmlFor="pm-account-holder">Account holder name</label>
+              <input
+                id="pm-account-holder"
+                type="text" required placeholder="Jane Tan"
+                value={bankForm.accountHolder}
+                onChange={e => setBankForm(f => ({ ...f, accountHolder: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="field-label" htmlFor="pm-account-number">Account number</label>
+                <input
+                  id="pm-account-number"
+                  type="text" required inputMode="numeric" placeholder="0123456789"
+                  value={bankForm.accountNumber}
+                  onChange={e => setBankForm(f => ({ ...f, accountNumber: e.target.value }))}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="pm-bank-name">Bank name</label>
+                <input
+                  id="pm-bank-name"
+                  type="text" required placeholder="DBS"
+                  value={bankForm.bankName}
+                  onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))}
+                  className="input-field"
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-ink-600">
+              <input
+                type="checkbox"
+                checked={bankForm.makeDefault}
+                onChange={e => setBankForm(f => ({ ...f, makeDefault: e.target.checked }))}
+                className="w-4 h-4 rounded border-ink-300 text-primary-600"
+              />
+              Make default
+            </label>
+          </div>
+        )}
+
+        <button type="submit" className="btn-primary">
+          {methodType === 'paypal' ? 'Link PayPal' : methodType === 'bank' ? 'Add bank account' : 'Add card'}
+        </button>
+      </form>
     </div>
   );
 }
@@ -816,7 +1009,7 @@ export default function AccountSettings() {
           </div>
 
           {tab === 'profile'       && <ProfileSection />}
-          {tab === 'selling'       && <SellingSection />}
+          {tab === 'payment'       && <PaymentMethodsSection />}
           {tab === 'password'      && <ChangePasswordSection />}
           {tab === '2fa'           && <TwoFactorSection />}
           {tab === 'notifications' && <NotificationPreferencesSection />}

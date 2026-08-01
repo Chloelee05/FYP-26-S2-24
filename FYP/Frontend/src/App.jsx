@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -14,12 +14,9 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import TwoFactorLogin from './pages/TwoFactorLogin';
-import TwoFactorSettings from './pages/TwoFactorSettings';
 import Search from './pages/Search';
 import AuctionDetail from './pages/AuctionDetail';
 import UserProfile from './pages/UserProfile';
-import EditProfile from './pages/EditProfile';
-import ChangePassword from './pages/ChangePassword';
 import BiddingHistory from './pages/BiddingHistory';
 import RateSeller from './pages/RateSeller';
 import Watchlist from './pages/Watchlist';
@@ -121,10 +118,12 @@ function App() {
               <Route path="/seller/:username" element={<MainLayout><SellerProfilePublic /></MainLayout>} />
 
               <Route path="/profile" element={<MainLayout><ProtectedRoute><UserProfile /></ProtectedRoute></MainLayout>} />
-              <Route path="/profile/edit" element={<MainLayout><ProtectedRoute><EditProfile /></ProtectedRoute></MainLayout>} />
-              <Route path="/profile/change-password" element={<MainLayout><ProtectedRoute><ChangePassword /></ProtectedRoute></MainLayout>} />
-              <Route path="/profile/2fa" element={<MainLayout><ProtectedRoute><TwoFactorSettings /></ProtectedRoute></MainLayout>} />
               <Route path="/profile/settings" element={<MainLayout><ProtectedRoute><AccountSettings /></ProtectedRoute></MainLayout>} />
+              {/* Editing the profile, the password and 2FA are all tabs of Account settings
+                  now. Keep the old standalone paths working for existing bookmarks. */}
+              <Route path="/profile/edit" element={<Navigate to="/profile/settings" replace />} />
+              <Route path="/profile/change-password" element={<Navigate to="/profile/settings?tab=password" replace />} />
+              <Route path="/profile/2fa" element={<Navigate to="/profile/settings?tab=2fa" replace />} />
               <Route path="/bidding-history" element={<MainLayout><ProtectedRoute><BiddingHistory /></ProtectedRoute></MainLayout>} />
               {/* Orders split by side of the deal: buying is open to every member,
                   selling reuses the same capability gate as the rest of the seller tools. */}
