@@ -6,6 +6,7 @@ import Footer from './components/Footer';
 import SupportChatWidget from './components/SupportChatWidget';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import ScrollToTop from './components/ScrollToTop';
 
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -80,6 +81,7 @@ function App() {
   return (
     <BrowserRouter basename={basename}>
       <AuthProvider>
+        <ScrollToTop />
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
