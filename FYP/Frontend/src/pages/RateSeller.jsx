@@ -4,6 +4,7 @@ import { ChevronLeft, CheckCircle2, Star, Package } from 'lucide-react';
 import { getAuctionDetail, rateSeller, getSellerProfile, checkSellerRated } from '../api/auction';
 import StarRating from '../components/StarRating';
 import { publicPath } from '../utils/appBase';
+import { apiErrorMessage } from '../utils/apiError';
 
 function StarDisplay({ value, size = 18 }) {
   return <StarRating value={Math.round(value)} size={size} />;
@@ -47,7 +48,7 @@ export default function RateSeller() {
       await rateSeller(auctionId, score, comment.trim());
       setSubmitted(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit rating. Please try again.');
+      setError(apiErrorMessage(err, 'Failed to submit rating. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -71,8 +72,8 @@ export default function RateSeller() {
         </span>
         <h2 className="text-xl font-bold text-ink-900 mb-2">You already rated this seller</h2>
         <p className="text-ink-500 text-sm mb-6">Each buyer can submit one review per completed order.</p>
-        <Link to="/profile" className="btn-primary inline-flex">
-          Back to Orders
+        <Link to="/purchases" className="btn-primary inline-flex">
+          Back to My purchases
         </Link>
       </div>
     );
@@ -104,9 +105,9 @@ export default function RateSeller() {
 
       {/* Product header */}
       <div className="card p-5 flex items-center gap-4 mb-6">
-        <div className="w-20 h-20 rounded-xl bg-ink-100 grid place-items-center text-ink-400 shrink-0 overflow-hidden">
+        <div className="w-20 h-20 rounded-xl bg-ink-50 grid place-items-center text-ink-400 shrink-0 overflow-hidden">
           {auction.images?.[0]
-            ? <img src={publicPath(auction.images[0])} alt={auction.title} className="w-full h-full object-cover" />
+            ? <img src={publicPath(auction.images[0])} alt={auction.title} className="w-full h-full object-contain p-1.5" />
             : <Package size={26} />}
         </div>
         <div>

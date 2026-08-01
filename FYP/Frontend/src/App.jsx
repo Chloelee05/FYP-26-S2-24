@@ -32,6 +32,8 @@ import NotFound from './pages/NotFound';
 
 // The seller tools and admin console are only opened by signed-in accounts, so they
 // are split out of the main bundle rather than shipped to every anonymous visitor.
+const MyPurchases = lazy(() => import('./pages/MyPurchases'));
+const MySales = lazy(() => import('./pages/MySales'));
 const SellerDashboard = lazy(() => import('./pages/seller/SellerDashboard'));
 const MyListings = lazy(() => import('./pages/seller/MyListings'));
 const CreateAuction = lazy(() => import('./pages/seller/CreateAuction'));
@@ -124,6 +126,10 @@ function App() {
               <Route path="/profile/2fa" element={<MainLayout><ProtectedRoute><TwoFactorSettings /></ProtectedRoute></MainLayout>} />
               <Route path="/profile/settings" element={<MainLayout><ProtectedRoute><AccountSettings /></ProtectedRoute></MainLayout>} />
               <Route path="/bidding-history" element={<MainLayout><ProtectedRoute><BiddingHistory /></ProtectedRoute></MainLayout>} />
+              {/* Orders split by side of the deal: buying is open to every member,
+                  selling reuses the same capability gate as the rest of the seller tools. */}
+              <Route path="/purchases" element={<MainLayout><ProtectedRoute><MyPurchases /></ProtectedRoute></MainLayout>} />
+              <Route path="/sales" element={<MainLayout><ProtectedRoute requireSeller><MySales /></ProtectedRoute></MainLayout>} />
               <Route path="/rate-seller/:auctionId" element={<MainLayout><ProtectedRoute><RateSeller /></ProtectedRoute></MainLayout>} />
               <Route path="/watchlist" element={<MainLayout><ProtectedRoute><Watchlist /></ProtectedRoute></MainLayout>} />
               <Route path="/support" element={<MainLayout><ProtectedRoute><SupportChat /></ProtectedRoute></MainLayout>} />

@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown } from 'lucide-react';
+import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown, ShoppingBag, Tag } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { publicPath } from '../utils/appBase';
@@ -168,10 +168,20 @@ export default function Navbar() {
                   <Link to="/profile" className={menuItemClass} onClick={() => setMenuOpen(false)}>
                     <User size={15} className="text-ink-400" /> My account
                   </Link>
+                  {/* Orders live on their own pages, split by which side of the deal
+                      the member is on, rather than as a tab inside the profile. */}
                   {isMember && (
-                    <Link to="/seller/dashboard" className={menuItemClass} onClick={() => setMenuOpen(false)}>
-                      <LayoutDashboard size={15} className="text-ink-400" /> Seller Dashboard
-                    </Link>
+                    <>
+                      <Link to="/purchases" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                        <ShoppingBag size={15} className="text-ink-400" /> My purchases
+                      </Link>
+                      <Link to="/sales" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                        <Tag size={15} className="text-ink-400" /> My sales
+                      </Link>
+                      <Link to="/seller/dashboard" className={menuItemClass} onClick={() => setMenuOpen(false)}>
+                        <LayoutDashboard size={15} className="text-ink-400" /> Seller Dashboard
+                      </Link>
+                    </>
                   )}
                   {user.role === 'ADMIN' && (
                     <Link to="/admin" className={menuItemClass} onClick={() => setMenuOpen(false)}>

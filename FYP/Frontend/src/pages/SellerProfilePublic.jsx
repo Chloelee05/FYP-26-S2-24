@@ -146,7 +146,7 @@ export default function SellerProfilePublic() {
 
         {user && user.role !== 'ADMIN' && (
           <p className="mt-5 pt-5 divider text-sm text-ink-500">
-            Rate this seller from your <Link to="/profile" className="link-subtle">Orders</Link> tab after a completed purchase.
+            Rate this seller from <Link to="/purchases" className="link-subtle">My purchases</Link> after a completed order.
           </p>
         )}
       </div>
