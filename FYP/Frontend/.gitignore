@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Vite's dev-time dependency cache, regenerated on every `npm run dev`.
+.vite
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
