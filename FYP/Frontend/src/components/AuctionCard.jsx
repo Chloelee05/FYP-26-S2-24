@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search } from 'lucide-react';
+import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search, Lock } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
 import { getLandingContent } from '../api/auction';
@@ -83,7 +83,7 @@ function WhyThis({ why }) {
 
 export default function AuctionCard({ auction }) {
   const {
-    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category, why,
+    auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category, why, sealed,
   } = auction;
 
   const [viewCta, setViewCta] = useState(DEFAULT_VIEW_CTA);
@@ -110,13 +110,15 @@ export default function AuctionCard({ auction }) {
 
   return (
     <div className="card card-hover group overflow-hidden flex flex-col">
-      <Link to={`/auction/${auctionId}`} className="block relative aspect-square bg-ink-100 overflow-hidden">
+      {/* object-contain, so a listing photo of any shape is shown whole rather
+          than centre-cropped. The tinted backdrop absorbs the leftover space. */}
+      <Link to={`/auction/${auctionId}`} className="block relative aspect-square bg-ink-50 overflow-hidden">
         {thumbnailUrl ? (
           <img
             src={publicPath(thumbnailUrl)}
             alt={title}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+            className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-[1.06]"
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-ink-300 bg-gradient-to-br from-ink-100 to-ink-200">
@@ -158,9 +160,19 @@ export default function AuctionCard({ auction }) {
 
         {why?.reason && <WhyThis why={why} />}
 
+        {/* A sealed-bid listing shows no amount at all: the bids stay secret until
+            it closes, so quoting a number here would be misleading at best. */}
         <div className="mt-auto pt-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Current bid</p>
-          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatCurrency(currentPrice)}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+            {sealed ? 'Sealed bid' : 'Current bid'}
+          </p>
+          {sealed ? (
+            <p className="flex items-center gap-1.5 text-lg font-bold text-purple-600">
+              <Lock size={15} /> Hidden
+            </p>
+          ) : (
+            <p className="text-lg font-bold text-ink-900 tabular-nums">{formatCurrency(currentPrice)}</p>
+          )}
           <Link
             to={`/auction/${auctionId}`}
             className="btn-primary btn-block mt-3 text-xs uppercase tracking-wide"

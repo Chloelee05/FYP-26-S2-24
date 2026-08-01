@@ -4,6 +4,7 @@ import com.auction.dao.AuctionTagsDAO;
 import com.auction.dao.AutoBidDAO;
 import com.auction.dao.BidDAO;
 import com.auction.dao.BrowseHistoryDAO;
+import com.auction.dao.OrderDAO;
 import com.auction.dao.QuestionDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionBidHistoryEntry;
@@ -51,6 +52,7 @@ public class AuctionApiServlet extends ApiBase {
     private final AuctionTagsDAO    tagsDAO           = new AuctionTagsDAO();
     private final BrowseHistoryDAO  browseHistoryDAO  = new BrowseHistoryDAO();
     private final AutoBidDAO        autoBidDAO        = new AutoBidDAO();
+    private final OrderDAO          orderDAO          = new OrderDAO();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -117,6 +119,11 @@ public class AuctionApiServlet extends ApiBase {
 
         boolean open = detail.isOpen();
 
+        // Resolved before the type switch because a blind auction reveals its
+        // standing bid to the seller who listed it, and to nobody else.
+        Integer viewerId = sessionUserId(req);
+        boolean isOwner = viewerId != null && viewerId == detail.getSellerId();
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id",             detail.getAuctionId());
         body.put("title",          detail.getTitle());
@@ -152,10 +159,13 @@ public class AuctionApiServlet extends ApiBase {
                 }
                 break;
             case BLIND:
-                // Sealed while open: hide the amount, expose only the sealed-bid count.
-                body.put("currentBid", open ? null : detail.getCurrentBid());
+                // Sealed while open: hide the amount from buyers, expose only the
+                // sealed-bid count. The seller sees the standing bid regardless —
+                // "Declare Winner Early" sells at that price, so withholding it
+                // would mean asking them to accept an amount they cannot see.
+                body.put("currentBid", (open && !isOwner) ? null : detail.getCurrentBid());
                 body.put("numBids", detail.getBidCount());
-                body.put("sealed", open);
+                body.put("sealed", open && !isOwner);
                 break;
             case PRICE_UP:
             default:
@@ -165,11 +175,16 @@ public class AuctionApiServlet extends ApiBase {
         }
 
         // Seller-private cost price: visible only to the auction owner.
-        Integer viewerId = sessionUserId(req);
-        boolean isOwner = viewerId != null && viewerId == detail.getSellerId();
         body.put("isOwner", isOwner);
         if (isOwner) {
             body.put("costPrice", detail.getCostPrice());
+            // Declaring a winner is one-shot. Tell the owner's page whether it has
+            // already happened so it can retire the button instead of offering one
+            // whose only possible answer is "already finalised".
+            if (!open) {
+                try { body.put("orderCreated", orderDAO.existsForAuction(auctionId)); }
+                catch (Exception ignored) { }
+            }
         }
 
         // Buyer-private: inject myAutoBid if the viewer is a BUYER with an active auto-bid.

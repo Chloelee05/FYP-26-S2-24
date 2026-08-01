@@ -46,8 +46,11 @@ public class FeaturedListingDAO {
 
     public List<SearchResultItem> listActiveFeatured(int limit) {
         String sql =
-            "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+            "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: these listings are all still
+          // open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM auction a "
@@ -74,7 +77,8 @@ public class FeaturedListingDAO {
                             price,
                             endInstant,
                             rs.getString("username"),
-                            rs.getString("thumb")));
+                            rs.getString("thumb"),
+                            rs.getInt("auction_type")));
                 }
                 return out;
             }

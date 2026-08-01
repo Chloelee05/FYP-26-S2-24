@@ -102,8 +102,11 @@ public class RecommendationDAO {
           + "  WHERE b.user_id IN (SELECT user_id FROM co_bidders) AND b.auction_id <> ? "
           + "  GROUP BY b.auction_id "
           + ") "
-          + "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+          + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: recommended listings are
+          // all still open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM cand c "
@@ -717,8 +720,11 @@ public class RecommendationDAO {
         }
 
         String sql =
-            "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+            "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: recommended listings are
+          // all still open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM auction a "
@@ -747,7 +753,8 @@ public class RecommendationDAO {
                             price,
                             endInstant,
                             rs.getString("username"),
-                            rs.getString("thumb")));
+                            rs.getString("thumb"),
+                            rs.getInt("auction_type")));
                 }
                 List<SearchResultItem> ordered = new ArrayList<>();
                 for (Long id : auctionIds) {
@@ -783,8 +790,11 @@ public class RecommendationDAO {
           + "       WHERE user_id IN (SELECT user_id FROM peers) GROUP BY auction_id "
           + "  ) s GROUP BY auction_id "
           + ") "
-          + "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+          + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: recommended listings are
+          // all still open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM cand c "
@@ -833,8 +843,11 @@ public class RecommendationDAO {
           + "  SELECT DISTINCT t.tag_id FROM auction_tag_info t "
           + "  WHERE t.auction_id IN (SELECT auction_id FROM my_signals) "
           + ") "
-          + "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+          + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: recommended listings are
+          // all still open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
           // Which arm of the OR below matched, so the reason can be worded honestly.
@@ -896,8 +909,11 @@ public class RecommendationDAO {
      */
     public List<SearchResultItem> trending(int limit, Set<Long> excludeIds, Integer excludeSellerId) {
         StringBuilder sql = new StringBuilder(
-            "SELECT a.auction_id, d.title, d.category, "
-          + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS current_price, "
+            "SELECT a.auction_id, d.title, d.category, a.auction_type, "
+          // Blind auctions resolve to the entry price: recommended listings are
+          // all still open, so their leading sealed bid must not reach the client.
+          + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
+          + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
           + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id) AS bid_count "
@@ -944,6 +960,7 @@ public class RecommendationDAO {
                 rs.getBigDecimal("current_price"),
                 end != null ? end.toInstant() : null,
                 rs.getString("username"),
-                rs.getString("thumb"));
+                rs.getString("thumb"),
+                rs.getInt("auction_type"));
     }
 }

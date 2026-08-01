@@ -21,12 +21,20 @@ public final class SearchResultItem {
     private final String sellerUsername;
     /** URL of the first uploaded image, or {@code null} if none. */
     private final String thumbnailUrl;
+    /** {@link AuctionType} id; 0 when the query did not select it. */
+    private final int auctionType;
     /** Set on recommendation endpoints only; omitted from search responses entirely. */
     private RecommendationProvenance why;
 
     public SearchResultItem(long auctionId, String title, String category,
                             BigDecimal currentPrice, Instant endDate,
                             String sellerUsername, String thumbnailUrl) {
+        this(auctionId, title, category, currentPrice, endDate, sellerUsername, thumbnailUrl, 0);
+    }
+
+    public SearchResultItem(long auctionId, String title, String category,
+                            BigDecimal currentPrice, Instant endDate,
+                            String sellerUsername, String thumbnailUrl, int auctionType) {
         this.auctionId = auctionId;
         this.title = title;
         this.category = category;
@@ -34,6 +42,7 @@ public final class SearchResultItem {
         this.endDate = endDate;
         this.sellerUsername = sellerUsername;
         this.thumbnailUrl = thumbnailUrl;
+        this.auctionType = auctionType;
     }
 
     public long getAuctionId() { return auctionId; }
@@ -43,6 +52,15 @@ public final class SearchResultItem {
     public Instant getEndDate() { return endDate; }
     public String getSellerUsername() { return sellerUsername; }
     public String getThumbnailUrl() { return thumbnailUrl; }
+    public int getAuctionType() { return auctionType; }
+
+    /**
+     * {@code true} when the amount must not be shown to buyers. Every listing
+     * these projections carry is still open, so a blind auction is by definition
+     * one whose bids have not been revealed yet — {@link #getCurrentPrice()} is
+     * the entry price in that case, never the leading sealed bid.
+     */
+    public boolean isSealed() { return auctionType == AuctionType.BLIND.getId(); }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public RecommendationProvenance getWhy() { return why; }
