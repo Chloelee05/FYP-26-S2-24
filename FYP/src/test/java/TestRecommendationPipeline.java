@@ -54,7 +54,9 @@ class TestRecommendationPipeline {
     private static final String Q_FETCH_IDS = "WHERE a.auction_id IN (";
     private static final String Q_CONTENT   = "my_signals";
     private static final String Q_TRENDING  = "bid_count";
+    /** The allow-set of auctions user-based CF is permitted to rank. */
     private static final String Q_ELIGIBLE  = "SELECT auction_id FROM auction ";
+    private static final String Q_SETTINGS  = "FROM recommendation_settings";
 
     /** Records the SQL prepared by each stage and the ids bound into it. */
     private static final class Recorder {
@@ -150,6 +152,22 @@ class TestRecommendationPipeline {
         return rs;
     }
 
+    /** A ResultSet of key/value rows for the recommendation_settings query. */
+    private static ResultSet settingsRows(Map<String, String> rows) throws SQLException {
+        ResultSet rs = mock(ResultSet.class);
+        List<String> keys = new ArrayList<>(rows.keySet());
+        if (keys.isEmpty()) {
+            when(rs.next()).thenReturn(false);
+            return rs;
+        }
+        when(rs.next()).thenReturn(true, buildTail(keys.size()));
+        String[] restKeys = keys.subList(1, keys.size()).toArray(new String[0]);
+        String[] restVals = keys.subList(1, keys.size()).stream().map(rows::get).toArray(String[]::new);
+        when(rs.getString("key")).thenReturn(keys.get(0), restKeys);
+        when(rs.getString("value")).thenReturn(rows.get(keys.get(0)), restVals);
+        return rs;
+    }
+
     private static ResultSet idRows(long... ids) throws SQLException {
         ResultSet rs = mock(ResultSet.class);
         if (ids.length == 0) {
@@ -214,6 +232,7 @@ class TestRecommendationPipeline {
         stages.put(Q_PEER_CF, listingRows(1L));
         // User 5 and peer 6 both bid on 10; peer 6 also bid on 2, which becomes the pick.
         stages.put(Q_VECTORS, interactionRows(new int[]{5, 6, 6}, new long[]{10L, 10L, 2L}));
+        // 2 is the open auction user-based CF is allowed to rank.
         stages.put(Q_ELIGIBLE, idRows(2L));
         stages.put(Q_FETCH_IDS, listingRows(2L));
         stages.put(Q_CONTENT, listingRows(3L));
@@ -251,8 +270,8 @@ class TestRecommendationPipeline {
     }
 
     @Test
-    @DisplayName("every later stage is told which auctions earlier stages already took")
-    void laterStagesExcludeEarlierPicks() throws Exception {
+    @DisplayName("generators are not told what earlier ones took, so signals can accumulate")
+    void generatorsSeeTheWholeCandidateSpace() throws Exception {
         Recorder rec = new Recorder();
         Map<String, ResultSet> stages = new LinkedHashMap<>();
         stages.put(Q_PEER_CF, listingRows(1L, 2L));
@@ -265,11 +284,40 @@ class TestRecommendationPipeline {
             new RecommendationDAO().recommendForUser(5, 4);
         }
 
-        // Cross-stage de-duplication is a NOT IN clause, so the ids have to reach the query.
-        assertTrue(rec.boundInto(Q_CONTENT).containsAll(List.of(1L, 2L)),
-                "content-based stage was not told about the peer-CF picks");
-        assertTrue(rec.boundInto(Q_TRENDING).containsAll(List.of(1L, 2L, 3L)),
-                "trending filler was not told about every earlier pick");
+        // The stages used to exclude each other's picks by NOT IN. Under re-ranking that
+        // would be self-defeating: an auction three signals agree on has to reach the
+        // blend from all three, and hiding it after the first sighting is exactly what
+        // made the old order a function of stage boundaries rather than of evidence.
+        assertFalse(rec.boundInto(Q_CONTENT).containsAll(List.of(1L, 2L)),
+                "the content stage is still being denied the peer-CF picks");
+        assertFalse(rec.boundInto(Q_TRENDING).containsAll(List.of(1L, 2L, 3L)),
+                "the trending stage is still being denied the earlier picks");
+    }
+
+    @Test
+    @DisplayName("an auction several generators agree on is still returned only once")
+    void overlappingCandidatesAreMergedNotRepeated() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        // The same listing surfaces from three separate generators.
+        stages.put(Q_PEER_CF, listingRows(1L));
+        stages.put(Q_CONTENT, listingRows(1L, 3L));
+        stages.put(Q_TRENDING, listingRows(1L, 4L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        assertEquals(1, idsOf(out).stream().filter(id -> id == 1L).count(),
+                "an auction found by several generators was listed more than once");
+        // The first generator to produce a card owns its label, because the per-arm CTR
+        // breakdown groups on it.
+        assertEquals("PEER_BIDS", out.get(0).getWhy().getReasonCode());
+        // Agreeing signals must outscore the single-signal candidates.
+        assertEquals(1L, out.get(0).getAuctionId());
     }
 
     @Test
@@ -299,11 +347,12 @@ class TestRecommendationPipeline {
     }
 
     @Test
-    @DisplayName("trending filler never runs when personalised stages already fill the list")
-    void trendingIsOnlyAFiller() throws Exception {
+    @DisplayName("trending is a candidate generator, but never outranks a personalised card")
+    void trendingCompetesRatherThanFills() throws Exception {
         Recorder rec = new Recorder();
         Map<String, ResultSet> stages = new LinkedHashMap<>();
         stages.put(Q_PEER_CF, listingRows(1L, 2L));
+        stages.put(Q_TRENDING, listingRows(7L, 8L));
 
         List<SearchResultItem> out;
         Connection conn = pipeline(rec, stages);
@@ -312,9 +361,15 @@ class TestRecommendationPipeline {
             out = new RecommendationDAO().recommendForUser(5, 2);
         }
 
+        // Every generator now runs on every request rather than short-circuiting once the
+        // page is full — that is what gives the re-ranker something to choose between, and
+        // it is also why the query count per request no longer varies.
+        assertTrue(rec.ran(Q_TRENDING));
+        assertTrue(rec.ran(Q_CONTENT));
+        // Popularity is the lowest-weighted component by default, so a page that could be
+        // filled with personalised cards still is.
         assertEquals(List.of(1L, 2L), idsOf(out));
-        assertFalse(rec.ran(Q_TRENDING), "trending ran even though the limit was already met");
-        assertFalse(rec.ran(Q_CONTENT), "content-based ran even though the limit was already met");
+        assertEquals(List.of("PEER_BIDS", "PEER_BIDS"), reasonsOf(out));
     }
 
     @Test
@@ -418,43 +473,6 @@ class TestRecommendationPipeline {
         assertTrue(rec.boundInto(Q_TRENDING).contains((long) RecommendationDAO.DEFAULT_TRENDING_WINDOW_DAYS));
     }
 
-    @Test
-    @DisplayName("peer endorsements are counted per person, not per bid")
-    void peerScoringCountsDistinctBidders() throws Exception {
-        Recorder rec = new Recorder();
-        Map<String, ResultSet> stages = new LinkedHashMap<>();
-        stages.put(Q_PEER_CF, listingRows(1L));
-
-        Connection conn = pipeline(rec, stages);
-        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
-            db.when(DBUtil::connectDB).thenReturn(conn);
-            new RecommendationDAO().recommendForUser(5, 4);
-        }
-
-        String cfSql = rec.sqlContaining(Q_PEER_CF);
-        // One person bidding twenty times must not outweigh twenty people bidding once.
-        assertFalse(cfSql.contains("COUNT(*) AS score"),
-                "candidate scoring still counts bid rows rather than distinct bidders");
-        assertTrue(cfSql.contains("COUNT(DISTINCT user_id) AS score"));
-    }
-
-    @Test
-    @DisplayName("a conversion only counts a bid placed after the click")
-    void conversionRequiresTheBidToFollowTheClick() throws Exception {
-        Recorder rec = new Recorder();
-        Connection conn = pipeline(rec, Map.of());
-        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
-            db.when(DBUtil::connectDB).thenReturn(conn);
-            new RecommendationDAO().metrics();
-        }
-
-        String convSql = rec.sqlContaining("COUNT(DISTINCT (e.user_id, e.auction_id))");
-        // Without the ordering, a bid placed before the recommendation ever appeared was
-        // credited to the recommender.
-        assertTrue(convSql.contains("b.bid_time AT TIME ZONE 'UTC' > e.created_at"),
-                "conversions still ignore whether the bid followed the click");
-    }
-
     // -------------------------------------------------------------------------
     // Candidate truncation ahead of the active-auction filter
     // -------------------------------------------------------------------------
@@ -513,6 +531,355 @@ class TestRecommendationPipeline {
         assertTrue(sql.contains("date_end > now()"));
         assertTrue(sql.contains("seller_id <> ?"));
         assertTrue(rec.boundInto(Q_ELIGIBLE).contains(5L), "the viewer was not excluded as a seller");
+    }
+
+    // -------------------------------------------------------------------------
+    // Hybrid re-ranking
+    // -------------------------------------------------------------------------
+
+    /** Runs the pipeline against the given stage stubs and settings rows. */
+    private static List<SearchResultItem> recommendWithSettings(
+            Map<String, ResultSet> stages, Map<String, String> settingRows, int limit)
+            throws SQLException {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> all = new LinkedHashMap<>(stages);
+        all.put(Q_SETTINGS, settingsRows(settingRows));
+
+        RecommendationDAO.invalidateSettingsCache();
+        Connection conn = pipeline(rec, all);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            return new RecommendationDAO().recommendForUser(5, limit);
+        } finally {
+            RecommendationDAO.invalidateSettingsCache();
+        }
+    }
+
+    @Test
+    @DisplayName("a card carries the blended score and the component that drove it")
+    void scoreAndDominantComponentAreExposed() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_PEER_CF, listingRows(1L));
+        stages.put(Q_TRENDING, listingRows(7L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        // The "why this?" panel promises a real number, so it has to be one.
+        assertTrue(out.get(0).getWhy().getScore() > 0.0);
+        assertEquals("CF", out.get(0).getWhy().getDominantComponent());
+        assertEquals("POPULARITY", out.get(1).getWhy().getDominantComponent());
+        assertTrue(out.get(0).getWhy().getScore() > out.get(1).getWhy().getScore());
+        for (SearchResultItem item : out) {
+            double score = item.getWhy().getScore();
+            assertTrue(score >= 0.0 && score <= 1.0, "score outside [0,1]: " + score);
+        }
+    }
+
+    @Test
+    @DisplayName("two agreeing signals outrank a single stronger one")
+    void agreementBeatsASingleSignal() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        // 20 tops the content stage on content alone. 9 is only second there, but the
+        // trending stage puts it first, so two components back it.
+        stages.put(Q_CONTENT, listingRows(20L, 9L));
+        stages.put(Q_TRENDING, listingRows(9L, 30L, 31L, 32L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 6);
+        }
+
+        // The old pipeline settled this on stage boundaries: 20 led the content stage, and
+        // every content result outranked every trending one regardless of strength.
+        assertEquals(9L, idsOf(out).get(0),
+                "an auction two components agree on lost to one a single component likes more");
+        assertEquals(20L, idsOf(out).get(1));
+    }
+
+    @Test
+    @DisplayName("zeroing a weight visibly demotes the items that component favoured")
+    void zeroingAWeightDemotesItsItems() throws Exception {
+        // The demo an admin runs: set w_pop to 0, save, and popular items visibly drop.
+        Map<String, ResultSet> before = new LinkedHashMap<>();
+        before.put(Q_CONTENT, listingRows(20L, 21L, 3L));
+        before.put(Q_TRENDING, listingRows(7L, 8L));
+        List<Long> withPopularity = idsOf(recommendWithSettings(before, Map.of(), 6));
+
+        Map<String, ResultSet> after = new LinkedHashMap<>();
+        after.put(Q_CONTENT, listingRows(20L, 21L, 3L));
+        after.put(Q_TRENDING, listingRows(7L, 8L));
+        List<Long> withoutPopularity = idsOf(recommendWithSettings(
+                after, Map.of("rerank_w_pop", "0"), 6));
+
+        assertTrue(withPopularity.indexOf(7L) < withPopularity.indexOf(3L),
+                "the popular card should start out above the weak content card");
+        assertTrue(withoutPopularity.indexOf(3L) < withoutPopularity.indexOf(7L),
+                "zeroing the popularity weight did not demote the popular card");
+        assertTrue(withoutPopularity.contains(7L),
+                "the popular card should be demoted, not dropped from the page");
+    }
+
+    @Test
+    @DisplayName("all weights zero falls back to stage order rather than to hash order")
+    void allWeightsZeroFallsBackToStageOrder() throws Exception {
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_PEER_CF, listingRows(1L, 2L));
+        stages.put(Q_CONTENT, listingRows(3L));
+        stages.put(Q_TRENDING, listingRows(4L));
+
+        Map<String, String> allZero = new LinkedHashMap<>();
+        allZero.put("rerank_w_cf", "0");
+        allZero.put("rerank_w_ubcf", "0");
+        allZero.put("rerank_w_content", "0");
+        allZero.put("rerank_w_pop", "0");
+        allZero.put("rerank_w_rec", "0");
+
+        List<SearchResultItem> out = recommendWithSettings(stages, allZero, 4);
+
+        // Ranking by nothing has to mean something deterministic; the pre-re-ranking
+        // sequence is the honest answer and is what an admin can reason about.
+        assertEquals(List.of(1L, 2L, 3L, 4L), idsOf(out));
+        assertEquals(0.0, out.get(0).getWhy().getScore());
+        assertEquals("CF", out.get(0).getWhy().getDominantComponent(),
+                "with no score to attribute, the generating stage names the component");
+    }
+
+    @Test
+    @DisplayName("a single candidate scores without dividing by a zero range")
+    void singleCandidateDoesNotDivideByZero() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_TRENDING, listingRows(7L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 8);
+        }
+
+        assertEquals(1, out.size());
+        double score = out.get(0).getWhy().getScore();
+        assertFalse(Double.isNaN(score), "min-max divided by a zero range");
+        assertFalse(Double.isInfinite(score));
+        assertEquals(1.0, score, 1e-9, "the only candidate carries every signal it has");
+    }
+
+    @Test
+    @DisplayName("a component with no signal anywhere neither promotes nor demotes")
+    void absentComponentsDoNotSkewTheScale() throws Exception {
+        Recorder rec = new Recorder();
+        // Nothing produces a CF or UBCF candidate here, so two of the five components are
+        // dead. Their weights must leave the divisor rather than shrinking every score.
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_TRENDING, listingRows(7L, 8L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 8);
+        }
+
+        assertEquals(List.of(7L, 8L), idsOf(out));
+        assertEquals(1.0, out.get(0).getWhy().getScore(), 1e-9,
+                "the top card should still reach a full score with only popularity alive");
+    }
+
+    // -------------------------------------------------------------------------
+    // Category diversity cap
+    // -------------------------------------------------------------------------
+
+    /** Listing rows whose category is decided per row, for the diversity cap. */
+    private static ResultSet categorisedRows(long[] auctionIds, String[] categories) throws SQLException {
+        ResultSet rs = listingRows(auctionIds);
+        String[] rest = new String[categories.length - 1];
+        for (int i = 1; i < categories.length; i++) rest[i - 1] = categories[i];
+        when(rs.getString("category")).thenReturn(categories[0], rest);
+        return rs;
+    }
+
+    @Test
+    @DisplayName("one category cannot take the whole page")
+    void categoryCapLimitsASingleCategory() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        // What contentBased() produces for a viewer with one Electronics signal: it orders
+        // by date_end alone, so soon-ending Electronics can occupy every slot.
+        stages.put(Q_CONTENT, categorisedRows(
+                new long[]{1L, 2L, 3L, 4L, 5L, 6L},
+                new String[]{"Electronics", "Electronics", "Electronics",
+                             "Electronics", "Fashion", "Art"}));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        long electronics = out.stream()
+                .filter(i -> "Electronics".equals(i.getCategory())).count();
+        // ceil(4 / 3) = 2.
+        assertEquals(2, electronics, "a single category still swallowed the page");
+        assertEquals(4, out.size(), "the cap shortened the page instead of reordering it");
+        assertEquals(List.of(1L, 2L, 5L, 6L), idsOf(out));
+    }
+
+    @Test
+    @DisplayName("a marketplace with only one live category still fills the page")
+    void categoryCapNeverShortensThePage() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_CONTENT, categorisedRows(
+                new long[]{1L, 2L, 3L, 4L},
+                new String[]{"Art", "Art", "Art", "Art"}));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        // Held-back items are appended once the capped pass runs out, which is the normal
+        // state of a small demo database rather than an edge case.
+        assertEquals(List.of(1L, 2L, 3L, 4L), idsOf(out));
+    }
+
+    @Test
+    @DisplayName("a divisor of one switches the cap off")
+    void categoryCapCanBeDisabled() throws Exception {
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_CONTENT, categorisedRows(
+                new long[]{1L, 2L, 3L, 4L},
+                new String[]{"Electronics", "Electronics", "Electronics", "Fashion"}));
+
+        List<SearchResultItem> out = recommendWithSettings(
+                stages, Map.of("diversity_category_divisor", "1"), 4);
+
+        assertEquals(List.of(1L, 2L, 3L, 4L), idsOf(out),
+                "the cap still reordered the page with the divisor at 1");
+    }
+
+    // -------------------------------------------------------------------------
+    // Recency decay and the content-based lookback window
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("interaction ages are read in one clock, with the naive bid column pinned to UTC")
+    void interactionVectorsCarryAges() throws Exception {
+        Recorder rec = new Recorder();
+        Connection conn = pipeline(rec, neighbourhoodToppedByEndedAuctions());
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recommendForUser(5, 1);
+        }
+
+        String sql = rec.sqlContaining(Q_VECTORS);
+        assertTrue(sql.contains("age_days"), "interaction ages never reach the decay");
+        // bid_time is timestamp without time zone while added_at and viewed_at are
+        // timestamptz; leaving the naive one to the session TimeZone shifts every bid's age.
+        assertTrue(sql.contains("bid_time AT TIME ZONE 'UTC'"),
+                "bid ages depend on the session TimeZone rather than UTC");
+    }
+
+    @Test
+    @DisplayName("a fresh signal keeps its weight and an old one is faded")
+    void recencyMultiplierFadesWithAge() {
+        assertEquals(1.0, RecommendationDAO.recencyMultiplier(0.0, 30.0), 1e-9);
+        // One tau of age leaves 1/e of the weight.
+        assertEquals(Math.exp(-1), RecommendationDAO.recencyMultiplier(30.0, 30.0), 1e-9);
+        assertTrue(RecommendationDAO.recencyMultiplier(90.0, 30.0)
+                 < RecommendationDAO.recencyMultiplier(30.0, 30.0));
+        assertTrue(RecommendationDAO.recencyMultiplier(365.0, 30.0) > 0.0,
+                "decay must fade a signal, never erase or invert it");
+    }
+
+    @Test
+    @DisplayName("a tau of zero switches decay off rather than dividing by it")
+    void recencyDecayCanBeDisabled() {
+        assertEquals(1.0, RecommendationDAO.recencyMultiplier(500.0, 0.0), 1e-9);
+        assertEquals(1.0, RecommendationDAO.recencyMultiplier(500.0, -3.0), 1e-9);
+        assertFalse(Double.isNaN(RecommendationDAO.recencyMultiplier(500.0, 0.0)));
+    }
+
+    @Test
+    @DisplayName("a timestamp ahead of the database clock cannot inflate a signal")
+    void futureTimestampsDoNotAmplify() {
+        // exp(+x) would make a row written a second into the future outrank every genuine
+        // interaction in the table.
+        assertEquals(1.0, RecommendationDAO.recencyMultiplier(-10.0, 30.0), 1e-9);
+    }
+
+    @Test
+    @DisplayName("the content-based stage windows the viewer's own signals")
+    void contentBasedWindowsItsSignals() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_CONTENT, listingRows(3L));
+
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        String sql = rec.sqlContaining(Q_CONTENT);
+        assertTrue(sql.contains("bid_time AT TIME ZONE 'UTC' > now() - "),
+                "bid signals are windowed against the session TimeZone");
+        assertTrue(sql.contains("added_at > now() - "));
+        assertTrue(sql.contains("viewed_at > now() - "));
+        // A window shorter than the age of the demo data empties the arm, so the default
+        // has to stay generous.
+        assertTrue(rec.boundInto(Q_CONTENT).contains((long) RecommendationDAO.DEFAULT_CONTENT_WINDOW_DAYS));
+        assertTrue(RecommendationDAO.DEFAULT_CONTENT_WINDOW_DAYS >= 180);
+    }
+
+    @Test
+    @DisplayName("peer endorsements are counted per person, not per bid")
+    void peerScoringCountsDistinctBidders() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_PEER_CF, listingRows(1L));
+
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recommendForUser(5, 4);
+        }
+
+        String cfSql = rec.sqlContaining(Q_PEER_CF);
+        // One person bidding twenty times must not outweigh twenty people bidding once.
+        assertFalse(cfSql.contains("COUNT(*) AS score"),
+                "candidate scoring still counts bid rows rather than distinct bidders");
+        assertTrue(cfSql.contains("COUNT(DISTINCT user_id) AS score"));
+    }
+
+    @Test
+    @DisplayName("a conversion only counts a bid placed after the click")
+    void conversionRequiresTheBidToFollowTheClick() throws Exception {
+        Recorder rec = new Recorder();
+        Connection conn = pipeline(rec, Map.of());
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().metrics();
+        }
+
+        String convSql = rec.sqlContaining("COUNT(DISTINCT (e.user_id, e.auction_id))");
+        // Without the ordering, a bid placed before the recommendation ever appeared was
+        // credited to the recommender.
+        assertTrue(convSql.contains("b.bid_time AT TIME ZONE 'UTC' > e.created_at"),
+                "conversions still ignore whether the bid followed the click");
     }
 
     // -------------------------------------------------------------------------

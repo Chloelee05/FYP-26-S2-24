@@ -50,6 +50,9 @@ export default function AdminAnalytics() {
   const [recForm, setRecForm] = useState({
     itemsShown: 8, similarityThreshold: 0.1, trendingWindowDays: 7,
     weightBid: 3, weightWatchlist: 2, weightBrowse: 1,
+    recencyTauDays: 30, contentWindowDays: 180,
+    weightCf: 1, weightUbcf: 0.9, weightContent: 0.7,
+    weightPopularity: 0.4, weightRecency: 0.2, diversityDivisor: 3,
   });
   const [recSaving, setRecSaving] = useState(false);
 
@@ -328,15 +331,108 @@ export default function AdminAnalytics() {
                 />
               </div>
             ))}
-            <button
-              type="button"
-              onClick={handleSaveRecSettings}
-              disabled={recSaving}
-              className="btn-primary"
-            >
-              {recSaving ? 'Saving…' : 'Save settings'}
-            </button>
           </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink-100">
+          <h3 className="font-semibold text-sm text-ink-900 mb-1">Recency</h3>
+          <p className="text-xs text-ink-400 mb-3 max-w-3xl leading-relaxed">
+            Each interaction is faded by exp(−days / τ) before it counts towards taste, so
+            an old bid stops speaking as loudly as a recent one. A τ of 30 leaves a
+            month-old signal worth about 37% of a fresh one; setting τ to 0 turns the fade
+            off and weights every interaction equally, however old. The lookback window is
+            how far back the content-based stage collects your bids, watchlist and browsing
+            at all — set it shorter than the age of the data and that stage goes empty.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">Recency τ, days (0 = off)</label>
+              <input
+                type="number" min="0" max="3650" step="1"
+                value={recForm.recencyTauDays}
+                onChange={e => setRecForm(f => ({ ...f, recencyTauDays: e.target.value }))}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-44"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">Content lookback, days (1–3650)</label>
+              <input
+                type="number" min="1" max="3650" step="1"
+                value={recForm.contentWindowDays}
+                onChange={e => setRecForm(f => ({ ...f, contentWindowDays: e.target.value }))}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-48"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink-100">
+          <h3 className="font-semibold text-sm text-ink-900 mb-1">Re-ranking weights</h3>
+          <p className="text-xs text-ink-400 mb-3 max-w-3xl leading-relaxed">
+            The four stages produce candidates; a single pass then scores every candidate as
+            a weighted mean of these five signals, each normalised across the candidate set.
+            Raising a weight promotes the listings that signal favours. Setting one to 0
+            removes it from the blend entirely — drop popularity to 0, save, and reload the
+            landing page to watch the popular listings fall down the strip. Setting all five
+            to 0 leaves nothing to rank by, and the strip falls back to the original stage
+            order rather than to an arbitrary one.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            {[
+              { key: 'weightCf', label: 'Peer bids' },
+              { key: 'weightUbcf', label: 'Similar taste' },
+              { key: 'weightContent', label: 'Content match' },
+              { key: 'weightPopularity', label: 'Popularity' },
+              { key: 'weightRecency', label: 'Ending soon' },
+            ].map(w => (
+              <div key={w.key}>
+                <label className="block text-xs text-ink-500 mb-1">{w.label} (0–100)</label>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={recForm[w.key]}
+                  onChange={e => setRecForm(f => ({ ...f, [w.key]: e.target.value }))}
+                  className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-36"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink-100">
+          <h3 className="font-semibold text-sm text-ink-900 mb-1">Category diversity</h3>
+          <p className="text-xs text-ink-400 mb-3 max-w-3xl leading-relaxed">
+            No single category may take more than ⌈items shown ÷ divisor⌉ slots, so a buyer
+            who looked at one Electronics listing does not get a page of nothing else.
+            Listings held back by the cap are added again once the capped pass runs out, so
+            the strip never comes back shorter. A divisor of 1 raises the cap to the whole
+            page and turns the limit off.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">Category divisor (1 = off)</label>
+              <input
+                type="number" min="1" max="24" step="1"
+                value={recForm.diversityDivisor}
+                onChange={e => setRecForm(f => ({ ...f, diversityDivisor: e.target.value }))}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-44"
+              />
+            </div>
+            <p className="text-xs text-ink-500 pb-2">
+              Current cap: {Math.max(1, Math.ceil(Number(recForm.itemsShown || 8)
+                / Math.max(1, Number(recForm.diversityDivisor || 1))))} per category
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink-100">
+          <button
+            type="button"
+            onClick={handleSaveRecSettings}
+            disabled={recSaving}
+            className="btn-primary"
+          >
+            {recSaving ? 'Saving…' : 'Save settings'}
+          </button>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search, Lock } from 'lucide-react';
+import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search, Lock, Gauge } from 'lucide-react';
 import { formatCurrency, timeRemaining } from '../utils/helpers';
 import { publicPath } from '../utils/appBase';
 import { getLandingContent } from '../api/auction';
@@ -32,10 +32,24 @@ function loadLandingContentOnce() {
  * Everything shown here is aggregate or masked — the server never sends the
  * identities behind these numbers to a public page.
  */
+// How the re-ranker's five signals read on a card. The dominant one is the single
+// biggest contributor to the score, which is not always the arm that produced the card:
+// a listing can be surfaced by peer bids and still owe most of its placement to being
+// popular.
+const COMPONENT_LABELS = {
+  CF: 'peer bids',
+  UBCF: 'similar taste',
+  CONTENT: 'content match',
+  POPULARITY: 'popularity',
+  RECENCY: 'ending soon',
+};
+
 function WhyThis({ why }) {
   const [open, setOpen] = useState(false);
   const keywords = why.keywords ?? [];
   const clicks = why.clickCount ?? 0;
+  const score = typeof why.score === 'number' ? why.score : null;
+  const dominant = COMPONENT_LABELS[why.dominantComponent];
 
   return (
     <div data-why className="mt-2.5 border-t border-ink-100 pt-2.5">
@@ -55,6 +69,15 @@ function WhyThis({ why }) {
 
       {open && (
         <div className="mt-2 space-y-1.5 rounded-lg bg-ink-50 px-2.5 py-2 text-[11px] text-ink-500">
+          {score !== null && (
+            <p className="flex items-start gap-1.5">
+              <Gauge size={12} className="mt-px shrink-0 text-ink-400" />
+              <span>
+                Match score <span className="font-medium text-ink-700 tabular-nums">{score.toFixed(2)}</span>
+                {dominant && <> — mostly {dominant}</>}
+              </span>
+            </p>
+          )}
           <p className="flex items-center gap-1.5">
             <MousePointerClick size={12} className="shrink-0 text-ink-400" />
             {clicks === 0

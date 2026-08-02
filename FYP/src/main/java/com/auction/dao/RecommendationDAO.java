@@ -1,6 +1,7 @@
 package com.auction.dao;
 
 import com.auction.model.RecommendationProvenance;
+import com.auction.model.RecommendationProvenance.Component;
 import com.auction.model.RecommendationProvenance.Reason;
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
@@ -26,14 +27,22 @@ import java.util.Set;
 /**
  * Personalised auction recommendations via a hybrid pipeline.
  *
- * <p><b>Pipeline (SCRUM-400):</b></p>
+ * <p><b>Candidate generators (SCRUM-400):</b></p>
  * <ol>
  *   <li>Item-based collaborative filtering — peer co-occurrence on bids/watchlist</li>
  *   <li>User-based CF with cosine similarity — bids, watchlist, and browse history</li>
- *   <li>Content-based boost — active auctions sharing category or tags with the user's
- *       recent bids / watchlist / browse history (excludes already recommended ids)</li>
- *   <li>Trending filler — bid-count / soonest-ending for cold-start and remaining slots</li>
+ *   <li>Content-based — active auctions sharing category or tags with the user's
+ *       bids / watchlist / browse history inside the configured window</li>
+ *   <li>Trending — recent bid count, which also covers cold start</li>
  * </ol>
+ *
+ * <p>The four used to run in sequence, each filling whatever slots the previous one left,
+ * so the final order was decided by stage boundaries rather than by any score: an auction
+ * three signals agreed on weakly could sit below one a single signal happened to like. They
+ * are now candidate generators feeding a single re-ranking pass — see {@code rerank} — that
+ * blends five min-max normalised components under admin-tunable weights. The stage that
+ * first produced a card still supplies its {@link Reason}, because that is the label the
+ * per-arm CTR breakdown groups by.</p>
  *
  * <p>Pure SQL over existing tables — no external ML dependency — which keeps the
  * approach explainable and defensible for the project's scope.</p>
@@ -52,6 +61,55 @@ public class RecommendationDAO {
     public static final double DEFAULT_SIMILARITY_THRESHOLD = 0.1;
     /** How far back "trending" looks when counting bids. */
     public static final int DEFAULT_TRENDING_WINDOW_DAYS = 7;
+    /**
+     * Decay constant τ, in days, applied to interaction weights as {@code exp(-Δdays / τ)}.
+     * At 30 days a month-old signal is worth about 37% of a fresh one and a fortnight-old
+     * one about 63%, which fades stale taste without erasing the history a sparse
+     * marketplace depends on. Zero switches decay off entirely.
+     */
+    public static final double DEFAULT_RECENCY_TAU_DAYS = 30.0;
+    /**
+     * How far back the content-based stage looks for the viewer's own signals.
+     *
+     * <p>Deliberately generous. A window shorter than the age of the available history
+     * empties the personalised stages outright, which is the failure this whole exercise
+     * exists to prevent, and a listing browsed six months ago is still weak evidence of
+     * taste. Freshness is expressed by {@link #DEFAULT_RECENCY_TAU_DAYS} weighting signals
+     * down, not by this window cutting them off.</p>
+     */
+    public static final int DEFAULT_CONTENT_WINDOW_DAYS = 180;
+
+    // Hybrid re-ranking weights. Ordered so that, on a candidate carrying one signal only,
+    // the arms rank in the same sequence the stages used to run in — collaborative first,
+    // popularity last — while still letting a candidate that several signals agree on
+    // overtake one that a single signal likes a lot. They are starting points chosen for
+    // being explainable rather than tuned figures; there is no offline evaluation set here
+    // to fit them against, and pretending otherwise would be dishonest.
+    public static final double DEFAULT_W_CF = 1.0;
+    public static final double DEFAULT_W_UBCF = 0.9;
+    public static final double DEFAULT_W_CONTENT = 0.7;
+    public static final double DEFAULT_W_POPULARITY = 0.4;
+    public static final double DEFAULT_W_RECENCY = 0.2;
+
+    /**
+     * How many candidates each generator is asked for, as a multiple of the page size.
+     *
+     * <p>The stages no longer top each other up, so each needs enough depth for the
+     * re-ranker to have something to choose between; two pages' worth keeps the union
+     * broad without turning four bounded queries into four unbounded ones.</p>
+     */
+    private static final int CANDIDATE_MULTIPLIER = 2;
+
+    /**
+     * Divisor behind the per-category cap, {@code ceil(limit / divisor)}.
+     *
+     * <p>Three lets a single category take about a third of the page. The content-based
+     * stage orders only by {@code date_end}, so a viewer who opened one Electronics listing
+     * could watch soon-ending Electronics take every remaining slot; the cap keeps the page
+     * from collapsing onto one interest without pretending to be a real diversification
+     * objective. A divisor of 1 raises the cap to the whole page and switches it off.</p>
+     */
+    public static final int DEFAULT_DIVERSITY_DIVISOR = 3;
 
     /**
      * Returns up to {@code limit} active, open auctions recommended for {@code userId},
@@ -60,40 +118,263 @@ public class RecommendationDAO {
      */
     public List<SearchResultItem> recommendForUser(int userId, int limit) {
         Set<Long> dismissed = listDismissedIds(userId);
+        Settings settings = getSettings();
+        int pool = limit * CANDIDATE_MULTIPLIER + dismissed.size();
 
-        List<SearchResultItem> cf = tag(collaborativeFiltering(userId, limit + dismissed.size()),
-                Reason.PEER_BIDS, REASON_PEER_BIDS);
-        cf.removeIf(item -> dismissed.contains(item.getAuctionId()));
-        if (cf.size() > limit) cf = new ArrayList<>(cf.subList(0, limit));
+        // The four stages are candidate generators now, not a chain that tops itself up.
+        // Crucially they are no longer told what earlier stages already took: an auction
+        // several signals agree on has to reach the re-ranker from all of them, and
+        // excluding it after the first sighting is precisely what made the old ordering a
+        // function of stage boundaries instead of evidence.
+        Map<Long, Candidate> byId = new LinkedHashMap<>();
+        collect(byId, tag(collaborativeFiltering(userId, pool), Reason.PEER_BIDS, REASON_PEER_BIDS),
+                Component.CF, 0);
+        collect(byId, tag(userBasedCosineRecommendations(userId, pool, dismissed),
+                Reason.SIMILAR_TASTE, REASON_SIMILAR_TASTE), Component.UBCF, 1);
+        collect(byId, contentBased(userId, pool, dismissed), Component.CONTENT, 2);
+        collect(byId, trending(pool, dismissed, userId), Component.POPULARITY, 3);
 
-        Set<Long> exclude = new LinkedHashSet<>(dismissed);
-        for (SearchResultItem item : cf) exclude.add(item.getAuctionId());
+        // The peer-CF query has no exclusion parameter of its own, so its dismissals are
+        // still dropped here.
+        byId.keySet().removeAll(dismissed);
+        if (byId.isEmpty()) return new ArrayList<>();
 
-        List<SearchResultItem> combined = new ArrayList<>(cf);
+        return rerank(new ArrayList<>(byId.values()), limit, settings);
+    }
 
-        if (combined.size() < limit) {
-            List<SearchResultItem> ubcf = tag(
-                    userBasedCosineRecommendations(userId, limit - combined.size(), exclude),
-                    Reason.SIMILAR_TASTE, REASON_SIMILAR_TASTE);
-            for (SearchResultItem item : ubcf) {
-                combined.add(item);
-                exclude.add(item.getAuctionId());
+    // -------------------------------------------------------------------------
+    // Hybrid re-ranking
+    //
+    // score(i) = ( w_cf·ĉf(i) + w_ubcf·ûb(i) + w_content·ĉt(i)
+    //              + w_pop·p̂op(i) + w_rec·r̂ec(i) ) / Σ w over components present
+    //
+    // Each component is min-max normalised across the candidate set, so the five signals
+    // are compared on one scale rather than on whatever units their stage happened to
+    // produce. The stages order their own output but do not expose the numbers behind it,
+    // so a candidate's raw component score is its rank within the stage that produced it:
+    // top of a stage scores 1, bottom scores 1/n. That is coarser than the underlying
+    // co-bidder counts and cosine sums, but it needs no change to four tested queries and
+    // it is monotone in each stage's own ordering, which is the property the blend relies
+    // on.
+    // -------------------------------------------------------------------------
+
+    /** A candidate auction and the per-component evidence supporting it. */
+    private static final class Candidate {
+        final SearchResultItem item;
+        /** The stage that first produced it, kept for a stable tiebreak and fallback. */
+        final Component source;
+        final int stageOrder;
+        final int stageIndex;
+        final double[] raw = new double[Component.values().length];
+
+        Candidate(SearchResultItem item, Component source, int stageOrder, int stageIndex) {
+            this.item = item;
+            this.source = source;
+            this.stageOrder = stageOrder;
+            this.stageIndex = stageIndex;
+        }
+    }
+
+    /**
+     * Folds one stage's output into the candidate set, recording its within-stage rank as
+     * that component's raw score. An auction already seen keeps the earlier stage's
+     * {@link RecommendationProvenance} — stage order is what the per-arm CTR breakdown is
+     * grouped by, so the label must stay the first, most specific explanation rather than
+     * being overwritten by whichever generator ran last.
+     */
+    private static void collect(Map<Long, Candidate> byId, List<SearchResultItem> items,
+                                Component component, int stageOrder) {
+        int n = items.size();
+        for (int i = 0; i < n; i++) {
+            SearchResultItem item = items.get(i);
+            int stageIndex = i;
+            Candidate candidate = byId.computeIfAbsent(item.getAuctionId(),
+                    id -> new Candidate(item, component, stageOrder, stageIndex));
+            candidate.raw[component.ordinal()] = (double) (n - i) / n;
+        }
+    }
+
+    private List<SearchResultItem> rerank(List<Candidate> candidates, int limit, Settings settings) {
+        fillRecencyComponent(candidates);
+
+        double[] weights = {
+                settings.weightCf, settings.weightUbcf, settings.weightContent,
+                settings.weightPopularity, settings.weightRecency,
+        };
+
+        Component[] components = Component.values();
+        double[][] normalised = new double[components.length][];
+        double weightPresent = 0;
+        for (int k = 0; k < components.length; k++) {
+            normalised[k] = normaliseComponent(candidates, k);
+            // A component nothing in the candidate set carries is left out of the divisor
+            // rather than dragging every score down by a constant. It contributes zero to
+            // every candidate either way, so the ordering is untouched and only the printed
+            // number stays comparable.
+            if (componentIsPresent(candidates, k)) weightPresent += weights[k];
+        }
+
+        // Every weight zeroed leaves nothing to sort by, and returning hash order would look
+        // like a bug rather than a setting. Falling back to the stage sequence gives the
+        // pre-re-ranking behaviour, which is a defensible answer to "rank by nothing".
+        boolean scored = weightPresent > 0;
+
+        double[] scores = new double[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            Candidate candidate = candidates.get(i);
+            double total = 0;
+            double best = 0;
+            Component dominant = null;
+            for (int k = 0; k < components.length; k++) {
+                double contribution = weights[k] * normalised[k][i];
+                total += contribution;
+                if (contribution > best) {
+                    best = contribution;
+                    dominant = components[k];
+                }
+            }
+            scores[i] = scored ? total / weightPresent : 0.0;
+            candidate.item.getWhy().setScore(round4(scores[i]));
+            // With nothing scoring above zero, naming the stage that produced the card is
+            // more honest than naming whichever component sorts first.
+            candidate.item.getWhy().setDominantComponent(dominant != null ? dominant : candidate.source);
+        }
+
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < candidates.size(); i++) order.add(i);
+        order.sort((a, b) -> {
+            if (scored) {
+                int byScore = Double.compare(scores[b], scores[a]);
+                if (byScore != 0) return byScore;
+            }
+            // Ties resolve to the old stage sequence, then to the id, so the same inputs
+            // always produce the same page.
+            Candidate ca = candidates.get(a);
+            Candidate cb = candidates.get(b);
+            if (ca.stageOrder != cb.stageOrder) return Integer.compare(ca.stageOrder, cb.stageOrder);
+            if (ca.stageIndex != cb.stageIndex) return Integer.compare(ca.stageIndex, cb.stageIndex);
+            return Long.compare(ca.item.getAuctionId(), cb.item.getAuctionId());
+        });
+
+        List<SearchResultItem> ranked = new ArrayList<>();
+        for (int i : order) ranked.add(candidates.get(i).item);
+        return capPerCategory(ranked, limit, settings.diversityDivisor);
+    }
+
+    /**
+     * Takes the top {@code limit} of an already-ranked list, allowing at most
+     * {@code ceil(limit / divisor)} auctions from any one category.
+     *
+     * <p>Items held back by the cap are not discarded: once the capped pass runs out of
+     * candidates they are appended in score order, so the page never comes back shorter
+     * than it would have without the cap. That matters when a marketplace genuinely only
+     * has one category of live listing, which is the normal state of a small demo
+     * database.</p>
+     *
+     * <p>Maximal Marginal Relevance would diversify on actual item-item similarity rather
+     * than on the category label, and would express the trade-off as a tunable λ instead of
+     * a hard quota. It also needs an item-item similarity function this codebase does not
+     * have, over listings whose only shared structure is a free-text category and a sparse
+     * tag table. Noted as future work; the quota buys most of the visible benefit for none
+     * of that machinery.</p>
+     */
+    private static List<SearchResultItem> capPerCategory(
+            List<SearchResultItem> ranked, int limit, int divisor) {
+        if (divisor <= 1) {
+            return ranked.size() > limit ? new ArrayList<>(ranked.subList(0, limit)) : ranked;
+        }
+        // Applied even when every candidate fits on the page. Nothing is dropped in that
+        // case, but the top of the strip is what a visitor actually reads, so a diverse
+        // opening is worth having whether or not the tail gets trimmed.
+
+        int cap = (int) Math.ceil((double) limit / divisor);
+        Map<String, Integer> taken = new HashMap<>();
+        List<SearchResultItem> kept = new ArrayList<>();
+        List<SearchResultItem> overflow = new ArrayList<>();
+
+        for (SearchResultItem item : ranked) {
+            if (kept.size() >= limit) break;
+            String category = categoryKey(item.getCategory());
+            int used = taken.getOrDefault(category, 0);
+            if (used < cap) {
+                taken.put(category, used + 1);
+                kept.add(item);
+            } else {
+                overflow.add(item);
             }
         }
 
-        if (combined.size() < limit) {
-            List<SearchResultItem> content = contentBased(userId, limit - combined.size(), exclude);
-            for (SearchResultItem item : content) {
-                combined.add(item);
-                exclude.add(item.getAuctionId());
-            }
+        for (SearchResultItem item : overflow) {
+            if (kept.size() >= limit) break;
+            kept.add(item);
+        }
+        return kept;
+    }
+
+    /** Blank categories share one bucket, matching the column's own 'Other' default. */
+    private static String categoryKey(String category) {
+        if (category == null || category.isBlank()) return "other";
+        return category.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Min-max normalises one component across the candidate set.
+     *
+     * <p>Two degenerate cases have to be answered rather than divided through. A component
+     * no candidate carries normalises to zero everywhere, so it neither promotes nor
+     * demotes anything. A component every candidate carries <em>identically</em> — the
+     * single-candidate page, most obviously — has a zero range, and normalising to one
+     * rather than to zero keeps "everybody has this signal" distinct from "nobody does".
+     * Neither case divides by zero.</p>
+     */
+    private static double[] normaliseComponent(List<Candidate> candidates, int component) {
+        double min = Double.MAX_VALUE;
+        double max = -Double.MAX_VALUE;
+        for (Candidate candidate : candidates) {
+            double value = candidate.raw[component];
+            min = Math.min(min, value);
+            max = Math.max(max, value);
         }
 
-        if (combined.size() >= limit) return combined;
+        double[] out = new double[candidates.size()];
+        if (max <= 0) return out;
+        double range = max - min;
+        for (int i = 0; i < candidates.size(); i++) {
+            out[i] = range == 0 ? 1.0 : (candidates.get(i).raw[component] - min) / range;
+        }
+        return out;
+    }
 
-        List<SearchResultItem> filler = trending(limit - combined.size(), exclude, userId);
-        combined.addAll(filler);
-        return combined;
+    private static boolean componentIsPresent(List<Candidate> candidates, int component) {
+        for (Candidate candidate : candidates) {
+            if (candidate.raw[component] > 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Fills the recency component from how soon each candidate closes, measured against the
+     * latest-ending candidate so the raw value is non-negative like every other component's
+     * and the soonest-ending auction scores highest.
+     *
+     * <p>This is auction urgency, not the freshness of the viewer's own history — that is
+     * handled separately by {@link #recencyMultiplier(double, double)} inside the
+     * interaction vectors. A candidate with no end date is treated as the least urgent
+     * rather than skipped.</p>
+     */
+    private static void fillRecencyComponent(List<Candidate> candidates) {
+        int component = Component.RECENCY.ordinal();
+        long latest = Long.MIN_VALUE;
+        for (Candidate candidate : candidates) {
+            Instant end = candidate.item.getEndDate();
+            if (end != null) latest = Math.max(latest, end.getEpochSecond());
+        }
+        if (latest == Long.MIN_VALUE) return;
+
+        for (Candidate candidate : candidates) {
+            Instant end = candidate.item.getEndDate();
+            candidate.raw[component] = end == null ? 0.0 : (double) (latest - end.getEpochSecond());
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -511,8 +792,14 @@ public class RecommendationDAO {
             if (keywords.size() > MAX_KEYWORDS_PER_ITEM) keywords = keywords.subList(0, MAX_KEYWORDS_PER_ITEM);
 
             if (myMatch != null) {
-                item.setWhy(new RecommendationProvenance(
-                        Reason.SEARCH_KEYWORD, "Matches your search for “" + myMatch + "”"));
+                RecommendationProvenance upgraded = new RecommendationProvenance(
+                        Reason.SEARCH_KEYWORD, "Matches your search for “" + myMatch + "”");
+                // The reason is being restated, not recomputed: the card still earned its
+                // place with the score the re-ranker gave it, so carry that across rather
+                // than resetting the "why this?" panel to zero.
+                upgraded.setScore(item.getWhy().getScore());
+                upgraded.setDominantComponent(item.getWhy().dominantComponentCode());
+                item.setWhy(upgraded);
             }
             item.getWhy().setKeywords(keywords);
         }
@@ -756,7 +1043,14 @@ public class RecommendationDAO {
     // Tunable parameters (SCRUM-76) — defaults live at the top of the class
     // -------------------------------------------------------------------------
 
-    /** Immutable snapshot of the admin-tunable recommendation parameters. */
+    /**
+     * Immutable snapshot of the admin-tunable recommendation parameters.
+     *
+     * <p>The knobs are numerous enough that a positional constructor stopped being
+     * readable, so anything beyond the original six is set through {@link Builder}. The
+     * short constructors are kept because call sites and tests that only care about the
+     * page size and the threshold should not have to name every other field.</p>
+     */
     public static final class Settings {
         public final int itemsShown;
         public final double similarityThreshold;
@@ -765,6 +1059,21 @@ public class RecommendationDAO {
         public final double weightBid;
         public final double weightWatchlist;
         public final double weightBrowse;
+        /**
+         * Decay constant τ, in days, for {@code exp(-Δdays / τ)} on interaction weights.
+         * Zero disables decay and restores the flat weighting.
+         */
+        public final double recencyTauDays;
+        /** How far back the content-based stage looks for the viewer's own signals. */
+        public final int contentWindowDays;
+        /** Hybrid re-ranking weights, one per scored component. */
+        public final double weightCf;
+        public final double weightUbcf;
+        public final double weightContent;
+        public final double weightPopularity;
+        public final double weightRecency;
+        /** Divisor behind the per-category cap during final assembly. */
+        public final int diversityDivisor;
 
         /** Keeps the pre-window call sites and tests working on the defaults. */
         public Settings(int itemsShown, double similarityThreshold) {
@@ -780,12 +1089,86 @@ public class RecommendationDAO {
 
         public Settings(int itemsShown, double similarityThreshold, int trendingWindowDays,
                         double weightBid, double weightWatchlist, double weightBrowse) {
-            this.itemsShown = itemsShown;
-            this.similarityThreshold = similarityThreshold;
-            this.trendingWindowDays = trendingWindowDays;
-            this.weightBid = weightBid;
-            this.weightWatchlist = weightWatchlist;
-            this.weightBrowse = weightBrowse;
+            this(builder()
+                    .itemsShown(itemsShown)
+                    .similarityThreshold(similarityThreshold)
+                    .trendingWindowDays(trendingWindowDays)
+                    .weightBid(weightBid)
+                    .weightWatchlist(weightWatchlist)
+                    .weightBrowse(weightBrowse));
+        }
+
+        private Settings(Builder b) {
+            this.itemsShown = b.itemsShown;
+            this.similarityThreshold = b.similarityThreshold;
+            this.trendingWindowDays = b.trendingWindowDays;
+            this.weightBid = b.weightBid;
+            this.weightWatchlist = b.weightWatchlist;
+            this.weightBrowse = b.weightBrowse;
+            this.recencyTauDays = b.recencyTauDays;
+            this.contentWindowDays = b.contentWindowDays;
+            this.weightCf = b.weightCf;
+            this.weightUbcf = b.weightUbcf;
+            this.weightContent = b.weightContent;
+            this.weightPopularity = b.weightPopularity;
+            this.weightRecency = b.weightRecency;
+            this.diversityDivisor = b.diversityDivisor;
+        }
+
+        public static Builder builder() { return new Builder(); }
+
+        /** A builder seeded from this snapshot, for changing only some of the values. */
+        public Builder toBuilder() {
+            return builder()
+                    .itemsShown(itemsShown)
+                    .similarityThreshold(similarityThreshold)
+                    .trendingWindowDays(trendingWindowDays)
+                    .weightBid(weightBid)
+                    .weightWatchlist(weightWatchlist)
+                    .weightBrowse(weightBrowse)
+                    .recencyTauDays(recencyTauDays)
+                    .contentWindowDays(contentWindowDays)
+                    .weightCf(weightCf)
+                    .weightUbcf(weightUbcf)
+                    .weightContent(weightContent)
+                    .weightPopularity(weightPopularity)
+                    .weightRecency(weightRecency)
+                    .diversityDivisor(diversityDivisor);
+        }
+
+        /** Every unset field falls back to the seeded default, never to zero. */
+        public static final class Builder {
+            private int itemsShown = DEFAULT_ITEMS_SHOWN;
+            private double similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD;
+            private int trendingWindowDays = DEFAULT_TRENDING_WINDOW_DAYS;
+            private double weightBid = UserBasedCollaborativeFilter.weightBid();
+            private double weightWatchlist = UserBasedCollaborativeFilter.weightWatchlist();
+            private double weightBrowse = UserBasedCollaborativeFilter.weightBrowse();
+            private double recencyTauDays = DEFAULT_RECENCY_TAU_DAYS;
+            private int contentWindowDays = DEFAULT_CONTENT_WINDOW_DAYS;
+            private double weightCf = DEFAULT_W_CF;
+            private double weightUbcf = DEFAULT_W_UBCF;
+            private double weightContent = DEFAULT_W_CONTENT;
+            private double weightPopularity = DEFAULT_W_POPULARITY;
+            private double weightRecency = DEFAULT_W_RECENCY;
+            private int diversityDivisor = DEFAULT_DIVERSITY_DIVISOR;
+
+            public Builder itemsShown(int v)          { this.itemsShown = v; return this; }
+            public Builder similarityThreshold(double v) { this.similarityThreshold = v; return this; }
+            public Builder trendingWindowDays(int v)  { this.trendingWindowDays = v; return this; }
+            public Builder weightBid(double v)        { this.weightBid = v; return this; }
+            public Builder weightWatchlist(double v)  { this.weightWatchlist = v; return this; }
+            public Builder weightBrowse(double v)     { this.weightBrowse = v; return this; }
+            public Builder recencyTauDays(double v)   { this.recencyTauDays = v; return this; }
+            public Builder contentWindowDays(int v)   { this.contentWindowDays = v; return this; }
+            public Builder weightCf(double v)         { this.weightCf = v; return this; }
+            public Builder weightUbcf(double v)       { this.weightUbcf = v; return this; }
+            public Builder weightContent(double v)    { this.weightContent = v; return this; }
+            public Builder weightPopularity(double v) { this.weightPopularity = v; return this; }
+            public Builder weightRecency(double v)    { this.weightRecency = v; return this; }
+            public Builder diversityDivisor(int v)    { this.diversityDivisor = v; return this; }
+
+            public Settings build() { return new Settings(this); }
         }
     }
 
@@ -794,6 +1177,11 @@ public class RecommendationDAO {
     static int clampWindowDays(int v)       { return Math.max(1, Math.min(365, v)); }
     /** A negative weight would turn an interaction into evidence of dislike. */
     static double clampWeight(double v)     { return Math.max(0.0, Math.min(100.0, v)); }
+    /** Zero is meaningful — it switches decay off — so the floor is zero, not one. */
+    static double clampTauDays(double v)    { return Math.max(0.0, Math.min(3650.0, v)); }
+    static int clampContentWindowDays(int v){ return Math.max(1, Math.min(3650, v)); }
+    /** One means "a whole page of one category is fine", which switches the cap off. */
+    static int clampDiversityDivisor(int v) { return Math.max(1, Math.min(24, v)); }
 
     // -------------------------------------------------------------------------
     // Settings cache
@@ -834,6 +1222,14 @@ public class RecommendationDAO {
         double wBid = UserBasedCollaborativeFilter.weightBid();
         double wWatchlist = UserBasedCollaborativeFilter.weightWatchlist();
         double wBrowse = UserBasedCollaborativeFilter.weightBrowse();
+        double tauDays = DEFAULT_RECENCY_TAU_DAYS;
+        int contentWindowDays = DEFAULT_CONTENT_WINDOW_DAYS;
+        double wCf = DEFAULT_W_CF;
+        double wUbcf = DEFAULT_W_UBCF;
+        double wContent = DEFAULT_W_CONTENT;
+        double wPopularity = DEFAULT_W_POPULARITY;
+        double wRecency = DEFAULT_W_RECENCY;
+        int diversityDivisor = DEFAULT_DIVERSITY_DIVISOR;
 
         String sql = "SELECT key, value FROM recommendation_settings";
         try (Connection conn = DBUtil.connectDB();
@@ -849,12 +1245,34 @@ public class RecommendationDAO {
                     else if ("w_bid".equals(key)) wBid = Double.parseDouble(value);
                     else if ("w_watchlist".equals(key)) wWatchlist = Double.parseDouble(value);
                     else if ("w_browse".equals(key)) wBrowse = Double.parseDouble(value);
+                    else if ("recency_tau_days".equals(key)) tauDays = Double.parseDouble(value);
+                    else if ("content_window_days".equals(key)) contentWindowDays = Integer.parseInt(value);
+                    else if ("rerank_w_cf".equals(key)) wCf = Double.parseDouble(value);
+                    else if ("rerank_w_ubcf".equals(key)) wUbcf = Double.parseDouble(value);
+                    else if ("rerank_w_content".equals(key)) wContent = Double.parseDouble(value);
+                    else if ("rerank_w_pop".equals(key)) wPopularity = Double.parseDouble(value);
+                    else if ("rerank_w_rec".equals(key)) wRecency = Double.parseDouble(value);
+                    else if ("diversity_category_divisor".equals(key)) diversityDivisor = Integer.parseInt(value);
                 } catch (NumberFormatException ignored) { }
             }
         } catch (Exception ignored) { }
 
-        return new Settings(clampItemsShown(items), clampThreshold(threshold), clampWindowDays(windowDays),
-                clampWeight(wBid), clampWeight(wWatchlist), clampWeight(wBrowse));
+        return Settings.builder()
+                .itemsShown(clampItemsShown(items))
+                .similarityThreshold(clampThreshold(threshold))
+                .trendingWindowDays(clampWindowDays(windowDays))
+                .weightBid(clampWeight(wBid))
+                .weightWatchlist(clampWeight(wWatchlist))
+                .weightBrowse(clampWeight(wBrowse))
+                .recencyTauDays(clampTauDays(tauDays))
+                .contentWindowDays(clampContentWindowDays(contentWindowDays))
+                .weightCf(clampWeight(wCf))
+                .weightUbcf(clampWeight(wUbcf))
+                .weightContent(clampWeight(wContent))
+                .weightPopularity(clampWeight(wPopularity))
+                .weightRecency(clampWeight(wRecency))
+                .diversityDivisor(clampDiversityDivisor(diversityDivisor))
+                .build();
     }
 
     /** Persists the admin-tunable settings (upsert) and drops the cached snapshot. */
@@ -869,6 +1287,16 @@ public class RecommendationDAO {
             addSetting(ps, "w_bid", String.valueOf(clampWeight(settings.weightBid)));
             addSetting(ps, "w_watchlist", String.valueOf(clampWeight(settings.weightWatchlist)));
             addSetting(ps, "w_browse", String.valueOf(clampWeight(settings.weightBrowse)));
+            addSetting(ps, "recency_tau_days", String.valueOf(clampTauDays(settings.recencyTauDays)));
+            addSetting(ps, "content_window_days",
+                    String.valueOf(clampContentWindowDays(settings.contentWindowDays)));
+            addSetting(ps, "rerank_w_cf", String.valueOf(clampWeight(settings.weightCf)));
+            addSetting(ps, "rerank_w_ubcf", String.valueOf(clampWeight(settings.weightUbcf)));
+            addSetting(ps, "rerank_w_content", String.valueOf(clampWeight(settings.weightContent)));
+            addSetting(ps, "rerank_w_pop", String.valueOf(clampWeight(settings.weightPopularity)));
+            addSetting(ps, "rerank_w_rec", String.valueOf(clampWeight(settings.weightRecency)));
+            addSetting(ps, "diversity_category_divisor",
+                    String.valueOf(clampDiversityDivisor(settings.diversityDivisor)));
             ps.executeBatch();
             return true;
         } catch (Exception e) {
@@ -951,10 +1379,19 @@ public class RecommendationDAO {
      */
     private Map<Integer, Map<Long, Double>> loadInteractionVectors(Settings settings) {
         Map<Integer, Map<Long, Double>> vectors = new HashMap<>();
+        // Ages come back from the database rather than being computed in Java so that the
+        // comparison happens in one clock. bids.bid_time is a naive timestamp written from
+        // CURRENT_TIMESTAMP, while added_at and viewed_at are timestamptz; the naive column
+        // is pinned to UTC here exactly as CLICK_PRECEDES_BID does, rather than being left
+        // to whatever TimeZone the session happens to carry.
         String sql =
-            "SELECT user_id, auction_id, 'BID' AS src FROM bids "
-          + "UNION ALL SELECT user_id, auction_id, 'WATCH' FROM watchlist "
-          + "UNION ALL SELECT user_id, auction_id, 'BROWSE' FROM browse_history";
+            "SELECT user_id, auction_id, 'BID' AS src, "
+          + "       EXTRACT(EPOCH FROM (now() - (bid_time AT TIME ZONE 'UTC'))) / 86400.0 AS age_days "
+          + "  FROM bids "
+          + "UNION ALL SELECT user_id, auction_id, 'WATCH', "
+          + "       EXTRACT(EPOCH FROM (now() - added_at)) / 86400.0 FROM watchlist "
+          + "UNION ALL SELECT user_id, auction_id, 'BROWSE', "
+          + "       EXTRACT(EPOCH FROM (now() - viewed_at)) / 86400.0 FROM browse_history";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -970,12 +1407,26 @@ public class RecommendationDAO {
                 } else {
                     w = settings.weightBrowse;
                 }
-                UserBasedCollaborativeFilter.addInteraction(vectors, uid, aid, w);
+                UserBasedCollaborativeFilter.addInteraction(vectors, uid, aid,
+                        w * recencyMultiplier(rs.getDouble("age_days"), settings.recencyTauDays));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
         return vectors;
+    }
+
+    /**
+     * Exponential recency decay {@code exp(-Δdays / τ)}, in {@code (0, 1]}.
+     *
+     * <p>A τ of zero or less disables decay and returns 1, which is what lets an admin put
+     * the recommender back on flat weights without a redeploy. Negative ages are clamped to
+     * zero so a timestamp written slightly ahead of the database clock cannot inflate a
+     * signal past its nominal weight.</p>
+     */
+    public static double recencyMultiplier(double ageDays, double tauDays) {
+        if (tauDays <= 0) return 1.0;
+        return Math.exp(-Math.max(0.0, ageDays) / tauDays);
     }
 
     private List<SearchResultItem> fetchItemsByIds(List<Long> auctionIds, int excludeSellerId, int limit) {
@@ -1101,11 +1552,20 @@ public class RecommendationDAO {
     private List<SearchResultItem> contentBased(int userId, int limit, Set<Long> excludeIds) {
         if (limit <= 0) return List.of();
 
+        int windowDays = getSettings().contentWindowDays;
+
+        // The window is admin-tunable but defaults generously: set it shorter than the age
+        // of the available history and this stage returns nothing at all, taking the
+        // SAME_CATEGORY arm down with it. bid_time is naive and pinned to UTC; added_at and
+        // viewed_at are already timestamptz.
         StringBuilder sql = new StringBuilder(
             "WITH my_signals AS ( "
           + "  SELECT auction_id FROM bids WHERE user_id = ? "
+          + "    AND bid_time AT TIME ZONE 'UTC' > now() - (?::int * interval '1 day') "
           + "  UNION SELECT auction_id FROM watchlist WHERE user_id = ? "
+          + "    AND added_at > now() - (?::int * interval '1 day') "
           + "  UNION SELECT auction_id FROM browse_history WHERE user_id = ? "
+          + "    AND viewed_at > now() - (?::int * interval '1 day') "
           + "), my_cats AS ( "
           + "  SELECT DISTINCT d.category FROM auction_details d "
           + "  WHERE d.id IN (SELECT auction_id FROM my_signals) "
@@ -1152,9 +1612,10 @@ public class RecommendationDAO {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int idx = 1;
-            ps.setInt(idx++, userId);
-            ps.setInt(idx++, userId);
-            ps.setInt(idx++, userId);
+            for (int signal = 0; signal < 3; signal++) {
+                ps.setInt(idx++, userId);
+                ps.setInt(idx++, windowDays);
+            }
             ps.setInt(idx++, userId);
             for (Long id : excl) ps.setLong(idx++, id);
             ps.setInt(idx, limit);

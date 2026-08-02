@@ -100,6 +100,22 @@ public final class UserBasedCollaborativeFilter {
         return out;
     }
 
+    /**
+     * Records one interaction, keeping the strongest weight seen for that user and auction.
+     *
+     * <p>Callers pass weights that have already been faded by
+     * {@code RecommendationDAO.recencyMultiplier}, so the maximum is taken over
+     * <em>decayed</em> values: what survives is the strongest piece of evidence still
+     * standing, not the strongest kind of evidence ever recorded. That is deliberate, and
+     * it has a visible consequence — a page view yesterday (about 0.97) now outweighs a bid
+     * from four months ago (about 0.79), inverting the nominal bid &gt; watchlist &gt;
+     * browse ordering. A stale bid genuinely is weaker evidence of current taste than a
+     * fresh visit, so the inversion is the intended reading rather than a defect.</p>
+     *
+     * <p>Summing instead of maximising was rejected: it would let one person reloading a
+     * listing fifty times manufacture an arbitrarily large weight, which is the same abuse
+     * the peer-CF stage already guards against by counting distinct bidders.</p>
+     */
     public static void addInteraction(Map<Integer, Map<Long, Double>> vectors, int userId, long auctionId, double weight) {
         vectors.computeIfAbsent(userId, k -> new HashMap<>())
                .merge(auctionId, weight, Math::max);

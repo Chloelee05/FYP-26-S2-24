@@ -109,6 +109,12 @@
 \echo '== admin-tunable interaction weights (bid / watchlist / browse) =='
 \ir migration_recommendation_weights.sql
 
+\echo '== recency decay + content-based lookback window =='
+\ir migration_recommendation_recency.sql
+
+\echo '== hybrid re-ranking weights + category diversity cap =='
+\ir migration_recommendation_hybrid_rerank.sql
+
 \echo '== Telegram notifications (links, one-time codes, outbox, preferences, copy) =='
 \ir migration_telegram_notifications.sql
 

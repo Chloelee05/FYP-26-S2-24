@@ -136,6 +136,14 @@ public class AdminApiServlet extends ApiBase {
             settings.put("weightBid", s.weightBid);
             settings.put("weightWatchlist", s.weightWatchlist);
             settings.put("weightBrowse", s.weightBrowse);
+            settings.put("recencyTauDays", s.recencyTauDays);
+            settings.put("contentWindowDays", s.contentWindowDays);
+            settings.put("weightCf", s.weightCf);
+            settings.put("weightUbcf", s.weightUbcf);
+            settings.put("weightContent", s.weightContent);
+            settings.put("weightPopularity", s.weightPopularity);
+            settings.put("weightRecency", s.weightRecency);
+            settings.put("diversityDivisor", s.diversityDivisor);
 
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("metrics", recommendationDAO.metrics());
@@ -176,12 +184,23 @@ public class AdminApiServlet extends ApiBase {
         }
 
         int windowDays;
-        double weightBid, weightWatchlist, weightBrowse;
+        double weightBid, weightWatchlist, weightBrowse, recencyTauDays;
+        int contentWindowDays;
+        double weightCf, weightUbcf, weightContent, weightPopularity, weightRecency;
+        int diversityDivisor;
         try {
-            windowDays      = optionalInt(req, "trendingWindowDays", current.trendingWindowDays);
-            weightBid       = optionalDouble(req, "weightBid", current.weightBid);
-            weightWatchlist = optionalDouble(req, "weightWatchlist", current.weightWatchlist);
-            weightBrowse    = optionalDouble(req, "weightBrowse", current.weightBrowse);
+            windowDays        = optionalInt(req, "trendingWindowDays", current.trendingWindowDays);
+            weightBid         = optionalDouble(req, "weightBid", current.weightBid);
+            weightWatchlist   = optionalDouble(req, "weightWatchlist", current.weightWatchlist);
+            weightBrowse      = optionalDouble(req, "weightBrowse", current.weightBrowse);
+            recencyTauDays    = optionalDouble(req, "recencyTauDays", current.recencyTauDays);
+            contentWindowDays = optionalInt(req, "contentWindowDays", current.contentWindowDays);
+            weightCf          = optionalDouble(req, "weightCf", current.weightCf);
+            weightUbcf        = optionalDouble(req, "weightUbcf", current.weightUbcf);
+            weightContent     = optionalDouble(req, "weightContent", current.weightContent);
+            weightPopularity  = optionalDouble(req, "weightPopularity", current.weightPopularity);
+            weightRecency     = optionalDouble(req, "weightRecency", current.weightRecency);
+            diversityDivisor  = optionalInt(req, "diversityDivisor", current.diversityDivisor);
         } catch (NumberFormatException e) {
             badRequest(resp, "trendingWindowDays and the interaction weights must be numbers."); return;
         }
@@ -195,10 +214,42 @@ public class AdminApiServlet extends ApiBase {
                 badRequest(resp, "Interaction weights must be between 0 and 100."); return;
             }
         }
+        // Zero is allowed and meaningful: it turns recency decay off.
+        if (recencyTauDays < 0 || recencyTauDays > 3650) {
+            badRequest(resp, "recencyTauDays must be between 0 and 3650."); return;
+        }
+        if (contentWindowDays < 1 || contentWindowDays > 3650) {
+            badRequest(resp, "contentWindowDays must be between 1 and 3650."); return;
+        }
+        // Zero is allowed per weight — that is how an admin demonstrates a signal being
+        // switched off — but all five at once leaves the ranking with nothing to sort by.
+        for (double weight : new double[]{weightCf, weightUbcf, weightContent,
+                                          weightPopularity, weightRecency}) {
+            if (weight < 0 || weight > 100) {
+                badRequest(resp, "Re-ranking weights must be between 0 and 100."); return;
+            }
+        }
+        if (diversityDivisor < 1 || diversityDivisor > 24) {
+            badRequest(resp, "diversityDivisor must be between 1 and 24."); return;
+        }
 
         try {
-            recommendationDAO.saveSettings(new com.auction.dao.RecommendationDAO.Settings(
-                    itemsShown, threshold, windowDays, weightBid, weightWatchlist, weightBrowse));
+            recommendationDAO.saveSettings(com.auction.dao.RecommendationDAO.Settings.builder()
+                    .itemsShown(itemsShown)
+                    .similarityThreshold(threshold)
+                    .trendingWindowDays(windowDays)
+                    .weightBid(weightBid)
+                    .weightWatchlist(weightWatchlist)
+                    .weightBrowse(weightBrowse)
+                    .recencyTauDays(recencyTauDays)
+                    .contentWindowDays(contentWindowDays)
+                    .weightCf(weightCf)
+                    .weightUbcf(weightUbcf)
+                    .weightContent(weightContent)
+                    .weightPopularity(weightPopularity)
+                    .weightRecency(weightRecency)
+                    .diversityDivisor(diversityDivisor)
+                    .build());
             okMsg(resp, "Recommendation settings saved.");
         } catch (Exception e) {
             serverError(resp, "Could not save settings. Run DB migrations and try again.");

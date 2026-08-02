@@ -85,4 +85,30 @@ describe('AuctionCard', () => {
     card(HOUR, { why: { reason: 'Similar to items you bid on', keywords: ['camera'], clickCount: 3 } });
     expect(screen.getByText('Similar to items you bid on')).toBeInTheDocument();
   });
+
+  it('shows the re-ranker score and the component behind it once expanded', async () => {
+    card(HOUR, {
+      why: {
+        reason: 'Buyers with similar taste are watching this',
+        score: 0.7143,
+        dominantComponent: 'UBCF',
+        keywords: [],
+        clickCount: 0,
+      },
+    });
+
+    // The panel is collapsed by default so the card does not become a wall of text.
+    expect(screen.queryByText(/Match score/)).not.toBeInTheDocument();
+    await act(async () => { screen.getByRole('button', { expanded: false }).click(); });
+
+    expect(screen.getByText('0.71')).toBeInTheDocument();
+    expect(screen.getByText(/mostly similar taste/)).toBeInTheDocument();
+  });
+
+  it('omits the score on a card the re-ranker never scored', async () => {
+    card(HOUR, { why: { reason: 'Trending — collecting the most bids this week', keywords: [] } });
+    await act(async () => { screen.getByRole('button', { expanded: false }).click(); });
+
+    expect(screen.queryByText(/Match score/)).not.toBeInTheDocument();
+  });
 });
