@@ -166,6 +166,12 @@ public class RecommendationDAO {
         final int stageOrder;
         final int stageIndex;
         final double[] raw = new double[Component.values().length];
+        /**
+         * Each generating stage's own explanation, kept so the card can be labelled with
+         * the signal that actually ranked it. Null for RECENCY, which no stage generates.
+         */
+        final RecommendationProvenance[] whyByComponent =
+                new RecommendationProvenance[Component.values().length];
 
         Candidate(SearchResultItem item, Component source, int stageOrder, int stageIndex) {
             this.item = item;
@@ -177,10 +183,14 @@ public class RecommendationDAO {
 
     /**
      * Folds one stage's output into the candidate set, recording its within-stage rank as
-     * that component's raw score. An auction already seen keeps the earlier stage's
-     * {@link RecommendationProvenance} — stage order is what the per-arm CTR breakdown is
-     * grouped by, so the label must stay the first, most specific explanation rather than
-     * being overwritten by whichever generator ran last.
+     * that component's raw score and keeping that stage's own explanation.
+     *
+     * <p>An auction several stages agree on arrives here several times. The first sighting
+     * owns the {@link SearchResultItem}, but every sighting's {@link RecommendationProvenance}
+     * is retained so {@link #labelWithStrongestArm} can pick the one matching the signal
+     * that actually ranked the card. Keeping only the first would make the arm a function
+     * of the order the generators happen to run in, which is exactly the property the
+     * re-ranking pass exists to remove.</p>
      */
     private static void collect(Map<Long, Candidate> byId, List<SearchResultItem> items,
                                 Component component, int stageOrder) {
@@ -191,7 +201,39 @@ public class RecommendationDAO {
             Candidate candidate = byId.computeIfAbsent(item.getAuctionId(),
                     id -> new Candidate(item, component, stageOrder, stageIndex));
             candidate.raw[component.ordinal()] = (double) (n - i) / n;
+            candidate.whyByComponent[component.ordinal()] = item.getWhy();
         }
+    }
+
+    /**
+     * Labels a card with the arm whose weighted contribution was largest, rather than with
+     * whichever generator produced it first.
+     *
+     * <p>Under the old sequential pipeline the two were the same thing: a card belonged to
+     * exactly one stage. Once stages became generators over a shared candidate space, the
+     * first-sighting label started describing generator order instead of evidence — a
+     * listing the content stage ranked top could be labelled SIMILAR_TASTE purely because
+     * user-based CF ran earlier, and the per-arm CTR breakdown would then be measuring
+     * stage order too.</p>
+     *
+     * <p>{@code RECENCY} is skipped: it is a component every candidate carries, not a
+     * stage, so it has no explanation of its own and no arm to attribute a click to. A
+     * card dominated by it keeps the label of whichever stage did produce it.</p>
+     */
+    private static void labelWithStrongestArm(Candidate candidate, double[] weights,
+                                              double[][] normalised, int index) {
+        RecommendationProvenance best = null;
+        double bestContribution = 0;
+        for (int k = 0; k < weights.length; k++) {
+            RecommendationProvenance why = candidate.whyByComponent[k];
+            if (why == null) continue;
+            double contribution = weights[k] * normalised[k][index];
+            if (contribution > bestContribution) {
+                bestContribution = contribution;
+                best = why;
+            }
+        }
+        if (best != null) candidate.item.setWhy(best);
     }
 
     private List<SearchResultItem> rerank(List<Candidate> candidates, int limit, Settings settings) {
@@ -234,6 +276,10 @@ public class RecommendationDAO {
                 }
             }
             scores[i] = scored ? total / weightPresent : 0.0;
+            // Swap the arm before the score is written, so the figure lands on the
+            // provenance the card is actually served with. With nothing scoring above zero
+            // no swap happens and the first generator's label stands.
+            if (scored) labelWithStrongestArm(candidate, weights, normalised, i);
             candidate.item.getWhy().setScore(round4(scores[i]));
             // With nothing scoring above zero, naming the stage that produced the card is
             // more honest than naming whichever component sorts first.

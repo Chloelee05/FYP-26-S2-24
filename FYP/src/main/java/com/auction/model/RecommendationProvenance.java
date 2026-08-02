@@ -29,10 +29,12 @@ public final class RecommendationProvenance {
     /**
      * The signals the hybrid re-ranker scores a candidate on.
      *
-     * <p>Distinct from {@link Reason}, which names the single stage that first produced the
-     * card and stays the label the CTR breakdown is grouped by. A card can carry several
-     * components at once — that is the point of re-ranking — so the dominant one is
-     * reported separately rather than overwriting the arm.</p>
+     * <p>Distinct from {@link Reason}, which names the arm a click is attributed to and is
+     * what the CTR breakdown groups on. The two usually agree, because the arm is chosen as
+     * whichever generating stage contributed most to the score. They diverge when the
+     * largest contribution comes from {@code RECENCY}, which every candidate carries but no
+     * stage generates, so it has no arm of its own; such a card keeps the label of the
+     * stage that did produce it while still reporting {@code RECENCY} here.</p>
      */
     public enum Component {
         /** Peer co-occurrence on bids and watchlist. */

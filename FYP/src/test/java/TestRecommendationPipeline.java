@@ -313,11 +313,40 @@ class TestRecommendationPipeline {
 
         assertEquals(1, idsOf(out).stream().filter(id -> id == 1L).count(),
                 "an auction found by several generators was listed more than once");
-        // The first generator to produce a card owns its label, because the per-arm CTR
-        // breakdown groups on it.
+        // Peer CF carries the heaviest weight and ranked this listing top, so it is the
+        // arm that wins the label here. See armFollowsTheStrongestSignalNotStageOrder for
+        // the case where a later generator is the one doing the work.
         assertEquals("PEER_BIDS", out.get(0).getWhy().getReasonCode());
         // Agreeing signals must outscore the single-signal candidates.
         assertEquals(1L, out.get(0).getAuctionId());
+    }
+
+    @Test
+    @DisplayName("the arm follows the strongest signal, not the generator that ran first")
+    void armFollowsTheStrongestSignalNotStageOrder() throws Exception {
+        Recorder rec = new Recorder();
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        // Peer CF runs first and does surface auction 7, but only in last place, so its
+        // raw score is 1/7. The content stage runs later and ranks it top.
+        stages.put(Q_PEER_CF, listingRows(1L, 2L, 3L, 4L, 5L, 6L, 7L));
+        stages.put(Q_CONTENT, listingRows(7L, 8L));
+
+        List<SearchResultItem> out;
+        Connection conn = pipeline(rec, stages);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            out = new RecommendationDAO().recommendForUser(5, 8);
+        }
+
+        SearchResultItem seven = out.stream().filter(i -> i.getAuctionId() == 7L)
+                .findFirst().orElseThrow(() -> new AssertionError("auction 7 was dropped"));
+        // w_content(0.7) x 1.0 beats w_cf(1.0) x 1/7, so the content stage is what actually
+        // ranked this card and is what a click on it should be attributed to. Labelling it
+        // PEER_BIDS would make the per-arm CTR breakdown a report on generator order.
+        assertEquals("SAME_CATEGORY", seven.getWhy().getReasonCode());
+        assertEquals("CONTENT", seven.getWhy().getDominantComponent());
+        // The label swap must not cost the card its score.
+        assertTrue(seven.getWhy().getScore() > 0, "the swapped provenance lost its score");
     }
 
     @Test
