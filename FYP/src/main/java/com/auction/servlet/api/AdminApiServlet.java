@@ -132,6 +132,7 @@ public class AdminApiServlet extends ApiBase {
             Map<String, Object> settings = new LinkedHashMap<>();
             settings.put("itemsShown", s.itemsShown);
             settings.put("similarityThreshold", s.similarityThreshold);
+            settings.put("trendingWindowDays", s.trendingWindowDays);
 
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("metrics", recommendationDAO.metrics());
@@ -142,9 +143,17 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
-    /** POST /api/admin/recommendations  itemsShown, similarityThreshold. */
+    /**
+     * POST /api/admin/recommendations  itemsShown, similarityThreshold,
+     * optional trendingWindowDays.
+     *
+     * <p>The optional parameter keeps an older client that only posts the first two
+     * fields working: an absent value leaves the stored setting untouched.</p>
+     */
     private void handleSaveRecommendationConfig(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
+        com.auction.dao.RecommendationDAO.Settings current = recommendationDAO.getSettings();
+
         int itemsShown;
         double threshold;
         try {
@@ -153,14 +162,29 @@ public class AdminApiServlet extends ApiBase {
         } catch (Exception e) {
             badRequest(resp, "itemsShown and similarityThreshold are required numbers."); return;
         }
+        int windowDays = current.trendingWindowDays;
+        String windowParam = param(req, "trendingWindowDays");
+        if (windowParam != null && !windowParam.isBlank()) {
+            try {
+                windowDays = Integer.parseInt(windowParam.trim());
+            } catch (NumberFormatException e) {
+                badRequest(resp, "trendingWindowDays must be a number."); return;
+            }
+        }
+
         if (itemsShown < 1 || itemsShown > 24) {
             badRequest(resp, "itemsShown must be between 1 and 24."); return;
         }
         if (threshold < 0 || threshold > 1) {
             badRequest(resp, "similarityThreshold must be between 0 and 1."); return;
         }
+        if (windowDays < 1 || windowDays > 365) {
+            badRequest(resp, "trendingWindowDays must be between 1 and 365."); return;
+        }
+
         try {
-            recommendationDAO.saveSettings(itemsShown, threshold);
+            recommendationDAO.saveSettings(new com.auction.dao.RecommendationDAO.Settings(
+                    itemsShown, threshold, windowDays));
             okMsg(resp, "Recommendation settings saved.");
         } catch (Exception e) {
             serverError(resp, "Could not save settings. Run DB migrations and try again.");

@@ -87,8 +87,8 @@ export const adminDeleteReview = (reviewId) =>
 
 // Recommendation system (performance metrics + tunable parameters)
 export const getRecommendationConfig = () => api.get('/admin/recommendations');
-export const saveRecommendationConfig = (itemsShown, similarityThreshold) =>
-  api.post('/admin/recommendations', form({ itemsShown, similarityThreshold }), F);
+export const saveRecommendationConfig = (settings) =>
+  api.post('/admin/recommendations', form(settings), F);
 
 // Recommendation provenance. This is the only surface that returns *which* user clicked
 // or searched — the public landing page gets aggregates and masked names only, so this

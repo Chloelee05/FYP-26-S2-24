@@ -100,6 +100,9 @@
 \echo '== auction card CTA labels (View Auction / View Result) =='
 \ir migration_landing_content_card_cta.sql
 
+\echo '== trending window setting + honest trending subtitle =='
+\ir migration_recommendation_trending_window.sql
+
 \echo '== Telegram notifications (links, one-time codes, outbox, preferences, copy) =='
 \ir migration_telegram_notifications.sql
 

@@ -31,7 +31,7 @@ export default function AdminAnalytics() {
   const [reportBusy, setReportBusy] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [recMetrics, setRecMetrics] = useState(null);
-  const [recForm, setRecForm] = useState({ itemsShown: 8, similarityThreshold: 0.1 });
+  const [recForm, setRecForm] = useState({ itemsShown: 8, similarityThreshold: 0.1, trendingWindowDays: 7 });
   const [recSaving, setRecSaving] = useState(false);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function AdminAnalytics() {
     getRecommendationConfig()
       .then(r => {
         setRecMetrics(r.data?.metrics ?? null);
-        if (r.data?.settings) setRecForm(r.data.settings);
+        if (r.data?.settings) setRecForm(f => ({ ...f, ...r.data.settings }));
       })
       .catch(() => {});
   }, []);
@@ -52,7 +52,7 @@ export default function AdminAnalytics() {
     setRecSaving(true);
     setMsg('');
     try {
-      const r = await saveRecommendationConfig(recForm.itemsShown, recForm.similarityThreshold);
+      const r = await saveRecommendationConfig(recForm);
       setMsg(r.data?.message ?? 'Recommendation settings saved.');
     } catch (err) {
       setMsg(apiErrorMessage(err, 'Could not save recommendation settings.'));
@@ -227,6 +227,15 @@ export default function AdminAnalytics() {
               value={recForm.similarityThreshold}
               onChange={e => setRecForm(f => ({ ...f, similarityThreshold: e.target.value }))}
               className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-40"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-ink-500 mb-1">Trending window, days (1–365)</label>
+            <input
+              type="number" min="1" max="365" step="1"
+              value={recForm.trendingWindowDays}
+              onChange={e => setRecForm(f => ({ ...f, trendingWindowDays: e.target.value }))}
+              className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-44"
             />
           </div>
           <button

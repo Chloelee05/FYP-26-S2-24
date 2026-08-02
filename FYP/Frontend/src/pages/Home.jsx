@@ -144,6 +144,9 @@ export default function Home() {
   const [featured, setFeatured] = useState([]);
   const [stats, setStats] = useState(null);
   const [content, setContent] = useState({});
+  // How many days of bids the server's trending ranking actually counted. The subtitle
+  // states this number, so it is read back from the API rather than assumed here.
+  const [trendingWindowDays, setTrendingWindowDays] = useState(null);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -153,7 +156,10 @@ export default function Home() {
     // Genuinely trending, ranked server-side. /api/search has no bid-count sort and
     // ignores unknown params, so it cannot produce this list.
     getTrendingAuctions(8)
-      .then(r => setAuctions(r.data.results ?? []))
+      .then(r => {
+        setAuctions(r.data.results ?? []);
+        setTrendingWindowDays(r.data.trendingWindowDays ?? null);
+      })
       // A failure here leaves the page empty, so say why rather than showing nothing.
       .catch(err => setLoadError(apiErrorMessage(err, 'Could not load auctions right now.')))
       .finally(() => setLoadingTrending(false));
@@ -187,6 +193,14 @@ export default function Home() {
 
   const c = (key, fallback) => content[key] ?? fallback;
   const [headlineTop, headlineRest] = splitHeadline(c('hero.headline', 'Bid smart, buy'));
+
+  // The trending subtitle names the ranking window. Until the API has answered, the
+  // sentence is held back entirely rather than shown with a guessed number in it.
+  const trendingSubtitle = (() => {
+    const copy = c('section.trending.subtitle', 'The listings collecting the most bids in the last {days} days.');
+    if (!copy.includes('{days}')) return copy;
+    return trendingWindowDays == null ? '' : copy.replace('{days}', trendingWindowDays);
+  })();
 
   return (
     <div className="min-h-screen">
@@ -504,7 +518,7 @@ export default function Home() {
           <SectionHeader
             icon={TrendingUp}
             title={c('section.trending.title', 'Trending Auctions')}
-            subtitle={c('section.trending.subtitle', 'The listings collecting the most bids today.')}
+            subtitle={trendingSubtitle}
             action={
               <Link to="/search" className="group hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-primary-600 hover:text-primary-700 transition-colors">
                 View all

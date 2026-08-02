@@ -40,6 +40,19 @@ import java.util.Set;
  */
 public class RecommendationDAO {
 
+    // -------------------------------------------------------------------------
+    // Admin-tunable parameter defaults (SCRUM-76)
+    //
+    // These are only the fallbacks used when recommendation_settings has no row for a
+    // key, or has not been migrated yet. The live values are read from the database by
+    // getSettings(), so nothing here is a behavioural constant an admin cannot override.
+    // -------------------------------------------------------------------------
+
+    public static final int DEFAULT_ITEMS_SHOWN = 8;
+    public static final double DEFAULT_SIMILARITY_THRESHOLD = 0.1;
+    /** How far back "trending" looks when counting bids. */
+    public static final int DEFAULT_TRENDING_WINDOW_DAYS = 7;
+
     /**
      * Returns up to {@code limit} active, open auctions recommended for {@code userId},
      * ranked by CF score, then content similarity, topped up with trending auctions.
@@ -227,6 +240,17 @@ public class RecommendationDAO {
     }
 
     /**
+     * A bid only converts a click when it was placed <em>after</em> that click. Without the
+     * ordering the metric also counted people who had already bid on the listing before the
+     * recommendation ever appeared, which credits the recommender for bids it did not cause.
+     *
+     * <p>{@code bids.bid_time} is a naive timestamp written from {@code CURRENT_TIMESTAMP},
+     * so it is pinned to UTC here rather than left to the session's TimeZone.</p>
+     */
+    private static final String CLICK_PRECEDES_BID =
+            "AND b.bid_time AT TIME ZONE 'UTC' > e.created_at ";
+
+    /**
      * Recommendation performance metrics: impressions, clicks, CTR, and conversion
      * rate (share of clicked recommendations the user subsequently bid on).
      */
@@ -238,7 +262,8 @@ public class RecommendationDAO {
         String convSql =
             "SELECT COUNT(DISTINCT (e.user_id, e.auction_id)) FROM recommendation_events e "
           + "WHERE e.event_type = 'CLICK' AND e.user_id IS NOT NULL "
-          + "AND EXISTS (SELECT 1 FROM bids b WHERE b.user_id = e.user_id AND b.auction_id = e.auction_id)";
+          + "AND EXISTS (SELECT 1 FROM bids b WHERE b.user_id = e.user_id AND b.auction_id = e.auction_id "
+          + CLICK_PRECEDES_BID + ")";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(convSql);
              ResultSet rs = ps.executeQuery()) {
@@ -277,7 +302,19 @@ public class RecommendationDAO {
 
     static final String REASON_PEER_BIDS     = "Buyers who bid on your items also bid on this";
     static final String REASON_SIMILAR_TASTE = "Buyers with similar taste are watching this";
-    static final String REASON_TRENDING      = "Trending — collecting the most bids today";
+
+    /**
+     * Trending wording that states the window actually used by the query, so the card can
+     * never promise "today" while the SQL counts a week. Callers that have no window to
+     * hand fall back to {@link #REASON_TRENDING}, worded for the default.
+     */
+    static String trendingReason(int windowDays) {
+        if (windowDays <= 1) return "Trending — collecting the most bids today";
+        if (windowDays == 7) return "Trending — collecting the most bids this week";
+        return "Trending — collecting the most bids in the last " + windowDays + " days";
+    }
+
+    static final String REASON_TRENDING = trendingReason(DEFAULT_TRENDING_WINDOW_DAYS);
 
     /** Stages that consume a signal belonging to the viewer; trending filler does not. */
     private static final Set<Reason> PERSONALISED_REASONS = EnumSet.of(
@@ -611,27 +648,36 @@ public class RecommendationDAO {
     }
 
     // -------------------------------------------------------------------------
-    // Tunable parameters (SCRUM-76)
+    // Tunable parameters (SCRUM-76) — defaults live at the top of the class
     // -------------------------------------------------------------------------
-
-    public static final int DEFAULT_ITEMS_SHOWN = 8;
-    public static final double DEFAULT_SIMILARITY_THRESHOLD = 0.1;
 
     /** Immutable snapshot of the admin-tunable recommendation parameters. */
     public static final class Settings {
         public final int itemsShown;
         public final double similarityThreshold;
+        public final int trendingWindowDays;
 
+        /** Keeps the pre-window call sites and tests working on the default window. */
         public Settings(int itemsShown, double similarityThreshold) {
+            this(itemsShown, similarityThreshold, DEFAULT_TRENDING_WINDOW_DAYS);
+        }
+
+        public Settings(int itemsShown, double similarityThreshold, int trendingWindowDays) {
             this.itemsShown = itemsShown;
             this.similarityThreshold = similarityThreshold;
+            this.trendingWindowDays = trendingWindowDays;
         }
     }
+
+    static int clampItemsShown(int v)       { return Math.max(1, Math.min(24, v)); }
+    static double clampThreshold(double v)  { return Math.max(0.0, Math.min(1.0, v)); }
+    static int clampWindowDays(int v)       { return Math.max(1, Math.min(365, v)); }
 
     /** Loads settings, falling back to defaults when unset or the table is missing. */
     public Settings getSettings() {
         int items = DEFAULT_ITEMS_SHOWN;
         double threshold = DEFAULT_SIMILARITY_THRESHOLD;
+        int windowDays = DEFAULT_TRENDING_WINDOW_DAYS;
         String sql = "SELECT key, value FROM recommendation_settings";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -642,30 +688,33 @@ public class RecommendationDAO {
                 try {
                     if ("items_shown".equals(key)) items = Integer.parseInt(value);
                     else if ("similarity_threshold".equals(key)) threshold = Double.parseDouble(value);
+                    else if ("trending_window_days".equals(key)) windowDays = Integer.parseInt(value);
                 } catch (NumberFormatException ignored) { }
             }
         } catch (Exception ignored) { }
-        return new Settings(Math.max(1, Math.min(24, items)),
-                Math.max(0.0, Math.min(1.0, threshold)));
+        return new Settings(clampItemsShown(items), clampThreshold(threshold), clampWindowDays(windowDays));
     }
 
     /** Persists the admin-tunable settings (upsert). */
-    public boolean saveSettings(int itemsShown, double similarityThreshold) {
+    public boolean saveSettings(Settings settings) {
         String sql = "INSERT INTO recommendation_settings (key, value, updated_at) VALUES (?, ?, NOW()) "
                 + "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, "items_shown");
-            ps.setString(2, String.valueOf(Math.max(1, Math.min(24, itemsShown))));
-            ps.addBatch();
-            ps.setString(1, "similarity_threshold");
-            ps.setString(2, String.valueOf(Math.max(0.0, Math.min(1.0, similarityThreshold))));
-            ps.addBatch();
+            addSetting(ps, "items_shown", String.valueOf(clampItemsShown(settings.itemsShown)));
+            addSetting(ps, "similarity_threshold", String.valueOf(clampThreshold(settings.similarityThreshold)));
+            addSetting(ps, "trending_window_days", String.valueOf(clampWindowDays(settings.trendingWindowDays)));
             ps.executeBatch();
             return true;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static void addSetting(PreparedStatement ps, String key, String value) throws Exception {
+        ps.setString(1, key);
+        ps.setString(2, value);
+        ps.addBatch();
     }
 
     /**
@@ -782,11 +831,14 @@ public class RecommendationDAO {
           + "  UNION SELECT DISTINCT user_id FROM watchlist "
           + "    WHERE auction_id IN (SELECT auction_id FROM my_items) AND user_id <> ? "
           + "), cand AS ( "
+          // One peer bidding twenty times is one endorsement, not twenty: counting rows
+          // let a single determined bidder outrank a listing several peers agreed on.
+          // Matches the scoring already used by similarByBidders().
           + "  SELECT auction_id, SUM(score) AS score FROM ( "
-          + "     SELECT auction_id, COUNT(*) AS score FROM bids "
+          + "     SELECT auction_id, COUNT(DISTINCT user_id) AS score FROM bids "
           + "       WHERE user_id IN (SELECT user_id FROM peers) GROUP BY auction_id "
           + "     UNION ALL "
-          + "     SELECT auction_id, COUNT(*) AS score FROM watchlist "
+          + "     SELECT auction_id, COUNT(DISTINCT user_id) AS score FROM watchlist "
           + "       WHERE user_id IN (SELECT user_id FROM peers) GROUP BY auction_id "
           + "  ) s GROUP BY auction_id "
           + ") "
@@ -904,11 +956,29 @@ public class RecommendationDAO {
     }
 
     /**
-     * Trending active auctions ordered by bid count then soonest-ending. Used for
+     * Trending active auctions ordered by recent bid count, then soonest-ending. Used for
      * cold-start users and to top up sparse CF results.
+     *
+     * <p>{@code bid_count} is restricted to the admin-tunable
+     * {@code trending_window_days} window. Counting bids over all time made a long-running
+     * listing permanently "trending" and contradicted the wording on the card.</p>
+     *
+     * <p>When {@code viewerId} is given the viewer's own listings are dropped, and so are
+     * auctions they already bid on or watch: as the pipeline's final filler this stage would
+     * otherwise recommend people the items they are already bidding on. The public
+     * {@code /trending} strip passes {@code null} and stays a genuine marketplace-wide list.</p>
      */
-    public List<SearchResultItem> trending(int limit, Set<Long> excludeIds, Integer excludeSellerId) {
-        StringBuilder sql = new StringBuilder(
+    public List<SearchResultItem> trending(int limit, Set<Long> excludeIds, Integer viewerId) {
+        int windowDays = getSettings().trendingWindowDays;
+
+        StringBuilder sql = new StringBuilder();
+        if (viewerId != null) {
+            sql.append("WITH my_items AS ( ")
+               .append("  SELECT auction_id FROM bids WHERE user_id = ? ")
+               .append("  UNION SELECT auction_id FROM watchlist WHERE user_id = ? ")
+               .append(") ");
+        }
+        sql.append(
             "SELECT a.auction_id, d.title, d.category, a.auction_type, "
           // Blind auctions resolve to the entry price: recommended listings are
           // all still open, so their leading sealed bid must not reach the client.
@@ -916,7 +986,8 @@ public class RecommendationDAO {
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
-          + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id) AS bid_count "
+          + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id "
+          + "     AND b.bid_time AT TIME ZONE 'UTC' > now() - (?::int * interval '1 day')) AS bid_count "
           + "FROM auction a "
           + "JOIN auction_details d ON d.id = a.auction_id "
           + "JOIN users u ON u.id = a.seller_id "
@@ -928,17 +999,25 @@ public class RecommendationDAO {
             for (int i = 0; i < excl.size(); i++) sql.append(i == 0 ? "?" : ",?");
             sql.append(") ");
         }
-        if (excludeSellerId != null) sql.append("AND a.seller_id <> ? ");
+        if (viewerId != null) {
+            sql.append("AND a.auction_id NOT IN (SELECT auction_id FROM my_items) ");
+            sql.append("AND a.seller_id <> ? ");
+        }
         sql.append("ORDER BY bid_count DESC, a.date_end ASC LIMIT ?");
 
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int idx = 1;
+            if (viewerId != null) {
+                ps.setInt(idx++, viewerId);
+                ps.setInt(idx++, viewerId);
+            }
+            ps.setInt(idx++, windowDays);
             for (Long id : excl) ps.setLong(idx++, id);
-            if (excludeSellerId != null) ps.setInt(idx++, excludeSellerId);
+            if (viewerId != null) ps.setInt(idx++, viewerId);
             ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
-                return tag(mapRows(rs), Reason.TRENDING, REASON_TRENDING);
+                return tag(mapRows(rs), Reason.TRENDING, trendingReason(windowDays));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);

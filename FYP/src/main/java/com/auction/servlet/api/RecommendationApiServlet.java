@@ -59,7 +59,8 @@ public class RecommendationApiServlet extends ApiBase {
             return;
         }
 
-        int limit = resolveLimit(req);
+        RecommendationDAO.Settings settings = recommendationDAO.getSettings();
+        int limit = resolveLimit(req, settings.itemsShown);
 
         // /trending is never personalised, even for a signed-in user — the home page
         // needs a genuine "what's hot right now" list alongside personalised picks.
@@ -91,12 +92,15 @@ public class RecommendationApiServlet extends ApiBase {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("results", results);
         body.put("personalised", RecommendationDAO.isPersonalised(results));
+        // The landing strip prints the window in its subtitle, so it has to come from the
+        // same setting the ranking query used rather than a number hardcoded in React.
+        body.put("trendingWindowDays", settings.trendingWindowDays);
         ok(resp, body);
     }
 
     /** Caller-supplied {@code limit}, clamped to {@link #MAX_LIMIT}; admin setting by default. */
-    private int resolveLimit(HttpServletRequest req) {
-        int limit = recommendationDAO.getSettings().itemsShown;
+    private int resolveLimit(HttpServletRequest req, int configuredLimit) {
+        int limit = configuredLimit;
         String limitStr = param(req, "limit");
         if (limitStr != null) {
             try { limit = Math.max(1, Math.min(MAX_LIMIT, Integer.parseInt(limitStr))); }
