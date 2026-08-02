@@ -20,6 +20,10 @@ import { decodeHtmlEntities } from '../utils/helpers';
 
 const HERO_TILES = [Watch, Headphones, Car, Smartphone, HomeIcon, Camera];
 
+// Arm label for the plain popularity strip at the bottom of the page. Mirrors
+// RecommendationDAO.REASON_TRENDING_CONTROL, which validates it server side.
+const TRENDING_CONTROL_ARM = 'TRENDING_CONTROL';
+
 // Copy lives in the landing_content table (admin-editable). The strings kept here are the
 // fallbacks used when /api/landing-content returns nothing, so the page never renders blank.
 const TRUST_POINTS = [
@@ -178,13 +182,26 @@ export default function Home() {
         const results = r.data.results ?? [];
         setRecommended(results);
         setPersonalised(Boolean(r.data.personalised));
-        // Impression tracking for recommendation performance metrics.
+        // Impression tracking, labelled with the arm that produced each card so the admin
+        // dashboard can report click-through per stage instead of one pooled figure.
         if (results.length > 0) {
-          recordRecommendationImpressions(results.map(a => a.auctionId)).catch(() => {});
+          recordRecommendationImpressions(
+            results.map(a => ({ auctionId: a.auctionId, reasonCode: a.why?.reasonCode }))
+          ).catch(() => {});
         }
       })
       .catch(() => { setRecommended([]); setPersonalised(false); });
   }, [user]);
+
+  // The lower "Trending Auctions" strip is not produced by the recommender at all. Recording
+  // it under its own arm gives the personalised strip a popularity baseline to be read
+  // against. It is not a randomised experiment — see TRENDING_CONTROL in RecommendationDAO.
+  useEffect(() => {
+    if (auctions.length === 0) return;
+    recordRecommendationImpressions(
+      auctions.map(a => ({ auctionId: a.auctionId ?? a.id, reasonCode: TRENDING_CONTROL_ARM }))
+    ).catch(() => {});
+  }, [auctions]);
 
   const handleDismiss = async (auctionId) => {
     setRecommended(prev => prev.filter(a => a.auctionId !== auctionId));
@@ -491,7 +508,8 @@ export default function Home() {
                   onClickCapture={e => {
                     // Dismissing, or opening "why this?", is not a click-through.
                     if (e.target.closest('[data-dismiss]') || e.target.closest('[data-why]')) return;
-                    recordRecommendationClick(a.auctionId, a.why?.keywords?.[0]).catch(() => {});
+                    recordRecommendationClick(a.auctionId, a.why?.keywords?.[0], a.why?.reasonCode)
+                      .catch(() => {});
                   }}
                 >
                   {user && (
@@ -562,7 +580,19 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5">
-              {auctions.map(a => <AuctionCard key={a.auctionId ?? a.id} auction={a} />)}
+              {auctions.map(a => (
+                <div
+                  key={a.auctionId ?? a.id}
+                  // Clicks on the popularity strip are recorded under their own arm so its
+                  // click-through can be compared with the personalised strip above.
+                  onClickCapture={() => {
+                    recordRecommendationClick(a.auctionId ?? a.id, undefined, TRENDING_CONTROL_ARM)
+                      .catch(() => {});
+                  }}
+                >
+                  <AuctionCard auction={a} />
+                </div>
+              ))}
             </div>
           )}
         </Reveal>

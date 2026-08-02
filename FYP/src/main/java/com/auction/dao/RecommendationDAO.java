@@ -190,32 +190,86 @@ public class RecommendationDAO {
     // Impression / click events + performance metrics (SCRUM-75)
     // -------------------------------------------------------------------------
 
+    /**
+     * The landing page's lower "Trending Auctions" strip. It is not produced by the
+     * recommendation pipeline at all, so it has no {@link Reason} of its own, but labelling
+     * it gives the personalised arms a non-personalised popularity baseline to be read
+     * against.
+     *
+     * <p>This is <b>not</b> a randomised experiment. Nobody is assigned to an arm: the two
+     * strips sit at different heights on the same page, so the higher one enjoys a position
+     * advantage that no amount of data will cancel out. Read it as a same-page comparison
+     * against a popularity baseline, and nothing stronger.</p>
+     */
+    public static final String REASON_TRENDING_CONTROL = "TRENDING_CONTROL";
+
     /** Records an IMPRESSION or CLICK for recommendation analytics. Best-effort. */
     public void recordEvent(Integer userId, long auctionId, String eventType) {
-        recordEvent(userId, auctionId, eventType, null);
+        recordEvent(userId, auctionId, eventType, null, null);
+    }
+
+    /** Records an IMPRESSION or CLICK attributed to a search keyword but to no arm. */
+    public void recordEvent(Integer userId, long auctionId, String eventType, String sourceKeyword) {
+        recordEvent(userId, auctionId, eventType, sourceKeyword, null);
     }
 
     /**
      * Records an IMPRESSION or CLICK, optionally attributed to the search keyword that
-     * surfaced the card. Best-effort: falls back to a keyword-less insert when the
-     * explainability migration has not been applied yet.
+     * surfaced the card and to the pipeline arm that produced it.
+     *
+     * <p>Both optional columns arrived in later migrations, and naming a column the
+     * database does not have yet fails the whole insert. Rather than lose the event, the
+     * write is retried with progressively fewer columns until one succeeds.</p>
      */
-    public void recordEvent(Integer userId, long auctionId, String eventType, String sourceKeyword) {
+    public void recordEvent(Integer userId, long auctionId, String eventType,
+                            String sourceKeyword, String reasonCode) {
         String keyword = normaliseKeyword(sourceKeyword);
-        if (keyword != null && insertEvent(userId, auctionId, eventType, keyword)) return;
-        insertEvent(userId, auctionId, eventType, null);
+        String reason = normaliseReasonCode(reasonCode);
+
+        if (keyword != null && reason != null) {
+            if (insertEvent(userId, auctionId, eventType, keyword, reason)) return;
+            if (insertEvent(userId, auctionId, eventType, keyword, null)) return;
+            if (insertEvent(userId, auctionId, eventType, null, reason)) return;
+        } else if (keyword != null) {
+            if (insertEvent(userId, auctionId, eventType, keyword, null)) return;
+        } else if (reason != null) {
+            if (insertEvent(userId, auctionId, eventType, null, reason)) return;
+        }
+        insertEvent(userId, auctionId, eventType, null, null);
     }
 
-    private boolean insertEvent(Integer userId, long auctionId, String eventType, String keyword) {
-        String sql = keyword == null
-                ? "INSERT INTO recommendation_events (user_id, auction_id, event_type) VALUES (?, ?, ?)"
-                : "INSERT INTO recommendation_events (user_id, auction_id, event_type, source_keyword) VALUES (?, ?, ?, ?)";
+    /**
+     * Arm labels arrive from the browser, so only names the pipeline can actually produce
+     * are stored. An unrecognised label is dropped rather than written, which keeps the
+     * per-arm CTR table free of rows a client invented.
+     */
+    private static String normaliseReasonCode(String raw) {
+        if (raw == null) return null;
+        String cleaned = raw.trim().toUpperCase(Locale.ROOT);
+        if (cleaned.isEmpty()) return null;
+        if (REASON_TRENDING_CONTROL.equals(cleaned)) return cleaned;
+        for (Reason known : Reason.values()) {
+            if (known.name().equals(cleaned)) return cleaned;
+        }
+        return null;
+    }
+
+    private boolean insertEvent(Integer userId, long auctionId, String eventType,
+                                String keyword, String reasonCode) {
+        StringBuilder cols = new StringBuilder("user_id, auction_id, event_type");
+        StringBuilder vals = new StringBuilder("?, ?, ?");
+        if (keyword != null)    { cols.append(", source_keyword"); vals.append(", ?"); }
+        if (reasonCode != null) { cols.append(", reason_code");    vals.append(", ?"); }
+
+        String sql = "INSERT INTO recommendation_events (" + cols + ") VALUES (" + vals + ")";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             if (userId != null) ps.setInt(1, userId); else ps.setNull(1, java.sql.Types.BIGINT);
             ps.setLong(2, auctionId);
             ps.setString(3, eventType);
-            if (keyword != null) ps.setString(4, keyword);
+            int idx = 4;
+            if (keyword != null)    ps.setString(idx++, keyword);
+            if (reasonCode != null) ps.setString(idx, reasonCode);
             ps.executeUpdate();
             return true;
         } catch (Exception ignored) {
@@ -276,6 +330,57 @@ public class RecommendationDAO {
         out.put("conversions", conversions);
         out.put("clickThroughRate", impressions > 0 ? round4((double) clicks / impressions) : 0.0);
         out.put("conversionRate", clicks > 0 ? round4((double) conversions / clicks) : 0.0);
+        return out;
+    }
+
+    /**
+     * The same impression / click / conversion figures as {@link #metrics()}, broken down by
+     * the arm that produced the card, so collaborative filtering can be read against the
+     * content-based stage and against the {@link #REASON_TRENDING_CONTROL} popularity strip.
+     *
+     * <p>Rows recorded before arm labelling existed carry no {@code reason_code} and are
+     * left out rather than lumped into whichever arm happens to be first — an unlabelled
+     * backlog would otherwise silently dominate every comparison.</p>
+     *
+     * <p>Returns an empty list on an unmigrated database, like every other analytics read
+     * here, so the admin page still renders.</p>
+     */
+    public List<Map<String, Object>> metricsByReason() {
+        String sql =
+            "SELECT e.reason_code, "
+          + "  COUNT(*) FILTER (WHERE e.event_type = 'IMPRESSION') AS impressions, "
+          + "  COUNT(*) FILTER (WHERE e.event_type = 'CLICK') AS clicks, "
+          + "  COUNT(DISTINCT (e.user_id, e.auction_id)) FILTER ( "
+          + "    WHERE e.event_type = 'CLICK' AND e.user_id IS NOT NULL "
+          + "      AND EXISTS (SELECT 1 FROM bids b "
+          + "                   WHERE b.user_id = e.user_id AND b.auction_id = e.auction_id "
+          + "                     " + CLICK_PRECEDES_BID + ")) AS conversions "
+          + "FROM recommendation_events e "
+          + "WHERE e.reason_code IS NOT NULL "
+          + "GROUP BY e.reason_code "
+          + "ORDER BY impressions DESC, e.reason_code";
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                long impressions = rs.getLong("impressions");
+                long clicks = rs.getLong("clicks");
+                long conversions = rs.getLong("conversions");
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("reasonCode", rs.getString("reason_code"));
+                row.put("impressions", impressions);
+                row.put("clicks", clicks);
+                row.put("conversions", conversions);
+                row.put("clickThroughRate", impressions > 0 ? round4((double) clicks / impressions) : 0.0);
+                row.put("conversionRate", clicks > 0 ? round4((double) conversions / clicks) : 0.0);
+                out.add(row);
+            }
+        } catch (Exception ignored) {
+            // analytics only — an un-migrated database reports nothing rather than failing
+        }
         return out;
     }
 
@@ -656,28 +761,80 @@ public class RecommendationDAO {
         public final int itemsShown;
         public final double similarityThreshold;
         public final int trendingWindowDays;
+        /** Interaction weights fed into the user-based CF vectors. */
+        public final double weightBid;
+        public final double weightWatchlist;
+        public final double weightBrowse;
 
-        /** Keeps the pre-window call sites and tests working on the default window. */
+        /** Keeps the pre-window call sites and tests working on the defaults. */
         public Settings(int itemsShown, double similarityThreshold) {
             this(itemsShown, similarityThreshold, DEFAULT_TRENDING_WINDOW_DAYS);
         }
 
         public Settings(int itemsShown, double similarityThreshold, int trendingWindowDays) {
+            this(itemsShown, similarityThreshold, trendingWindowDays,
+                    UserBasedCollaborativeFilter.weightBid(),
+                    UserBasedCollaborativeFilter.weightWatchlist(),
+                    UserBasedCollaborativeFilter.weightBrowse());
+        }
+
+        public Settings(int itemsShown, double similarityThreshold, int trendingWindowDays,
+                        double weightBid, double weightWatchlist, double weightBrowse) {
             this.itemsShown = itemsShown;
             this.similarityThreshold = similarityThreshold;
             this.trendingWindowDays = trendingWindowDays;
+            this.weightBid = weightBid;
+            this.weightWatchlist = weightWatchlist;
+            this.weightBrowse = weightBrowse;
         }
     }
 
     static int clampItemsShown(int v)       { return Math.max(1, Math.min(24, v)); }
     static double clampThreshold(double v)  { return Math.max(0.0, Math.min(1.0, v)); }
     static int clampWindowDays(int v)       { return Math.max(1, Math.min(365, v)); }
+    /** A negative weight would turn an interaction into evidence of dislike. */
+    static double clampWeight(double v)     { return Math.max(0.0, Math.min(100.0, v)); }
+
+    // -------------------------------------------------------------------------
+    // Settings cache
+    //
+    // getSettings() is read at least twice per recommendation request — once to resolve
+    // the page size and again inside the ranking stages — and the values change only when
+    // an admin saves the form. A short TTL keeps the extra round trips off the hot path
+    // while staying well inside "the demo shows the change immediately"; saveSettings()
+    // invalidates it outright so a save is visible on the very next request.
+    // -------------------------------------------------------------------------
+
+    private static final long SETTINGS_TTL_MILLIS = 30_000;
+    private static volatile Settings cachedSettings;
+    private static volatile long cachedSettingsAt;
+
+    /** Drops the cached snapshot so the next read goes back to the database. */
+    public static void invalidateSettingsCache() {
+        cachedSettings = null;
+        cachedSettingsAt = 0L;
+    }
 
     /** Loads settings, falling back to defaults when unset or the table is missing. */
     public Settings getSettings() {
+        Settings cached = cachedSettings;
+        if (cached != null && System.currentTimeMillis() - cachedSettingsAt < SETTINGS_TTL_MILLIS) {
+            return cached;
+        }
+        Settings loaded = loadSettings();
+        cachedSettings = loaded;
+        cachedSettingsAt = System.currentTimeMillis();
+        return loaded;
+    }
+
+    private Settings loadSettings() {
         int items = DEFAULT_ITEMS_SHOWN;
         double threshold = DEFAULT_SIMILARITY_THRESHOLD;
         int windowDays = DEFAULT_TRENDING_WINDOW_DAYS;
+        double wBid = UserBasedCollaborativeFilter.weightBid();
+        double wWatchlist = UserBasedCollaborativeFilter.weightWatchlist();
+        double wBrowse = UserBasedCollaborativeFilter.weightBrowse();
+
         String sql = "SELECT key, value FROM recommendation_settings";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -689,13 +846,18 @@ public class RecommendationDAO {
                     if ("items_shown".equals(key)) items = Integer.parseInt(value);
                     else if ("similarity_threshold".equals(key)) threshold = Double.parseDouble(value);
                     else if ("trending_window_days".equals(key)) windowDays = Integer.parseInt(value);
+                    else if ("w_bid".equals(key)) wBid = Double.parseDouble(value);
+                    else if ("w_watchlist".equals(key)) wWatchlist = Double.parseDouble(value);
+                    else if ("w_browse".equals(key)) wBrowse = Double.parseDouble(value);
                 } catch (NumberFormatException ignored) { }
             }
         } catch (Exception ignored) { }
-        return new Settings(clampItemsShown(items), clampThreshold(threshold), clampWindowDays(windowDays));
+
+        return new Settings(clampItemsShown(items), clampThreshold(threshold), clampWindowDays(windowDays),
+                clampWeight(wBid), clampWeight(wWatchlist), clampWeight(wBrowse));
     }
 
-    /** Persists the admin-tunable settings (upsert). */
+    /** Persists the admin-tunable settings (upsert) and drops the cached snapshot. */
     public boolean saveSettings(Settings settings) {
         String sql = "INSERT INTO recommendation_settings (key, value, updated_at) VALUES (?, ?, NOW()) "
                 + "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()";
@@ -704,10 +866,17 @@ public class RecommendationDAO {
             addSetting(ps, "items_shown", String.valueOf(clampItemsShown(settings.itemsShown)));
             addSetting(ps, "similarity_threshold", String.valueOf(clampThreshold(settings.similarityThreshold)));
             addSetting(ps, "trending_window_days", String.valueOf(clampWindowDays(settings.trendingWindowDays)));
+            addSetting(ps, "w_bid", String.valueOf(clampWeight(settings.weightBid)));
+            addSetting(ps, "w_watchlist", String.valueOf(clampWeight(settings.weightWatchlist)));
+            addSetting(ps, "w_browse", String.valueOf(clampWeight(settings.weightBrowse)));
             ps.executeBatch();
             return true;
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally {
+            // Even a failed batch may have written some keys, so never leave a stale
+            // snapshot behind for the next request to serve.
+            invalidateSettingsCache();
         }
     }
 
@@ -723,14 +892,21 @@ public class RecommendationDAO {
     private List<SearchResultItem> userBasedCosineRecommendations(int userId, int limit, Set<Long> exclude) {
         if (limit <= 0) return List.of();
 
-        Map<Integer, Map<Long, Double>> vectors = loadInteractionVectors();
+        Settings settings = getSettings();
+        Map<Integer, Map<Long, Double>> vectors = loadInteractionVectors(settings);
         List<Long> rankedIds = UserBasedCollaborativeFilter.rankAuctionIds(
-                userId, vectors, limit, exclude, getSettings().similarityThreshold);
+                userId, vectors, limit, exclude, settings.similarityThreshold);
         if (rankedIds.isEmpty()) return List.of();
         return fetchItemsByIds(rankedIds, userId, limit);
     }
 
-    private Map<Integer, Map<Long, Double>> loadInteractionVectors() {
+    /**
+     * Builds the per-user interaction vectors. The weights come from
+     * {@code recommendation_settings}, so an admin can decide how much more a bid says
+     * about someone's taste than a page view without a redeploy; the constants in
+     * {@link UserBasedCollaborativeFilter} are only the seeded defaults.
+     */
+    private Map<Integer, Map<Long, Double>> loadInteractionVectors(Settings settings) {
         Map<Integer, Map<Long, Double>> vectors = new HashMap<>();
         String sql =
             "SELECT user_id, auction_id, 'BID' AS src FROM bids "
@@ -745,11 +921,11 @@ public class RecommendationDAO {
                 double w;
                 String src = rs.getString("src");
                 if ("BID".equals(src)) {
-                    w = UserBasedCollaborativeFilter.weightBid();
+                    w = settings.weightBid;
                 } else if ("WATCH".equals(src)) {
-                    w = UserBasedCollaborativeFilter.weightWatchlist();
+                    w = settings.weightWatchlist;
                 } else {
-                    w = UserBasedCollaborativeFilter.weightBrowse();
+                    w = settings.weightBrowse;
                 }
                 UserBasedCollaborativeFilter.addInteraction(vectors, uid, aid, w);
             }

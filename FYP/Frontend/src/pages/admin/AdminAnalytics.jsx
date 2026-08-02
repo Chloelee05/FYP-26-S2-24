@@ -8,6 +8,21 @@ import {
 import { apiErrorMessage } from '../../utils/apiError';
 import RecommendationAttributionPanel from './RecommendationAttributionPanel';
 
+// Readable names for the pipeline arms recorded on each impression / click.
+// TRENDING_CONTROL is the plain popularity strip at the bottom of the landing page, which
+// the recommender plays no part in — it is the baseline the personalised arms are read
+// against, not an experiment arm anyone is randomised into.
+const ARM_LABELS = {
+  PEER_BIDS: 'Peer bids (item CF)',
+  SIMILAR_TASTE: 'Similar taste (user CF)',
+  SAME_CATEGORY: 'Content match',
+  SEARCH_KEYWORD: 'Search keyword',
+  TRENDING: 'Trending filler',
+  TRENDING_CONTROL: 'Popularity baseline',
+};
+
+const percent = (v) => `${((v ?? 0) * 100).toFixed(2)}%`;
+
 const REPORTS = [
   { icon: FileText, label: 'User Activity Report', sub: 'Export user statistics', color: 'text-primary-600', bg: 'bg-primary-50', type: 'user-activity', filename: 'user-activity-report.txt' },
   { icon: TrendingUp, label: 'Revenue Report', sub: 'Financial analytics', color: 'text-emerald-600', bg: 'bg-emerald-50', type: 'revenue', filename: 'revenue-report.txt' },
@@ -31,7 +46,11 @@ export default function AdminAnalytics() {
   const [reportBusy, setReportBusy] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [recMetrics, setRecMetrics] = useState(null);
-  const [recForm, setRecForm] = useState({ itemsShown: 8, similarityThreshold: 0.1, trendingWindowDays: 7 });
+  const [recByReason, setRecByReason] = useState([]);
+  const [recForm, setRecForm] = useState({
+    itemsShown: 8, similarityThreshold: 0.1, trendingWindowDays: 7,
+    weightBid: 3, weightWatchlist: 2, weightBrowse: 1,
+  });
   const [recSaving, setRecSaving] = useState(false);
 
   useEffect(() => {
@@ -43,6 +62,7 @@ export default function AdminAnalytics() {
     getRecommendationConfig()
       .then(r => {
         setRecMetrics(r.data?.metrics ?? null);
+        setRecByReason(r.data?.metricsByReason ?? []);
         if (r.data?.settings) setRecForm(f => ({ ...f, ...r.data.settings }));
       })
       .catch(() => {});
@@ -200,8 +220,8 @@ export default function AdminAnalytics() {
             { label: 'Impressions', value: recMetrics?.impressions ?? '—' },
             { label: 'Clicks', value: recMetrics?.clicks ?? '—' },
             { label: 'Bids After Click', value: recMetrics?.conversions ?? '—' },
-            { label: 'Click-Through Rate', value: recMetrics ? `${(recMetrics.clickThroughRate * 100).toFixed(2)}%` : '—' },
-            { label: 'Conversion Rate', value: recMetrics ? `${(recMetrics.conversionRate * 100).toFixed(2)}%` : '—' },
+            { label: 'Click-Through Rate', value: recMetrics ? percent(recMetrics.clickThroughRate) : '—' },
+            { label: 'Conversion Rate', value: recMetrics ? percent(recMetrics.conversionRate) : '—' },
           ].map(m => (
             <div key={m.label} className="bg-ink-50 rounded-xl p-4">
               <p className="text-xs text-ink-500 font-medium mb-1">{m.label}</p>
@@ -209,6 +229,50 @@ export default function AdminAnalytics() {
             </div>
           ))}
         </div>
+
+        {recByReason.length > 0 && (
+          <div className="mb-5">
+            <h3 className="font-semibold text-sm text-ink-900 mb-1">Click-through by arm</h3>
+            <p className="text-xs text-ink-400 mb-3 max-w-3xl leading-relaxed">
+              Personalised arms against the popularity baseline, compared on the same page.
+              This is not a randomised A/B test: nobody is assigned to an arm, and the two
+              strips sit at different heights on the landing page, so the higher one keeps a
+              position advantage that more data will not remove. Impressions are counted once
+              per card per browser session. Events recorded before arm labelling are omitted.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-ink-500 border-b border-ink-200">
+                    <th className="py-2 pr-4 font-medium">Arm</th>
+                    <th className="py-2 pr-4 font-medium text-right">Impressions</th>
+                    <th className="py-2 pr-4 font-medium text-right">Clicks</th>
+                    <th className="py-2 pr-4 font-medium text-right">CTR</th>
+                    <th className="py-2 pr-4 font-medium text-right">Bids after click</th>
+                    <th className="py-2 font-medium text-right">Conversion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recByReason.map(r => (
+                    <tr key={r.reasonCode} className="border-b border-ink-100 last:border-0">
+                      <td className="py-2 pr-4 text-ink-800">
+                        {ARM_LABELS[r.reasonCode] ?? r.reasonCode}
+                        {r.reasonCode === 'TRENDING_CONTROL' && (
+                          <span className="ml-2 text-[11px] text-ink-400">not personalised</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink-600">{r.impressions}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink-600">{r.clicks}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums font-semibold text-ink-900">{percent(r.clickThroughRate)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink-600">{r.conversions}</td>
+                      <td className="py-2 text-right tabular-nums text-ink-600">{percent(r.conversionRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -238,14 +302,41 @@ export default function AdminAnalytics() {
               className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-44"
             />
           </div>
-          <button
-            type="button"
-            onClick={handleSaveRecSettings}
-            disabled={recSaving}
-            className="btn-primary"
-          >
-            {recSaving ? 'Saving…' : 'Save settings'}
-          </button>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink-100">
+          <h3 className="font-semibold text-sm text-ink-900 mb-1">Interaction weights</h3>
+          <p className="text-xs text-ink-400 mb-3 max-w-3xl leading-relaxed">
+            How much each kind of signal counts when matching buyers with similar taste. A bid
+            commits money so it is weighted highest by default, a watchlist entry less, a page
+            view least. Raising a weight changes which buyers are treated as similar, and so
+            changes the "Recommended for You" strip on the next page load.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            {[
+              { key: 'weightBid', label: 'Bid' },
+              { key: 'weightWatchlist', label: 'Watchlist' },
+              { key: 'weightBrowse', label: 'Browse' },
+            ].map(w => (
+              <div key={w.key}>
+                <label className="block text-xs text-ink-500 mb-1">{w.label} weight (0–100)</label>
+                <input
+                  type="number" min="0" max="100" step="0.5"
+                  value={recForm[w.key]}
+                  onChange={e => setRecForm(f => ({ ...f, [w.key]: e.target.value }))}
+                  className="border border-ink-200 rounded-lg px-3 py-2 text-sm w-36"
+                />
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={handleSaveRecSettings}
+              disabled={recSaving}
+              className="btn-primary"
+            >
+              {recSaving ? 'Saving…' : 'Save settings'}
+            </button>
+          </div>
         </div>
       </div>
 

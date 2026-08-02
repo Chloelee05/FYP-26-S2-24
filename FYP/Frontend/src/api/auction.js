@@ -55,12 +55,51 @@ export const dismissRecommendation = (auctionId) =>
   api.post('/recommendations/dismiss', form({ auctionId }), F);
 
 // Recommendation analytics events (impressions batched as CSV; single click).
+//
 // `keyword` attributes the event to the search term that surfaced the card, so the
 // "why this?" panel can show which keywords are actually driving each recommendation.
-export const recordRecommendationImpressions = (auctionIds) =>
-  api.post('/recommendations/events', form({ type: 'impression', auctionIds: auctionIds.join(',') }), F);
-export const recordRecommendationClick = (auctionId, keyword) =>
-  api.post('/recommendations/events', form({ type: 'click', auctionId, keyword }), F);
+// `reasonCode` names the pipeline arm that produced the card (PEER_BIDS, SIMILAR_TASTE,
+// SAME_CATEGORY, SEARCH_KEYWORD, TRENDING) or TRENDING_CONTROL for the landing page's
+// separate popularity strip, so click-through can be reported per arm rather than pooled.
+const IMPRESSION_SESSION_KEY = 'auctionhub.recImpressions';
+
+/**
+ * Drops impressions already recorded for the same card and arm in this browser session.
+ *
+ * Every home page load re-renders the whole strip and there is no viewport check, so
+ * without this a refresh inflates the denominator behind every CTR figure. Session scope
+ * under-counts a visitor who genuinely returns to the page repeatedly, which is the
+ * deliberate trade: an honest floor beats a denominator anyone can pump with F5.
+ */
+function unseenThisSession(items) {
+  try {
+    const seen = new Set(JSON.parse(sessionStorage.getItem(IMPRESSION_SESSION_KEY) ?? '[]'));
+    const fresh = items.filter(i => !seen.has(`${i.auctionId}:${i.reasonCode ?? ''}`));
+    fresh.forEach(i => seen.add(`${i.auctionId}:${i.reasonCode ?? ''}`));
+    sessionStorage.setItem(IMPRESSION_SESSION_KEY, JSON.stringify([...seen]));
+    return fresh;
+  } catch {
+    // Storage blocked (private browsing, quota). Recording twice beats recording nothing.
+    return items;
+  }
+}
+
+/** `items` is [{ auctionId, reasonCode }]; one request per arm present in the batch. */
+export const recordRecommendationImpressions = (items) => {
+  const byReason = new Map();
+  for (const item of unseenThisSession(items)) {
+    const arm = item.reasonCode ?? '';
+    if (!byReason.has(arm)) byReason.set(arm, []);
+    byReason.get(arm).push(item.auctionId);
+  }
+  return Promise.all([...byReason].map(([reasonCode, auctionIds]) =>
+    api.post('/recommendations/events', form({
+      type: 'impression', auctionIds: auctionIds.join(','), reasonCode: reasonCode || null,
+    }), F)));
+};
+
+export const recordRecommendationClick = (auctionId, keyword, reasonCode) =>
+  api.post('/recommendations/events', form({ type: 'click', auctionId, keyword, reasonCode }), F);
 
 // Auction detail. Both take an optional axios config so the 4s price poll on the
 // detail page can abort in-flight requests when it tears down.

@@ -103,6 +103,12 @@
 \echo '== trending window setting + honest trending subtitle =='
 \ir migration_recommendation_trending_window.sql
 
+\echo '== recommendation arm labels (per-arm CTR + popularity baseline) =='
+\ir migration_recommendation_arm_labels.sql
+
+\echo '== admin-tunable interaction weights (bid / watchlist / browse) =='
+\ir migration_recommendation_weights.sql
+
 \echo '== Telegram notifications (links, one-time codes, outbox, preferences, copy) =='
 \ir migration_telegram_notifications.sql
 

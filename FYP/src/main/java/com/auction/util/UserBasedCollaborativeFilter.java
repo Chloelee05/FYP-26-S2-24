@@ -11,7 +11,11 @@ import java.util.Set;
 /**
  * User-based collaborative filtering with cosine similarity (FR4.1).
  *
- * <p>Interaction weights: bid = 3, watchlist = 2, browse = 1.</p>
+ * <p>Default interaction weights: bid = 3, watchlist = 2, browse = 1 — a bid commits money
+ * and says most about taste, a watchlist entry says less, a page view least. These are only
+ * the seeded defaults: the live values are the {@code w_bid} / {@code w_watchlist} /
+ * {@code w_browse} rows of {@code recommendation_settings}, which
+ * {@code RecommendationDAO.loadInteractionVectors} reads on every ranking pass.</p>
  */
 public final class UserBasedCollaborativeFilter {
 
@@ -76,8 +80,11 @@ public final class UserBasedCollaborativeFilter {
                .merge(auctionId, weight, Math::max);
     }
 
+    /** Fallback weight used when {@code recommendation_settings} has no {@code w_bid} row. */
     public static double weightBid()       { return W_BID; }
+    /** Fallback weight used when {@code recommendation_settings} has no {@code w_watchlist} row. */
     public static double weightWatchlist() { return W_WATCHLIST; }
+    /** Fallback weight used when {@code recommendation_settings} has no {@code w_browse} row. */
     public static double weightBrowse()    { return W_BROWSE; }
 
     static double cosine(Map<Long, Double> a, Map<Long, Double> b) {

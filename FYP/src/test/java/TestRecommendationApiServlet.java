@@ -236,7 +236,54 @@ class TestRecommendationApiServlet {
         servlet.doPost(req, resp);
 
         verify(resp).setStatus(200);
-        verify(mockDAO).recordEvent(isNull(), eq(9L), eq("CLICK"), eq("pokemon"));
+        verify(mockDAO).recordEvent(isNull(), eq(9L), eq("CLICK"), eq("pokemon"), isNull());
+    }
+
+    @Test
+    @DisplayName("a click carries the arm that produced the card")
+    void clickCarriesReasonCode() throws Exception {
+        when(req.getPathInfo()).thenReturn("/events");
+        when(req.getParameter("type")).thenReturn("click");
+        when(req.getParameter("auctionId")).thenReturn("9");
+        when(req.getParameter("reasonCode")).thenReturn("PEER_BIDS");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).recordEvent(isNull(), eq(9L), eq("CLICK"), isNull(), eq("PEER_BIDS"));
+    }
+
+    @Test
+    @DisplayName("batched impressions all carry the same arm label")
+    void batchedImpressionsCarryReasonCode() throws Exception {
+        when(req.getPathInfo()).thenReturn("/events");
+        when(req.getParameter("type")).thenReturn("impression");
+        when(req.getParameter("auctionIds")).thenReturn("9,10");
+        when(req.getParameter("reasonCode")).thenReturn("TRENDING_CONTROL");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(resp).setStatus(200);
+        verify(mockDAO).recordEvent(isNull(), eq(9L), eq("IMPRESSION"), isNull(), eq("TRENDING_CONTROL"));
+        verify(mockDAO).recordEvent(isNull(), eq(10L), eq("IMPRESSION"), isNull(), eq("TRENDING_CONTROL"));
+    }
+
+    @Test
+    @DisplayName("the trending strip reports the window its ranking actually used")
+    void trendingResponseCarriesTheWindow() throws Exception {
+        when(req.getPathInfo()).thenReturn("/trending");
+        when(mockDAO.getSettings()).thenReturn(new RecommendationDAO.Settings(8, 0.1, 14));
+        when(mockDAO.trending(eq(8), eq(Collections.emptySet()), isNull()))
+                .thenReturn(Collections.emptyList());
+
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doGet(req, resp);
+
+        // The landing page prints this number in its subtitle, so it must not be a
+        // constant in React that can drift from the setting the query used.
+        assertEquals(14, ApiTestSupport.parse(sw).get("trendingWindowDays").asInt());
     }
 
     @Test

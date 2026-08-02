@@ -1,6 +1,8 @@
 import com.auction.dao.RecommendationDAO;
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -37,6 +39,13 @@ import static org.mockito.Mockito.*;
  */
 @DisplayName("RecommendationDAO pipeline composition")
 class TestRecommendationPipeline {
+
+    /** The settings snapshot is cached process-wide, so it must not leak between tests. */
+    @BeforeEach
+    @AfterEach
+    void clearSettingsCache() {
+        RecommendationDAO.invalidateSettingsCache();
+    }
 
     // Fragments that uniquely identify each stage's query.
     private static final String Q_DISMISSED = "dismissed_recommendations";
@@ -427,6 +436,263 @@ class TestRecommendationPipeline {
         // credited to the recommender.
         assertTrue(convSql.contains("b.bid_time AT TIME ZONE 'UTC' > e.created_at"),
                 "conversions still ignore whether the bid followed the click");
+    }
+
+    // -------------------------------------------------------------------------
+    // Arm labelling (reason_code) and the per-arm roll-up
+    // -------------------------------------------------------------------------
+
+    /** Captures the INSERT statements recordEvent() attempts, in order. */
+    private static Connection recordingInserts(List<String> attempted, boolean reasonColumnExists)
+            throws SQLException {
+        Connection conn = mock(Connection.class);
+        when(conn.prepareStatement(anyString())).thenAnswer(inv -> {
+            String sql = inv.getArgument(0);
+            attempted.add(sql);
+            PreparedStatement ps = mock(PreparedStatement.class);
+            if (!reasonColumnExists && sql.contains("reason_code")) {
+                // What Postgres does when the arm-labelling migration has not been run.
+                doThrow(new SQLException("column \"reason_code\" of relation "
+                        + "\"recommendation_events\" does not exist")).when(ps).executeUpdate();
+            } else {
+                doReturn(1).when(ps).executeUpdate();
+            }
+            return ps;
+        });
+        return conn;
+    }
+
+    @Test
+    @DisplayName("an arm label is written alongside the event")
+    void recordsTheArmThatProducedTheCard() throws Exception {
+        List<String> attempted = new ArrayList<>();
+        Connection conn = recordingInserts(attempted, true);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recordEvent(5, 9L, "CLICK", null, "PEER_BIDS");
+        }
+
+        assertEquals(1, attempted.size(), "a labelled insert should succeed first time");
+        assertTrue(attempted.get(0).contains("reason_code"));
+    }
+
+    @Test
+    @DisplayName("an unlabelled database still records the event without the arm")
+    void fallsBackWhenTheArmColumnIsMissing() throws Exception {
+        List<String> attempted = new ArrayList<>();
+        Connection conn = recordingInserts(attempted, false);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recordEvent(5, 9L, "IMPRESSION", null, "SIMILAR_TASTE");
+        }
+
+        // The labelled attempt fails on an unmigrated database; the event must survive it.
+        assertTrue(attempted.size() >= 2, "no fallback insert was attempted");
+        assertTrue(attempted.get(0).contains("reason_code"));
+        assertFalse(attempted.get(attempted.size() - 1).contains("reason_code"),
+                "the final attempt should name only columns that always exist");
+    }
+
+    @Test
+    @DisplayName("a keyword and an arm both survive a database missing only the arm column")
+    void keywordSurvivesAMissingArmColumn() throws Exception {
+        List<String> attempted = new ArrayList<>();
+        Connection conn = recordingInserts(attempted, false);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recordEvent(5, 9L, "CLICK", "pokemon", "SEARCH_KEYWORD");
+        }
+
+        String succeeded = attempted.get(attempted.size() - 1);
+        assertTrue(succeeded.contains("source_keyword"),
+                "keyword attribution was dropped along with the unavailable arm column");
+        assertFalse(succeeded.contains("reason_code"));
+    }
+
+    @Test
+    @DisplayName("an arm label the pipeline cannot produce is never stored")
+    void rejectsAnUnknownArmLabel() throws Exception {
+        List<String> attempted = new ArrayList<>();
+        Connection conn = recordingInserts(attempted, true);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            // Arm labels arrive from the browser, so a client must not be able to invent
+            // rows in the per-arm CTR table.
+            new RecommendationDAO().recordEvent(5, 9L, "CLICK", null, "'; DROP TABLE bids--");
+        }
+
+        assertEquals(1, attempted.size());
+        assertFalse(attempted.get(0).contains("reason_code"));
+    }
+
+    @Test
+    @DisplayName("the popularity baseline is an accepted arm")
+    void acceptsTheTrendingControlArm() throws Exception {
+        List<String> attempted = new ArrayList<>();
+        Connection conn = recordingInserts(attempted, true);
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recordEvent(null, 9L, "IMPRESSION", null,
+                    RecommendationDAO.REASON_TRENDING_CONTROL);
+        }
+
+        assertTrue(attempted.get(0).contains("reason_code"));
+    }
+
+    @Test
+    @DisplayName("the per-arm roll-up ignores events recorded before arm labelling")
+    void perArmMetricsSkipUnlabelledEvents() throws Exception {
+        Recorder rec = new Recorder();
+        Connection conn = pipeline(rec, Map.of());
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            assertTrue(new RecommendationDAO().metricsByReason().isEmpty());
+        }
+
+        String sql = rec.sqlContaining("GROUP BY e.reason_code");
+        // An unlabelled backlog would otherwise dominate whichever arm it was folded into.
+        assertTrue(sql.contains("e.reason_code IS NOT NULL"));
+        // Per-arm conversions must use the same time ordering as the headline figure.
+        assertTrue(sql.contains("b.bid_time AT TIME ZONE 'UTC' > e.created_at"));
+    }
+
+    @Test
+    @DisplayName("the per-arm roll-up fails soft on an unmigrated database")
+    void perArmMetricsFailSoft() {
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenThrow(new SQLException("column reason_code does not exist"));
+            assertTrue(new RecommendationDAO().metricsByReason().isEmpty());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin-tunable settings and their cache
+    // -------------------------------------------------------------------------
+
+    /** A settings table returning the given key/value rows. */
+    private static Connection settingsConnection(Map<String, String> rows) throws SQLException {
+        List<String> keys = new ArrayList<>(rows.keySet());
+        ResultSet rs = mock(ResultSet.class);
+        if (keys.isEmpty()) {
+            when(rs.next()).thenReturn(false);
+        } else {
+            when(rs.next()).thenReturn(true, buildTail(keys.size()));
+            String[] restKeys = keys.subList(1, keys.size()).toArray(new String[0]);
+            String[] restVals = keys.subList(1, keys.size()).stream()
+                    .map(rows::get).toArray(String[]::new);
+            when(rs.getString("key")).thenReturn(keys.get(0), restKeys);
+            when(rs.getString("value")).thenReturn(rows.get(keys.get(0)), restVals);
+        }
+
+        Connection conn = mock(Connection.class);
+        PreparedStatement ps = mock(PreparedStatement.class);
+        doReturn(rs).when(ps).executeQuery();
+        when(conn.prepareStatement(anyString())).thenReturn(ps);
+        return conn;
+    }
+
+    @Test
+    @DisplayName("interaction weights are read from the settings table, not the Java constants")
+    void weightsComeFromSettings() throws Exception {
+        RecommendationDAO.invalidateSettingsCache();
+        Map<String, String> rows = new LinkedHashMap<>();
+        rows.put("w_bid", "9.5");
+        rows.put("w_watchlist", "4.0");
+        rows.put("w_browse", "0.5");
+        Connection conn = settingsConnection(rows);
+
+        RecommendationDAO.Settings settings;
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            settings = new RecommendationDAO().getSettings();
+        }
+        RecommendationDAO.invalidateSettingsCache();
+
+        assertEquals(9.5, settings.weightBid);
+        assertEquals(4.0, settings.weightWatchlist);
+        assertEquals(0.5, settings.weightBrowse);
+    }
+
+    @Test
+    @DisplayName("an unset weight falls back to the seeded Java default")
+    void weightsFallBackToDefaults() throws Exception {
+        RecommendationDAO.invalidateSettingsCache();
+        Connection conn = settingsConnection(Map.of());
+
+        RecommendationDAO.Settings settings;
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            settings = new RecommendationDAO().getSettings();
+        }
+        RecommendationDAO.invalidateSettingsCache();
+
+        assertEquals(com.auction.util.UserBasedCollaborativeFilter.weightBid(), settings.weightBid);
+        assertEquals(com.auction.util.UserBasedCollaborativeFilter.weightWatchlist(), settings.weightWatchlist);
+        assertEquals(com.auction.util.UserBasedCollaborativeFilter.weightBrowse(), settings.weightBrowse);
+        assertEquals(RecommendationDAO.DEFAULT_ITEMS_SHOWN, settings.itemsShown);
+        assertEquals(RecommendationDAO.DEFAULT_TRENDING_WINDOW_DAYS, settings.trendingWindowDays);
+    }
+
+    @Test
+    @DisplayName("a nonsensical stored weight is clamped rather than trusted")
+    void weightsAreClamped() throws Exception {
+        RecommendationDAO.invalidateSettingsCache();
+        Map<String, String> rows = new LinkedHashMap<>();
+        // A negative weight would turn an interaction into evidence of dislike.
+        rows.put("w_bid", "-5");
+        rows.put("w_browse", "9999");
+        Connection conn = settingsConnection(rows);
+
+        RecommendationDAO.Settings settings;
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            settings = new RecommendationDAO().getSettings();
+        }
+        RecommendationDAO.invalidateSettingsCache();
+
+        assertEquals(0.0, settings.weightBid);
+        assertEquals(100.0, settings.weightBrowse);
+    }
+
+    @Test
+    @DisplayName("settings are cached across reads within the TTL")
+    void settingsAreCached() throws Exception {
+        RecommendationDAO.invalidateSettingsCache();
+        Connection conn = settingsConnection(Map.of("items_shown", "5"));
+
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            RecommendationDAO dao = new RecommendationDAO();
+            assertEquals(5, dao.getSettings().itemsShown);
+            assertEquals(5, dao.getSettings().itemsShown);
+            assertEquals(5, dao.getSettings().itemsShown);
+            // Settings are read at least twice per recommendation request; only the first
+            // read of a burst should reach the database.
+            db.verify(DBUtil::connectDB, times(1));
+        }
+        RecommendationDAO.invalidateSettingsCache();
+    }
+
+    @Test
+    @DisplayName("invalidating the cache sends the next read back to the database")
+    void invalidationForcesAReload() throws Exception {
+        RecommendationDAO.invalidateSettingsCache();
+        Connection first = settingsConnection(Map.of("items_shown", "5"));
+        Connection second = settingsConnection(Map.of("items_shown", "12"));
+
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            RecommendationDAO dao = new RecommendationDAO();
+            db.when(DBUtil::connectDB).thenReturn(first);
+            assertEquals(5, dao.getSettings().itemsShown);
+
+            db.when(DBUtil::connectDB).thenReturn(second);
+            assertEquals(5, dao.getSettings().itemsShown, "still inside the TTL");
+
+            // What saveSettings() does, so an admin's change shows on the next request.
+            RecommendationDAO.invalidateSettingsCache();
+            assertEquals(12, dao.getSettings().itemsShown);
+        }
+        RecommendationDAO.invalidateSettingsCache();
     }
 
     @Test

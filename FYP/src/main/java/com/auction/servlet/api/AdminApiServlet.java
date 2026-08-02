@@ -133,9 +133,14 @@ public class AdminApiServlet extends ApiBase {
             settings.put("itemsShown", s.itemsShown);
             settings.put("similarityThreshold", s.similarityThreshold);
             settings.put("trendingWindowDays", s.trendingWindowDays);
+            settings.put("weightBid", s.weightBid);
+            settings.put("weightWatchlist", s.weightWatchlist);
+            settings.put("weightBrowse", s.weightBrowse);
 
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("metrics", recommendationDAO.metrics());
+            // Per-arm breakdown, including the non-personalised TRENDING_CONTROL strip.
+            body.put("metricsByReason", recommendationDAO.metricsByReason());
             body.put("settings", settings);
             ok(resp, body);
         } catch (Exception e) {
@@ -144,11 +149,12 @@ public class AdminApiServlet extends ApiBase {
     }
 
     /**
-     * POST /api/admin/recommendations  itemsShown, similarityThreshold,
-     * optional trendingWindowDays.
+     * POST /api/admin/recommendations  itemsShown, similarityThreshold, and optionally
+     * trendingWindowDays, weightBid, weightWatchlist, weightBrowse.
      *
-     * <p>The optional parameter keeps an older client that only posts the first two
-     * fields working: an absent value leaves the stored setting untouched.</p>
+     * <p>Every field added after the original two is optional, so an older client that
+     * posts only itemsShown and similarityThreshold keeps working — an absent value leaves
+     * the stored setting exactly as it was rather than resetting it to a default.</p>
      */
     private void handleSaveRecommendationConfig(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
@@ -162,33 +168,52 @@ public class AdminApiServlet extends ApiBase {
         } catch (Exception e) {
             badRequest(resp, "itemsShown and similarityThreshold are required numbers."); return;
         }
-        int windowDays = current.trendingWindowDays;
-        String windowParam = param(req, "trendingWindowDays");
-        if (windowParam != null && !windowParam.isBlank()) {
-            try {
-                windowDays = Integer.parseInt(windowParam.trim());
-            } catch (NumberFormatException e) {
-                badRequest(resp, "trendingWindowDays must be a number."); return;
-            }
-        }
-
         if (itemsShown < 1 || itemsShown > 24) {
             badRequest(resp, "itemsShown must be between 1 and 24."); return;
         }
         if (threshold < 0 || threshold > 1) {
             badRequest(resp, "similarityThreshold must be between 0 and 1."); return;
         }
+
+        int windowDays;
+        double weightBid, weightWatchlist, weightBrowse;
+        try {
+            windowDays      = optionalInt(req, "trendingWindowDays", current.trendingWindowDays);
+            weightBid       = optionalDouble(req, "weightBid", current.weightBid);
+            weightWatchlist = optionalDouble(req, "weightWatchlist", current.weightWatchlist);
+            weightBrowse    = optionalDouble(req, "weightBrowse", current.weightBrowse);
+        } catch (NumberFormatException e) {
+            badRequest(resp, "trendingWindowDays and the interaction weights must be numbers."); return;
+        }
+
         if (windowDays < 1 || windowDays > 365) {
             badRequest(resp, "trendingWindowDays must be between 1 and 365."); return;
+        }
+        for (double weight : new double[]{weightBid, weightWatchlist, weightBrowse}) {
+            // A negative weight would make an interaction count as evidence of dislike.
+            if (weight < 0 || weight > 100) {
+                badRequest(resp, "Interaction weights must be between 0 and 100."); return;
+            }
         }
 
         try {
             recommendationDAO.saveSettings(new com.auction.dao.RecommendationDAO.Settings(
-                    itemsShown, threshold, windowDays));
+                    itemsShown, threshold, windowDays, weightBid, weightWatchlist, weightBrowse));
             okMsg(resp, "Recommendation settings saved.");
         } catch (Exception e) {
             serverError(resp, "Could not save settings. Run DB migrations and try again.");
         }
+    }
+
+    /** Parses an optional numeric parameter, keeping {@code fallback} when it is absent. */
+    private int optionalInt(HttpServletRequest req, String name, int fallback) {
+        String raw = param(req, name);
+        return (raw == null || raw.isBlank()) ? fallback : Integer.parseInt(raw.trim());
+    }
+
+    private double optionalDouble(HttpServletRequest req, String name, double fallback) {
+        String raw = param(req, name);
+        return (raw == null || raw.isBlank()) ? fallback : Double.parseDouble(raw.trim());
     }
 
     /** POST /api/admin/reviews  action=delete, reviewId — remove an inappropriate review. */

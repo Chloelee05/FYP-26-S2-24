@@ -19,7 +19,8 @@ import java.util.Map;
  * GET  /api/recommendations/attribution        — ADMIN only: per-user provenance detail
  * POST /api/recommendations/dismiss  auctionId — hide a recommendation (auth required)
  * POST /api/recommendations/events   type=impression|click, auctionId (or auctionIds CSV),
- *                                    optional keyword the card was attributed to
+ *                                    optional keyword the card was attributed to and
+ *                                    optional reasonCode naming the arm that produced it
  * POST /api/recommendations/search-keyword q=  — records a searched keyword
  *
  * <p>Returns personalised recommendations (item-based collaborative filtering) for the
@@ -234,7 +235,10 @@ public class RecommendationApiServlet extends ApiBase {
 
         // The keyword the card was surfaced under, so the click can be attributed to it.
         String keyword = param(req, "keyword");
-        for (Long id : ids) recommendationDAO.recordEvent(userId, id, eventType, keyword);
+        // Which arm produced the card, so CTR can be reported per stage rather than as one
+        // pooled number. Unrecognised labels are discarded by the DAO.
+        String reasonCode = param(req, "reasonCode");
+        for (Long id : ids) recommendationDAO.recordEvent(userId, id, eventType, keyword, reasonCode);
         okMsg(resp, "Recorded.");
     }
 
