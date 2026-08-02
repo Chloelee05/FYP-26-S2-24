@@ -54,6 +54,7 @@ class TestRecommendationPipeline {
     private static final String Q_FETCH_IDS = "WHERE a.auction_id IN (";
     private static final String Q_CONTENT   = "my_signals";
     private static final String Q_TRENDING  = "bid_count";
+    private static final String Q_ELIGIBLE  = "SELECT auction_id FROM auction ";
 
     /** Records the SQL prepared by each stage and the ids bound into it. */
     private static final class Recorder {
@@ -119,6 +120,15 @@ class TestRecommendationPipeline {
 
     /** A ResultSet for the interaction-vector union feeding user-based CF. */
     private static ResultSet interactionRows(int[] userIds, long[] auctionIds) throws SQLException {
+        return interactionRows(userIds, auctionIds, null);
+    }
+
+    /**
+     * As above, but with a per-row signal source so the seeded weights (bid 3, watchlist 2,
+     * browse 1) separate the candidates and fix their ranking order.
+     */
+    private static ResultSet interactionRows(int[] userIds, long[] auctionIds, String[] sources)
+            throws SQLException {
         ResultSet rs = mock(ResultSet.class);
         when(rs.next()).thenReturn(true, buildTail(userIds.length));
 
@@ -130,7 +140,13 @@ class TestRecommendationPipeline {
         for (int i = 1; i < auctionIds.length; i++) restAuctions[i - 1] = auctionIds[i];
         when(rs.getLong("auction_id")).thenReturn(auctionIds[0], restAuctions);
 
-        when(rs.getString("src")).thenReturn("BID");
+        if (sources == null) {
+            when(rs.getString("src")).thenReturn("BID");
+        } else {
+            String[] restSources = new String[sources.length - 1];
+            for (int i = 1; i < sources.length; i++) restSources[i - 1] = sources[i];
+            when(rs.getString("src")).thenReturn(sources[0], restSources);
+        }
         return rs;
     }
 
@@ -198,6 +214,7 @@ class TestRecommendationPipeline {
         stages.put(Q_PEER_CF, listingRows(1L));
         // User 5 and peer 6 both bid on 10; peer 6 also bid on 2, which becomes the pick.
         stages.put(Q_VECTORS, interactionRows(new int[]{5, 6, 6}, new long[]{10L, 10L, 2L}));
+        stages.put(Q_ELIGIBLE, idRows(2L));
         stages.put(Q_FETCH_IDS, listingRows(2L));
         stages.put(Q_CONTENT, listingRows(3L));
         stages.put(Q_TRENDING, listingRows(4L));
@@ -436,6 +453,66 @@ class TestRecommendationPipeline {
         // credited to the recommender.
         assertTrue(convSql.contains("b.bid_time AT TIME ZONE 'UTC' > e.created_at"),
                 "conversions still ignore whether the bid followed the click");
+    }
+
+    // -------------------------------------------------------------------------
+    // Candidate truncation ahead of the active-auction filter
+    // -------------------------------------------------------------------------
+
+    /**
+     * Peer 6 endorses three auctions with separating weights — 90 by bid, 91 by watchlist,
+     * 92 by browse — so the ranking order 90 > 91 > 92 is fixed rather than dependent on
+     * hash iteration. Only 92 is still open.
+     */
+    private static Map<String, ResultSet> neighbourhoodToppedByEndedAuctions() throws SQLException {
+        Map<String, ResultSet> stages = new LinkedHashMap<>();
+        stages.put(Q_VECTORS, interactionRows(
+                new int[]{5, 6, 6, 6, 6},
+                new long[]{10L, 10L, 90L, 91L, 92L},
+                new String[]{"BID", "BID", "BID", "WATCH", "BROWSE"}));
+        stages.put(Q_ELIGIBLE, idRows(92L));
+        stages.put(Q_FETCH_IDS, listingRows(92L));
+        return stages;
+    }
+
+    @Test
+    @DisplayName("similar-taste survives a neighbourhood whose top candidates have ended")
+    void rankingSkipsEndedCandidatesInsteadOfLosingTheArm() throws Exception {
+        Recorder rec = new Recorder();
+
+        Connection conn = pipeline(rec, neighbourhoodToppedByEndedAuctions());
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recommendForUser(5, 1);
+        }
+
+        // The stubbed fetch hands back a listing whatever it is asked for, so the ids the
+        // ranking actually chose are what has to be asserted. Truncating to the top scorer
+        // before the active filter sent 90 — an ended auction — and the arm came back empty.
+        Set<Long> fetched = rec.boundInto(Q_FETCH_IDS);
+        assertTrue(fetched.contains(92L), "the only open candidate never reached the fetch");
+        assertFalse(fetched.contains(90L), "an ended auction was still ranked into the slot");
+    }
+
+    @Test
+    @DisplayName("the allow-set is scoped to open, moderated auctions the viewer does not own")
+    void eligibilityQueryAppliesTheSamePredicatesAsTheFetch() throws Exception {
+        Recorder rec = new Recorder();
+
+        Connection conn = pipeline(rec, neighbourhoodToppedByEndedAuctions());
+        try (MockedStatic<DBUtil> db = Mockito.mockStatic(DBUtil.class)) {
+            db.when(DBUtil::connectDB).thenReturn(conn);
+            new RecommendationDAO().recommendForUser(5, 1);
+        }
+
+        // An allow-set looser than the fetch's own filter would reintroduce the bug for
+        // whichever predicate it omitted.
+        String sql = rec.sqlContaining(Q_ELIGIBLE);
+        assertTrue(sql.contains("status_id = 1"));
+        assertTrue(sql.contains("moderation_state = 'active'"));
+        assertTrue(sql.contains("date_end > now()"));
+        assertTrue(sql.contains("seller_id <> ?"));
+        assertTrue(rec.boundInto(Q_ELIGIBLE).contains(5L), "the viewer was not excluded as a seller");
     }
 
     // -------------------------------------------------------------------------

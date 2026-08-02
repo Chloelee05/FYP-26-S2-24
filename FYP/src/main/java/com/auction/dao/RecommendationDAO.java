@@ -894,10 +894,53 @@ public class RecommendationDAO {
 
         Settings settings = getSettings();
         Map<Integer, Map<Long, Double>> vectors = loadInteractionVectors(settings);
+        // Ranking is restricted to auctions that could actually be shown, because taking
+        // the top `limit` first and filtering afterwards throws the arm away whenever the
+        // neighbourhood's best-scoring items have closed. See recommendableAuctionIds().
         List<Long> rankedIds = UserBasedCollaborativeFilter.rankAuctionIds(
-                userId, vectors, limit, exclude, settings.similarityThreshold);
+                userId, vectors, limit, exclude, settings.similarityThreshold,
+                recommendableAuctionIds(userId));
         if (rankedIds.isEmpty()) return List.of();
         return fetchItemsByIds(rankedIds, userId, limit);
+    }
+
+    /**
+     * Every auction that is currently recommendable to {@code viewerId} — open, moderated
+     * active, not yet ended, and not the viewer's own listing.
+     *
+     * <p>Ranking used to run over the whole interaction history and hand the top
+     * {@code limit} ids to {@link #fetchItemsByIds}, which applied these predicates only
+     * then. Anything the ranking picked that had since closed was dropped without a
+     * replacement, so a neighbourhood topped by ended auctions produced an empty
+     * {@code SIMILAR_TASTE} arm rather than a shorter one. That was not hypothetical: for
+     * one demo user the first eleven candidates had all ended and the first recommendable
+     * one ranked fourteenth.</p>
+     *
+     * <p>The alternative — over-fetching some multiple of {@code limit} and filtering
+     * afterwards — is one query cheaper but only moves the cliff: it still fails once more
+     * than the multiple have closed, and the multiple has to be guessed. Materialising the
+     * allow-set is exact for any history, at the cost of one extra query and a set of ids
+     * bounded by the number of <em>open</em> auctions rather than by all of them.</p>
+     *
+     * <p>An empty result is a real answer, not an error: when a user's whole neighbourhood
+     * has ended, the arm legitimately contributes nothing and the remaining pipeline stages
+     * fill the slots instead.</p>
+     */
+    private Set<Long> recommendableAuctionIds(int viewerId) {
+        Set<Long> out = new LinkedHashSet<>();
+        String sql = "SELECT auction_id FROM auction "
+                + "WHERE status_id = 1 AND moderation_state = 'active' AND date_end > now() "
+                + "  AND seller_id <> ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, viewerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(rs.getLong(1));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return out;
     }
 
     /**

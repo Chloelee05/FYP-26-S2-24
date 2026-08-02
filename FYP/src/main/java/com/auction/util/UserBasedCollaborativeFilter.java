@@ -43,6 +43,30 @@ public final class UserBasedCollaborativeFilter {
             int limit,
             Set<Long> exclude,
             double minSimilarity) {
+        return rankAuctionIds(targetUserId, userVectors, limit, exclude, minSimilarity, null);
+    }
+
+    /**
+     * Ranks candidates for {@code targetUserId}, keeping only auctions present in
+     * {@code eligible}.
+     *
+     * <p>The allow-set exists because truncating to {@code limit} and <em>then</em> asking
+     * the database whether those auctions are still open silently loses the whole arm: a
+     * neighbourhood whose highest-scoring items have all ended returns {@code limit} dead
+     * ids and no recommendation at all. Interaction vectors are built from history, and
+     * history is mostly closed auctions, so this is the normal case rather than an edge
+     * one. Filtering here means {@code limit} live candidates come back whenever that many
+     * exist anywhere in the neighbourhood, however far down the ranking they sit.</p>
+     *
+     * <p>{@code null} disables the filter and restores the unrestricted behaviour.</p>
+     */
+    public static List<Long> rankAuctionIds(
+            int targetUserId,
+            Map<Integer, Map<Long, Double>> userVectors,
+            int limit,
+            Set<Long> exclude,
+            double minSimilarity,
+            Set<Long> eligible) {
 
         Map<Long, Double> target = userVectors.get(targetUserId);
         if (target == null || target.isEmpty() || limit <= 0) {
@@ -60,6 +84,7 @@ public final class UserBasedCollaborativeFilter {
             if (sim <= 0 || sim < minSimilarity) continue;
             for (Map.Entry<Long, Double> item : peer.getValue().entrySet()) {
                 if (excludeAll.contains(item.getKey())) continue;
+                if (eligible != null && !eligible.contains(item.getKey())) continue;
                 scores.merge(item.getKey(), sim * item.getValue(), Double::sum);
             }
         }

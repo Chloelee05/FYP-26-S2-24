@@ -321,4 +321,98 @@ class UserBasedCollaborativeFilterTest {
                     UserBasedCollaborativeFilter.rankAuctionIds(1, threeUsers(), 10, Set.of()));
         }
     }
+
+    /**
+     * The allow-set that stops the ranking handing back candidates the caller will only
+     * throw away. Truncating first and filtering afterwards silently emptied the whole
+     * arm whenever the neighbourhood's best-scoring auctions had already closed.
+     */
+    @Nested
+    @DisplayName("rankAuctionIds with an eligibility allow-set")
+    class Eligibility {
+
+        /**
+         * Target 1 and peer 2 share auction 10. Peer 2 also likes 90, 91 and 92 with
+         * descending weights, so the ranking order among them is fixed rather than
+         * dependent on hash iteration.
+         */
+        private Map<Integer, Map<Long, Double>> targetWithRankedPeerItems() {
+            Map<Integer, Map<Long, Double>> vectors = new HashMap<>();
+            vectors.put(1, vector(10, 3.0));
+            vectors.put(2, vector(10, 3.0, 90, 3.0, 91, 2.0, 92, 1.0));
+            return vectors;
+        }
+
+        /** Target 1 and peer 2 share auction 10; peer 2 also likes 11. Peer 3 is unrelated. */
+        private Map<Integer, Map<Long, Double>> threeUsers() {
+            Map<Integer, Map<Long, Double>> vectors = new HashMap<>();
+            vectors.put(1, vector(10, 3.0));
+            vectors.put(2, vector(10, 3.0, 11, 3.0));
+            vectors.put(3, vector(12, 3.0));
+            return vectors;
+        }
+
+        @Test
+        @DisplayName("a lower-scoring live auction is returned when the top scorers have ended")
+        void skipsEndedTopScorers() {
+            // The regression: 90 and 91 outrank 92 but are closed. Asking for a single
+            // recommendation used to return only 90, which the active-status filter then
+            // dropped, so the arm produced nothing at all.
+            List<Long> out = UserBasedCollaborativeFilter.rankAuctionIds(
+                    1, targetWithRankedPeerItems(), 1, Set.of(), 0.0, Set.of(92L));
+
+            assertEquals(List.of(92L), out);
+        }
+
+        @Test
+        @DisplayName("the limit is filled from live candidates however far down they rank")
+        void fillsTheLimitFromEligibleCandidates() {
+            List<Long> out = UserBasedCollaborativeFilter.rankAuctionIds(
+                    1, targetWithRankedPeerItems(), 2, Set.of(), 0.0, Set.of(91L, 92L));
+
+            assertEquals(List.of(91L, 92L), out, "eligible candidates keep their relative order");
+        }
+
+        @Test
+        @DisplayName("an ended auction the target and peer share still makes them similar")
+        void eligibilityDoesNotDistortSimilarity() {
+            // Only candidate emission is filtered, never the vectors themselves. Auction 10
+            // is the sole evidence these two users are alike and it is not in the allow-set,
+            // so 92 can only come back if the closed auction still counted towards cosine.
+            // Shared history is overwhelmingly closed auctions; scoring similarity over
+            // live ones alone would leave almost nobody looking similar to anybody.
+            Map<Integer, Map<Long, Double>> vectors = targetWithRankedPeerItems();
+            double sim = UserBasedCollaborativeFilter.cosine(vectors.get(1), vectors.get(2));
+            assertTrue(sim > 0.5, "fixture must clear the threshold used below");
+
+            assertEquals(List.of(92L), UserBasedCollaborativeFilter.rankAuctionIds(
+                    1, vectors, 10, Set.of(), 0.5, Set.of(92L)));
+        }
+
+        @Test
+        @DisplayName("no eligible candidate yields nothing rather than a dead id")
+        void noEligibleCandidateReturnsEmpty() {
+            // A user whose entire neighbourhood has closed legitimately contributes no
+            // recommendations; the later pipeline stages fill the slots instead.
+            assertTrue(UserBasedCollaborativeFilter.rankAuctionIds(
+                    1, targetWithRankedPeerItems(), 10, Set.of(), 0.0, Set.of()).isEmpty());
+        }
+
+        @Test
+        @DisplayName("a null allow-set leaves the ranking unrestricted")
+        void nullAllowSetDisablesTheFilter() {
+            assertEquals(
+                    UserBasedCollaborativeFilter.rankAuctionIds(1, threeUsers(), 10, Set.of(), 0.0),
+                    UserBasedCollaborativeFilter.rankAuctionIds(1, threeUsers(), 10, Set.of(), 0.0, null));
+        }
+
+        @Test
+        @DisplayName("the allow-set never invents a candidate the peers did not endorse")
+        void allowSetIsAFilterNotASource() {
+            List<Long> out = UserBasedCollaborativeFilter.rankAuctionIds(
+                    1, targetWithRankedPeerItems(), 10, Set.of(), 0.0, Set.of(92L, 500L));
+
+            assertEquals(List.of(92L), out);
+        }
+    }
 }
