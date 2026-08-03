@@ -396,12 +396,20 @@ public class UserDAO {
 
     private static final ZoneId ADMIN_ZONE = ZoneId.systemDefault();
 
-    /** All active admin account ids (for admin-targeted notifications). */
+    /**
+     * All active admin account ids (for admin-targeted notifications).
+     *
+     * <p>The lookup columns are compared case-insensitively because the seed data spells
+     * them {@code 'Admin'} / {@code 'Active'} while the enums and the rest of the code spell
+     * them in upper case. A literal {@code r.role = 'ADMIN'} matched nothing in PostgreSQL,
+     * which silently swallowed every admin alert — pending registrations, reports and
+     * support messages — since the feature shipped.</p>
+     */
     public List<Integer> listAdminUserIds() {
         List<Integer> ids = new ArrayList<>();
         String sql = "SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id "
                 + "JOIN user_status s ON s.id = u.status_id "
-                + "WHERE r.role = 'ADMIN' AND s.status = 'Active'";
+                + "WHERE UPPER(r.role) = 'ADMIN' AND UPPER(s.status) = 'ACTIVE'";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
