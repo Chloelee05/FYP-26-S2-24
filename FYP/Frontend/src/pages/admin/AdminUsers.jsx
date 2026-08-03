@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { getAdminUsers, banUser, unbanUser, approveUser, rejectUser } from '../../api/admin';
+import {
+  getAdminUsers, banUser, unbanUser, approveUser, rejectUser, deactivateUser,
+} from '../../api/admin';
+import { apiErrorMessage } from '../../utils/apiError';
 
 // Backend AdminUserSummary fields: id, username, email, role (BUYER/SELLER/ADMIN),
 //   canSell, statusId (1=active, 2=suspended, 4=pending, 5=rejected), joined, bidCount, listingCount
@@ -9,6 +12,7 @@ import { getAdminUsers, banUser, unbanUser, approveUser, rejectUser } from '../.
 const STATUS = {
   1: { label: 'active',   className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   2: { label: 'banned',   className: 'bg-red-50 text-red-700 ring-red-200' },
+  3: { label: 'deactivated', className: 'bg-ink-200 text-ink-700 ring-ink-300' },
   4: { label: 'pending',  className: 'bg-amber-50 text-amber-700 ring-amber-200' },
   5: { label: 'rejected', className: 'bg-ink-100 text-ink-600 ring-ink-200' },
 };
@@ -19,27 +23,52 @@ const isPending = (user) => user.statusId === 4;
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    getAdminUsers().then(r => setUsers(r.data ?? [])).catch(() => {});
+    getAdminUsers()
+      .then(r => setUsers(r.data ?? []))
+      .catch(err => setError(apiErrorMessage(err, 'Could not load users.')));
   }, []);
 
   const setStatus = (id, statusId) =>
     setUsers(prev => prev.map(u => u.id === id ? { ...u, statusId } : u));
 
-  const handleBan = async (user) => {
+  // Every action used to be wrapped in `catch { /* ignore */ }` with no message area on the
+  // page at all, so approving an already-approved account returned 400 and the button just
+  // looked dead.
+  const run = async (call, { onDone, success }) => {
+    setMsg('');
+    setError('');
     try {
-      if (isActive(user)) { await banUser(user.id); setStatus(user.id, 2); }
-      else { await unbanUser(user.id); setStatus(user.id, 1); }
-    } catch { /* ignore */ }
+      const r = await call();
+      onDone?.();
+      setMsg(r?.data?.message ?? success);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'The action could not be completed.'));
+    }
   };
 
-  const handleApprove = async (user) => {
-    try { await approveUser(user.id); setStatus(user.id, 1); } catch { /* ignore */ }
-  };
+  const handleBan = (user) => isActive(user)
+    ? run(() => banUser(user.id), {
+        onDone: () => setStatus(user.id, 2), success: 'Account banned.' })
+    : run(() => unbanUser(user.id), {
+        onDone: () => setStatus(user.id, 1), success: 'Account unbanned.' });
 
-  const handleReject = async (user) => {
-    try { await rejectUser(user.id); setStatus(user.id, 5); } catch { /* ignore */ }
+  const handleApprove = (user) => run(() => approveUser(user.id), {
+    onDone: () => setStatus(user.id, 1), success: 'Account approved.' });
+
+  const handleReject = (user) => run(() => rejectUser(user.id), {
+    onDone: () => setStatus(user.id, 5), success: 'Account rejected.' });
+
+  const handleDeactivate = (user) => {
+    const reason = window.prompt(
+      `Deactivate ${user.username}? The account is kept so their bids, orders and reviews `
+      + `keep an author, and the change is reversible.\n\nReason for the audit log:`);
+    if (reason == null || reason.trim() === '') return;
+    return run(() => deactivateUser(user.id, reason), {
+      onDone: () => setStatus(user.id, 3), success: 'Account deactivated.' });
   };
 
   const pendingCount = users.filter(isPending).length;
@@ -51,15 +80,22 @@ export default function AdminUsers() {
 
   return (
     <div className="p-8">
-      <h1 className="page-title">User Moderation</h1>
+      <h1 className="page-title">Customer Management</h1>
       <p className="page-subtitle mb-6">
-        Manage users and enforce platform policies
+        Approve, ban, unban or deactivate customer accounts
         {pendingCount > 0 && (
           <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-amber-200 text-xs font-medium">
             {pendingCount} awaiting approval
           </span>
         )}
       </p>
+
+      {error && (
+        <div className="text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </div>
+      )}
+      {msg && <div className="text-sm text-primary-600 mb-4">{msg}</div>}
 
       <div className="card overflow-hidden">
         <div className="p-4 border-b border-ink-100">
@@ -129,13 +165,24 @@ export default function AdminUsers() {
                       </div>
                     ) : user.statusId === 5 ? (
                       <span className="text-xs text-ink-400">Rejected</span>
+                    ) : user.statusId === 3 ? (
+                      <span className="text-xs text-ink-400">Deactivated</span>
                     ) : (
-                      <button
-                        onClick={() => handleBan(user)}
-                        className={`px-4 py-1.5 rounded text-sm font-medium text-white transition-colors ${active ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
-                      >
-                        {active ? 'Ban User' : 'Unban User'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleBan(user)}
+                          className={`px-4 py-1.5 rounded text-sm font-medium text-white transition-colors ${active ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
+                        >
+                          {active ? 'Ban User' : 'Unban User'}
+                        </button>
+                        <button
+                          onClick={() => handleDeactivate(user)}
+                          title="Soft delete: keeps the row so their bids, orders and reviews keep an author"
+                          className="px-3 py-1.5 rounded text-sm font-medium border border-ink-300 text-ink-600 hover:bg-ink-100 transition-colors"
+                        >
+                          Deactivate
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

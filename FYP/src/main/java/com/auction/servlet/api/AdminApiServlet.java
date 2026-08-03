@@ -1,5 +1,6 @@
 package com.auction.servlet.api;
 
+import com.auction.dao.AdminManagementDAO;
 import com.auction.dao.AdminReportDAO;
 import com.auction.dao.AuctionDAO;
 import com.auction.dao.CategoryDAO;
@@ -37,16 +38,20 @@ import java.util.Map;
 /**
  * GET  /api/admin/dashboard
  * GET  /api/admin/users
- * POST /api/admin/users           (action: suspend|active, userid)
+ * POST /api/admin/users           (action: suspend|active|approve|reject|deactivate, userid)
  * GET  /api/admin/listings
- * POST /api/admin/listings        (action: FLAG|REMOVE|RESTORE, auctionId)
+ * POST /api/admin/listings        (action: FLAG|REMOVE|RESTORE|FEATURE|UNFEATURE|EDIT|SET_KIND, auctionId)
  * GET  /api/admin/categories
  * POST /api/admin/categories      (action: CREATE|EDIT|DELETE|RESTORE)
+ * GET  /api/admin/orders
+ * POST /api/admin/orders          (action: refund-approve|refund-decline|correct-status, orderId)
  * GET  /api/admin/analytics
  * GET  /api/admin/analytics/report?type=user-activity|revenue|moderation
+ * GET  /api/admin/audit-log       (management actions, newest first)
  * GET  /api/admin/database/status
  * GET  /api/admin/database/backup
  * POST /api/admin/database/restore
+ * GET  /api/admin/sellers/analytics?sellerId=N   (read the report inline)
  * POST /api/admin/sellers/analytics-email
  * All require ADMIN role.
  */
@@ -59,6 +64,7 @@ public class AdminApiServlet extends ApiBase {
     private final ReportDAO   reportDAO  = new ReportDAO();
     private final OrderDAO    orderDAO   = new OrderDAO();
     private final AdminReportDAO adminReportDAO = new AdminReportDAO();
+    private final AdminManagementDAO adminManagementDAO = new AdminManagementDAO();
     private final SellerAnalyticsDAO sellerAnalyticsDAO = new SellerAnalyticsDAO();
     private final FeaturedListingDAO featuredListingDAO = new FeaturedListingDAO();
     private final PlatformRevenueDAO platformRevenueDAO = new PlatformRevenueDAO();
@@ -85,10 +91,22 @@ public class AdminApiServlet extends ApiBase {
             handleGetRecommendationConfig(resp);
             return;
         }
+        if (path != null && path.equals("/sellers/analytics")) {
+            handleSellerAnalyticsView(req, resp);
+            return;
+        }
+        if (path != null && path.equals("/audit-log")) {
+            handleGetAuditLog(req, resp);
+            return;
+        }
+        if (path != null && path.equals("/listings/content")) {
+            handleGetListingContent(req, resp);
+            return;
+        }
         switch (sub(req)) {
             case "dashboard":   handleDashboard(resp);         break;
             case "users":       ok(resp, userDAO.listUsersForAdminTable()); break;
-            case "listings":    ok(resp, auctionDAO.listListingsForModeration()); break;
+            case "listings":    handleGetListings(resp);        break;
             case "categories":  ok(resp, catDAO.listAll());    break;
             case "analytics":   handleAnalytics(resp);         break;
             case "reports":     handleGetReports(resp);        break;
@@ -297,7 +315,9 @@ public class AdminApiServlet extends ApiBase {
                 auctionDAO.countListingsTotal(),
                 auctionDAO.countListingsFlagged(),
                 auctionDAO.sumWinningBidDollars(),
-                "+ 12.5% this month");
+                // Was the hard-coded string "+ 12.5% this month", rendered under the Revenue
+                // card whatever the data said. A fabricated metric reads worse than a bug.
+                adminReportDAO.revenueGrowthLabel());
 
         List<Map<String, Object>> activities = buildActivity(now, zone);
 
@@ -404,6 +424,66 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * GET /api/admin/listings — the moderation table, with the product/service kind.
+     *
+     * <p>The rows are widened here rather than on {@code AdminListingRow} so the kind can be
+     * surfaced without changing a model another part of the admin UI also serialises.</p>
+     */
+    private void handleGetListings(HttpServletResponse resp) throws IOException {
+        try {
+            Map<Long, String> kinds = adminManagementDAO.listingKinds();
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (com.auction.model.admin.AdminListingRow l : auctionDAO.listListingsForModeration()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("auctionId", l.getAuctionId());
+                row.put("title", l.getTitle());
+                row.put("listedDate", l.getListedDate());
+                row.put("sellerUsername", l.getSellerUsername());
+                row.put("category", l.getCategory());
+                row.put("currentBid", l.getCurrentBid());
+                row.put("reportCount", l.getReportCount());
+                row.put("moderationState", l.getModerationState());
+                row.put("featured", l.isFeatured());
+                row.put("auctionStatus", l.getAuctionStatus());
+                row.put("listingKind", kinds.getOrDefault(l.getAuctionId(), "PRODUCT"));
+                rows.add(row);
+            }
+            ok(resp, rows);
+        } catch (Exception e) {
+            serverError(resp, "Could not load listings.");
+        }
+    }
+
+    /**
+     * GET /api/admin/listings/content?auctionId=N — the editable fields of one listing.
+     * Fetched on demand so full descriptions stay out of the moderation table payload.
+     */
+    private void handleGetListingContent(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+        String idStr = param(req, "auctionId");
+        if (idStr == null) { badRequest(resp, "auctionId is required."); return; }
+        long auctionId;
+        try { auctionId = Long.parseLong(idStr.trim()); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
+        try {
+            Map<String, Object> content = adminManagementDAO.getListingContent(auctionId);
+            if (content == null) { error(resp, 404, "Listing not found."); return; }
+            ok(resp, content);
+        } catch (Exception e) {
+            serverError(resp, "Could not load the listing.");
+        }
+    }
+
+    /** GET /api/admin/audit-log?limit=N — the trail of admin management actions. */
+    private void handleGetAuditLog(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        try {
+            ok(resp, adminManagementDAO.listAuditLog(parseInt(param(req, "limit"), 100)));
+        } catch (Exception e) {
+            serverError(resp, "Could not load the admin audit log.");
+        }
+    }
+
     private void handleDatabaseStatus(HttpServletResponse resp) throws IOException {
         try {
             ok(resp, DatabaseBackupUtil.status());
@@ -431,8 +511,17 @@ public class AdminApiServlet extends ApiBase {
                 String line;
                 while ((line = reader.readLine()) != null) sb.append(line).append('\n');
             }
-            DatabaseBackupUtil.restoreSql(sb.toString());
-            okMsg(resp, "Database restore completed.");
+            DatabaseBackupUtil.RestoreResult r = DatabaseBackupUtil.restoreSql(sb.toString());
+            // Report what actually landed. A bare "completed" hid a parser bug that
+            // silently discarded the first row of every table.
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("message", "Database restore completed: " + r.getStatements()
+                    + " statement(s) applied, " + r.getRowsInserted() + " row(s) inserted"
+                    + (r.getRowsInserted() == 0
+                        ? " (every row was already present)." : "."));
+            body.put("statements", r.getStatements());
+            body.put("rowsInserted", r.getRowsInserted());
+            ok(resp, body);
         } catch (IllegalArgumentException e) {
             badRequest(resp, e.getMessage());
         } catch (Exception e) {
@@ -440,33 +529,93 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /** What actually happened to one seller's analytics report. */
+    private enum MailOutcome { SENT, NOT_CONFIGURED, FAILED }
+
+    private static final class AnalyticsMailResult {
+        final MailOutcome outcome;
+        final String report;
+
+        AnalyticsMailResult(MailOutcome outcome, String report) {
+            this.outcome = outcome;
+            this.report = report;
+        }
+    }
+
+    /**
+     * GET /api/admin/sellers/analytics?sellerId=N — the generated report, for reading.
+     *
+     * <p>Requirement (d) is about the admin producing this data for a seller. Until now the
+     * only place the report rendered was the seller's own dashboard, so with SMTP off the
+     * admin had no way to see what they had generated. This endpoint makes the requirement
+     * demonstrable whether or not mail is configured.</p>
+     */
+    private void handleSellerAnalyticsView(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+        String sellerIdStr = param(req, "sellerId");
+        if (sellerIdStr == null) { badRequest(resp, "sellerId is required."); return; }
+        int sellerId;
+        try { sellerId = Integer.parseInt(sellerIdStr.trim()); }
+        catch (NumberFormatException e) { badRequest(resp, "Invalid seller ID."); return; }
+
+        User seller = userDAO.getUserById(sellerId);
+        if (seller == null || !seller.canSell()) { error(resp, 404, "Seller not found."); return; }
+
+        try {
+            Map<String, Object> analytics = sellerAnalyticsDAO.generate(sellerId);
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("sellerId", sellerId);
+            body.put("sellerUsername", seller.getUsername());
+            body.put("sellerEmail", seller.getEmail());
+            body.put("emailConfigured", MailConfig.isSmtpConfigured());
+            body.put("analytics", analytics);
+            body.put("report", SellerAnalyticsDAO.toEmailBody(seller.getUsername(), analytics));
+            ok(resp, body);
+        } catch (Exception e) {
+            serverError(resp, "Could not generate the seller analytics report.");
+        }
+    }
+
     private void handleSellerAnalyticsEmail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String sellerIdStr = param(req, "sellerId");
         String sendAll = param(req, "all");
-        int sent = 0;
-        int failed = 0;
         try {
             if ("true".equalsIgnoreCase(sendAll)) {
-                for (AdminUserSummary u : userDAO.listUsersForAdminTable()) {
-                    if (!u.canSell() || u.getStatusId() != Status.ACTIVE.getId()) continue;
-                    if (emailSellerAnalytics(u.getId(), u.getUsername(), u.getEmail())) sent++;
-                    else failed++;
-                }
-            } else {
-                if (sellerIdStr == null) { badRequest(resp, "sellerId or all=true is required."); return; }
-                int sellerId = Integer.parseInt(sellerIdStr.trim());
-                User seller = userDAO.getUserById(sellerId);
-                if (seller == null || !seller.canSell()) {
-                    error(resp, 404, "Seller not found."); return;
-                }
-                if (emailSellerAnalytics(sellerId, seller.getUsername(), seller.getEmail())) {
-                    okMsg(resp, "Analytics report emailed to " + seller.getEmail() + ".");
-                } else {
-                    serverError(resp, "Could not send email.");
-                }
+                handleSellerAnalyticsEmailAll(resp);
                 return;
             }
-            okMsg(resp, "Emailed " + sent + " seller(s)." + (failed > 0 ? " Failed: " + failed + "." : ""));
+            if (sellerIdStr == null) { badRequest(resp, "sellerId or all=true is required."); return; }
+            int sellerId = Integer.parseInt(sellerIdStr.trim());
+            User seller = userDAO.getUserById(sellerId);
+            if (seller == null || !seller.canSell()) {
+                error(resp, 404, "Seller not found."); return;
+            }
+
+            AnalyticsMailResult result =
+                    emailSellerAnalytics(sellerId, seller.getUsername(), seller.getEmail());
+            switch (result.outcome) {
+                case SENT:
+                    Map<String, Object> sentBody = new LinkedHashMap<>();
+                    sentBody.put("message", "Analytics report emailed to " + seller.getEmail() + ".");
+                    sentBody.put("emailConfigured", true);
+                    sentBody.put("report", result.report);
+                    ok(resp, sentBody);
+                    break;
+                case NOT_CONFIGURED:
+                    // The report was generated but nothing left the server, so say so and hand
+                    // the report back inline. Reporting success here is what made the admin UI
+                    // claim it had mailed a seller on a server with no SMTP at all.
+                    Map<String, Object> inline = new LinkedHashMap<>();
+                    inline.put("message", "Email is not configured on this server, so nothing was "
+                            + "sent. The report is shown below instead.");
+                    inline.put("emailConfigured", false);
+                    inline.put("report", result.report);
+                    ok(resp, inline);
+                    break;
+                case FAILED:
+                default:
+                    serverError(resp, "Could not send the analytics report to " + seller.getEmail() + ".");
+            }
         } catch (NumberFormatException e) {
             badRequest(resp, "Invalid seller ID.");
         } catch (Exception e) {
@@ -474,17 +623,61 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
-    private boolean emailSellerAnalytics(int sellerId, String username, String email) {
-        if (email == null || email.isBlank()) return false;
-        try {
-            Map<String, Object> analytics = sellerAnalyticsDAO.generate(sellerId);
-            String body = SellerAnalyticsDAO.toEmailBody(username, analytics);
-            if (MailConfig.isSmtpConfigured()) {
-                OtpMailer.sendNotification(email, "Your AuctionHub seller analytics report", body);
+    private void handleSellerAnalyticsEmailAll(HttpServletResponse resp) throws IOException {
+        int sent = 0;
+        int generatedOnly = 0;
+        int failed = 0;
+        List<String> failedSellers = new ArrayList<>();
+        for (AdminUserSummary u : userDAO.listUsersForAdminTable()) {
+            if (!u.canSell() || u.getStatusId() != Status.ACTIVE.getId()) continue;
+            AnalyticsMailResult r = emailSellerAnalytics(u.getId(), u.getUsername(), u.getEmail());
+            switch (r.outcome) {
+                case SENT:           sent++; break;
+                case NOT_CONFIGURED: generatedOnly++; break;
+                default:             failed++; failedSellers.add(u.getUsername());
             }
-            return true;
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        boolean configured = MailConfig.isSmtpConfigured();
+        StringBuilder msg = new StringBuilder();
+        if (!configured) {
+            msg.append("Email is not configured on this server, so no report was sent. Generated ")
+               .append(generatedOnly)
+               .append(" report(s) — pick a seller above to read one inline.");
+        } else {
+            msg.append("Emailed ").append(sent).append(" seller(s).");
+        }
+        if (failed > 0) {
+            msg.append(" Failed for ").append(failed).append(": ")
+               .append(String.join(", ", failedSellers)).append('.');
+        }
+        body.put("message", msg.toString());
+        body.put("emailConfigured", configured);
+        body.put("sent", sent);
+        body.put("generatedNotSent", generatedOnly);
+        body.put("failed", failed);
+        ok(resp, body);
+    }
+
+    private AnalyticsMailResult emailSellerAnalytics(int sellerId, String username, String email) {
+        String report;
+        try {
+            report = SellerAnalyticsDAO.toEmailBody(username, sellerAnalyticsDAO.generate(sellerId));
         } catch (Exception e) {
-            return false;
+            return new AnalyticsMailResult(MailOutcome.FAILED, null);
+        }
+        if (!MailConfig.isSmtpConfigured()) {
+            return new AnalyticsMailResult(MailOutcome.NOT_CONFIGURED, report);
+        }
+        if (email == null || email.isBlank()) {
+            return new AnalyticsMailResult(MailOutcome.FAILED, report);
+        }
+        try {
+            OtpMailer.sendNotification(email, "Your AuctionHub seller analytics report", report);
+            return new AnalyticsMailResult(MailOutcome.SENT, report);
+        } catch (Exception e) {
+            return new AnalyticsMailResult(MailOutcome.FAILED, report);
         }
     }
 
@@ -554,8 +747,48 @@ public class AdminApiServlet extends ApiBase {
                     serverError(resp, "Could not reject account.");
                 }
                 break;
+            case "deactivate":
+                customerDeactivate(req, resp, adminId, targetId);
+                break;
             default:
                 badRequest(resp, "Unknown action: " + action);
+        }
+    }
+
+    /**
+     * POST /api/admin/users action=deactivate, userid, reason — the Delete that
+     * "manage ... customers" was missing.
+     *
+     * <p>A soft delete to the existing {@code Deleted} status, so the account's bids, orders
+     * and reviews keep an author and the action stays reversible. Refused while the account
+     * has a live listing or an unsettled order, which would strand the counterparty.</p>
+     */
+    private void customerDeactivate(HttpServletRequest req, HttpServletResponse resp,
+                                    int adminId, int targetId) throws IOException {
+        String reason = SecurityUtil.sanitize(param(req, "reason"));
+        if (reason == null || reason.isBlank()) {
+            badRequest(resp, "A reason is required when deactivating an account."); return;
+        }
+        try {
+            AdminManagementDAO.Outcome outcome = adminManagementDAO.deactivateCustomer(
+                    adminId, targetId, Status.DELETED.getId(), reason);
+            switch (outcome) {
+                case SUCCESS:
+                    okMsg(resp, "Account deactivated and recorded in the audit log.");
+                    break;
+                case UNCHANGED:
+                    error(resp, 400, "This account is already deactivated.");
+                    break;
+                case NOT_FOUND:
+                    error(resp, 404, "User not found.");
+                    break;
+                case INVALID:
+                default:
+                    error(resp, 400, "This account still has a live listing or an unsettled order. "
+                            + "Settle those first, or ban the account instead.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not deactivate the account.");
         }
     }
 
@@ -605,9 +838,78 @@ public class AdminApiServlet extends ApiBase {
                 if (ok) okMsg(resp, "Listing removed from featured.");
                 else serverError(resp, "Could not unfeature listing.");
                 break;
+            case "EDIT":
+                listingEdit(req, resp, auctionId);
+                break;
+            case "SET_KIND":
+                listingSetKind(req, resp, auctionId);
+                break;
             default:
                 badRequest(resp, "Unknown action: " + action);
         }
+    }
+
+    /**
+     * POST /api/admin/listings action=EDIT — corrects a listing's title, description,
+     * category and product/service kind.
+     *
+     * <p>Price and quantity are intentionally not editable here: a bid is an offer against a
+     * published price, so changing it mid-auction would rewrite the terms buyers already
+     * committed to. Content correction is the moderation need — previously the only remedy
+     * for an inappropriate title was removing the whole listing.</p>
+     */
+    private void listingEdit(HttpServletRequest req, HttpServletResponse resp, long auctionId)
+            throws IOException {
+        int adminId = adminId(req);
+        String title = SecurityUtil.sanitize(param(req, "title"));
+        String description = SecurityUtil.sanitize(param(req, "description"));
+        String category = SecurityUtil.sanitize(param(req, "category"));
+        String kind = param(req, "listingKind");
+        String reason = SecurityUtil.sanitize(param(req, "reason"));
+
+        if (title == null || title.isBlank()) { badRequest(resp, "title is required."); return; }
+        if (title.length() > 255) { badRequest(resp, "Title must be 255 characters or fewer."); return; }
+        if (description == null || description.isBlank()) {
+            badRequest(resp, "description is required."); return;
+        }
+
+        try {
+            AdminManagementDAO.Outcome outcome = adminManagementDAO.updateListingContent(
+                    adminId, auctionId, title, description, category, kind, reason);
+            switch (outcome) {
+                case SUCCESS:   okMsg(resp, "Listing content updated and recorded in the audit log."); break;
+                case UNCHANGED: okMsg(resp, "No changes to save."); break;
+                case NOT_FOUND: error(resp, 404, "Listing not found."); break;
+                case INVALID:
+                default:        badRequest(resp, "listingKind must be PRODUCT or SERVICE.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not update the listing.");
+        }
+    }
+
+    /** POST /api/admin/listings action=SET_KIND — reclassifies product vs service. */
+    private void listingSetKind(HttpServletRequest req, HttpServletResponse resp, long auctionId)
+            throws IOException {
+        String kind = param(req, "listingKind");
+        String reason = SecurityUtil.sanitize(param(req, "reason"));
+        try {
+            AdminManagementDAO.Outcome outcome =
+                    adminManagementDAO.updateListingKind(adminId(req), auctionId, kind, reason);
+            switch (outcome) {
+                case SUCCESS:   okMsg(resp, "Listing reclassified as " + kind.trim().toUpperCase() + "."); break;
+                case UNCHANGED: okMsg(resp, "Listing was already classified that way."); break;
+                case NOT_FOUND: error(resp, 404, "Listing not found."); break;
+                case INVALID:
+                default:        badRequest(resp, "listingKind must be PRODUCT or SERVICE.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not reclassify the listing.");
+        }
+    }
+
+    private int adminId(HttpServletRequest req) {
+        return ((Number) authSession(req).getAttribute("userId")).intValue();
     }
 
     // ── POST: category action ─────────────────────────────────────────────────
@@ -758,13 +1060,19 @@ public class AdminApiServlet extends ApiBase {
      */
     private void handleOrderAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String action = param(req, "action");
-        boolean approve = "refund-approve".equalsIgnoreCase(action);
-        if (!approve && !"refund-decline".equalsIgnoreCase(action)) {
-            badRequest(resp, "action must be 'refund-approve' or 'refund-decline'."); return;
-        }
         long orderId;
         try { orderId = Long.parseLong(param(req, "orderId")); }
         catch (Exception e) { badRequest(resp, "orderId is required."); return; }
+
+        if ("correct-status".equalsIgnoreCase(action)) {
+            orderCorrectStatus(req, resp, orderId);
+            return;
+        }
+        boolean approve = "refund-approve".equalsIgnoreCase(action);
+        if (!approve && !"refund-decline".equalsIgnoreCase(action)) {
+            badRequest(resp,
+                    "action must be 'refund-approve', 'refund-decline' or 'correct-status'."); return;
+        }
 
         try {
             OrderDAO.RefundDecision d = orderDAO.adminResolveRefund(orderId, approve);
@@ -785,6 +1093,42 @@ public class AdminApiServlet extends ApiBase {
             }
         } catch (Exception e) {
             serverError(resp, "Could not resolve the refund request.");
+        }
+    }
+
+    /**
+     * POST /api/admin/orders action=correct-status, orderId, status, reason —
+     * reconciles an order whose recorded state has drifted from reality.
+     *
+     * <p>The order's {@code amount} is not editable. That figure is the settled sale value
+     * and it feeds platform revenue and the seller's earnings, so an admin able to rewrite
+     * it could falsify the platform's own books. State is a record of what happened and can
+     * legitimately be wrong; the money is the transaction itself.</p>
+     */
+    private void orderCorrectStatus(HttpServletRequest req, HttpServletResponse resp, long orderId)
+            throws IOException {
+        String status = param(req, "status");
+        String reason = SecurityUtil.sanitize(param(req, "reason"));
+        if (status == null || status.isBlank()) { badRequest(resp, "status is required."); return; }
+        if (reason == null || reason.isBlank()) {
+            badRequest(resp, "A reason is required when correcting an order's state."); return;
+        }
+        try {
+            AdminManagementDAO.Outcome outcome =
+                    adminManagementDAO.correctOrderStatus(adminId(req), orderId, status, reason);
+            switch (outcome) {
+                case SUCCESS:
+                    okMsg(resp, "Order state corrected to " + status.trim().toUpperCase()
+                            + " and recorded in the audit log.");
+                    break;
+                case UNCHANGED: okMsg(resp, "Order is already in that state."); break;
+                case NOT_FOUND: error(resp, 404, "Order not found."); break;
+                case INVALID:
+                default:
+                    badRequest(resp, "status must be one of PENDING_PAYMENT, PAID, COMPLETED, CANCELLED.");
+            }
+        } catch (Exception e) {
+            serverError(resp, "Could not correct the order state.");
         }
     }
 

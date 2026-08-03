@@ -22,11 +22,18 @@ export const restoreDatabaseBackup = (sqlText) =>
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
   });
 
-// Seller analytics email (admin-initiated)
+// Seller analytics (admin-initiated). getSellerAnalyticsReport reads the report without
+// sending anything, so requirement (d) is demonstrable on a server with no SMTP.
+export const getSellerAnalyticsReport = (sellerId) =>
+  api.get('/admin/sellers/analytics', { params: { sellerId } });
 export const emailSellerAnalytics = (sellerId) =>
   api.post('/admin/sellers/analytics-email', form({ sellerId }), F);
 export const emailAllSellerAnalytics = () =>
   api.post('/admin/sellers/analytics-email', form({ all: 'true' }), F);
+
+// Admin management audit trail
+export const getAdminAuditLog = (limit = 100) =>
+  api.get('/admin/audit-log', { params: { limit } });
 
 // Users
 export const getAdminUsers = () => api.get('/admin/users');
@@ -34,6 +41,10 @@ export const banUser     = (userid) => api.post('/admin/users', form({ action: '
 export const unbanUser   = (userid) => api.post('/admin/users', form({ action: 'unban',   userid }), F);
 export const approveUser = (userid) => api.post('/admin/users', form({ action: 'approve', userid }), F);
 export const rejectUser  = (userid) => api.post('/admin/users', form({ action: 'reject',  userid }), F);
+// Soft delete to the Deleted status. Refused server-side while the account has a live
+// listing or an unsettled order.
+export const deactivateUser = (userid, reason) =>
+  api.post('/admin/users', form({ action: 'deactivate', userid, reason }), F);
 
 // Listings
 export const getAdminListings  = () => api.get('/admin/listings');
@@ -44,6 +55,15 @@ export const featureListing = (auctionId, days = 7) =>
   api.post('/admin/listings', form({ action: 'FEATURE', auctionId, days: String(days) }), F);
 export const unfeatureListing = (auctionId) =>
   api.post('/admin/listings', form({ action: 'UNFEATURE', auctionId }), F);
+export const getListingContent = (auctionId) =>
+  api.get('/admin/listings/content', { params: { auctionId } });
+// Content correction only — price and quantity stay with the seller, since a bid is an
+// offer against a published price.
+export const editListingContent = (auctionId, { title, description, category, listingKind, reason }) =>
+  api.post('/admin/listings',
+    form({ action: 'EDIT', auctionId, title, description, category, listingKind, reason }), F);
+export const setListingKind = (auctionId, listingKind, reason) =>
+  api.post('/admin/listings', form({ action: 'SET_KIND', auctionId, listingKind, reason }), F);
 
 // Categories
 export const getAdminCategories = () => api.get('/admin/categories');
@@ -101,3 +121,7 @@ export const getAdminOrders = () => api.get('/admin/orders');
 // Dispute resolution: admin overrides the seller on a pending refund request
 export const adminResolveRefund = (orderId, approve) =>
   api.post('/admin/orders', form({ action: approve ? 'refund-approve' : 'refund-decline', orderId }), F);
+// Reconciles a drifted order state. The amount is not editable: it is the settled sale
+// value and feeds platform revenue.
+export const correctOrderStatus = (orderId, status, reason) =>
+  api.post('/admin/orders', form({ action: 'correct-status', orderId, status, reason }), F);

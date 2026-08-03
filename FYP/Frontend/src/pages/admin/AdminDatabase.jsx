@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getDatabaseStatus, downloadDatabaseBackup, restoreDatabaseBackup } from '../../api/admin';
+import {
+  getDatabaseStatus, downloadDatabaseBackup, restoreDatabaseBackup, getAdminAuditLog,
+} from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
 
 function triggerBlobDownload(blob, filename) {
@@ -15,6 +17,7 @@ export default function AdminDatabase() {
   const [status, setStatus] = useState(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [auditLog, setAuditLog] = useState([]);
 
   const loadStatus = () => {
     getDatabaseStatus()
@@ -22,7 +25,11 @@ export default function AdminDatabase() {
       .catch(err => setMsg(apiErrorMessage(err, 'Could not load database status.')));
   };
 
-  useEffect(() => { loadStatus(); }, []);
+  const loadAuditLog = () => {
+    getAdminAuditLog(50).then(r => setAuditLog(r.data ?? [])).catch(() => {});
+  };
+
+  useEffect(() => { loadStatus(); loadAuditLog(); }, []);
 
   const handleBackup = async () => {
     setBusy(true);
@@ -48,6 +55,8 @@ export default function AdminDatabase() {
     try {
       const sqlText = await file.text();
       const r = await restoreDatabaseBackup(sqlText);
+      // The server now reports statements applied and rows inserted, rather than a bare
+      // "completed" that once hid a parser bug silently discarding rows.
       setMsg(r.data?.message ?? 'Restore completed.');
       loadStatus();
     } catch (err) {
@@ -121,6 +130,58 @@ export default function AdminDatabase() {
       ) : (
         <div className="text-center py-12 text-ink-400">Loading database status…</div>
       )}
+
+      <div className="card p-5 mt-8">
+        <h2 className="section-title text-base mb-1">Admin Management Audit Trail</h2>
+        <p className="text-sm text-ink-500 mb-4">
+          Every listing edit, product/service reclassification, order-state correction and
+          account deactivation an admin performs, with the value it replaced.
+        </p>
+        {auditLog.length === 0 ? (
+          <p className="text-sm text-ink-400">No admin management actions recorded yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-ink-400 border-b border-ink-100">
+                  <th className="py-2 pr-4">When</th>
+                  <th className="py-2 pr-4">Admin</th>
+                  <th className="py-2 pr-4">Entity</th>
+                  <th className="py-2 pr-4">Action</th>
+                  <th className="py-2 pr-4">Field</th>
+                  <th className="py-2 pr-4">Was</th>
+                  <th className="py-2 pr-4">Now</th>
+                  <th className="py-2">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLog.map(row => (
+                  <tr key={row.id} className="border-b border-ink-50 align-top">
+                    <td className="py-2 pr-4 text-ink-400 text-xs whitespace-nowrap">
+                      {row.at ? new Date(row.at).toLocaleString() : '—'}
+                    </td>
+                    <td className="py-2 pr-4 text-ink-700">{row.adminUsername}</td>
+                    <td className="py-2 pr-4 text-ink-600 whitespace-nowrap">
+                      {row.entityType} #{row.entityId}
+                    </td>
+                    <td className="py-2 pr-4 text-ink-600">{row.action}</td>
+                    <td className="py-2 pr-4 font-mono text-xs text-ink-500">{row.field ?? '—'}</td>
+                    <td className="py-2 pr-4 text-ink-500 text-xs max-w-[16rem] break-words">
+                      {row.oldValue ?? '—'}
+                    </td>
+                    <td className="py-2 pr-4 text-ink-800 text-xs max-w-[16rem] break-words">
+                      {row.newValue ?? '—'}
+                    </td>
+                    <td className="py-2 text-ink-500 text-xs max-w-[16rem] break-words">
+                      {row.reason ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

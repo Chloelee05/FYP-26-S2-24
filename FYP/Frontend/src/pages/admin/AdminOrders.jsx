@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
-import { getAdminOrders, adminResolveRefund } from '../../api/admin';
+import { getAdminOrders, adminResolveRefund, correctOrderStatus } from '../../api/admin';
 import { formatCurrency, decodeHtmlEntities } from '../../utils/helpers';
 import { apiErrorMessage } from '../../utils/apiError';
+import Modal from '../../components/Modal';
 
 const STATUS_STYLE = {
   PENDING_PAYMENT: 'bg-amber-50 text-amber-700 ring-amber-200',
@@ -19,6 +20,7 @@ const REFUND_STYLE = {
 };
 
 const STATUS_FILTERS = ['ALL', 'PENDING_PAYMENT', 'PAID', 'COMPLETED', 'CANCELLED'];
+const ORDER_STATUSES = ['PENDING_PAYMENT', 'PAID', 'COMPLETED', 'CANCELLED'];
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
@@ -27,6 +29,7 @@ export default function AdminOrders() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [correcting, setCorrecting] = useState(null);
 
   const load = () => {
     getAdminOrders()
@@ -78,10 +81,31 @@ export default function AdminOrders() {
     }
   };
 
+  const saveCorrection = async () => {
+    if (!correcting.reason.trim()) {
+      setMsg('A reason is required when correcting an order state.');
+      return;
+    }
+    setBusyId(correcting.id);
+    setMsg('');
+    try {
+      const r = await correctOrderStatus(correcting.id, correcting.status, correcting.reason);
+      setMsg(r.data?.message ?? 'Order state corrected.');
+      setCorrecting(null);
+      load();
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not correct the order state.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="p-8">
       <h1 className="page-title">Orders & Transactions</h1>
-      <p className="page-subtitle mb-6">Monitor all financial activity and resolve disputes</p>
+      <p className="page-subtitle mb-6">
+        Monitor all financial activity, resolve disputes, and correct a drifted order state
+      </p>
 
       {msg && <div className="text-sm text-primary-600 mb-4">{msg}</div>}
 
@@ -183,7 +207,7 @@ export default function AdminOrders() {
           <table className="w-full text-sm">
             <thead className="text-xs text-ink-500 uppercase tracking-wider bg-ink-50 border-b border-ink-200">
               <tr>
-                {['Order', 'Auction', 'Parties', 'Amount', 'Status', 'Refund', 'Created', 'Paid', 'Completed'].map(h => (
+                {['Order', 'Auction', 'Parties', 'Amount', 'Status', 'Refund', 'Created', 'Paid', 'Completed', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left font-bold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -220,12 +244,79 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 text-ink-400 text-xs whitespace-nowrap">
                     {o.completedAt ? new Date(o.completedAt).toLocaleString() : '—'}
                   </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setCorrecting({ id: o.id, status: o.status, reason: '' })}
+                      className="text-xs font-medium text-primary-600 hover:text-primary-800 whitespace-nowrap"
+                    >
+                      Correct state
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {correcting && (
+        <Modal
+          title="Correct order state"
+          subtitle={`Order #${correcting.id}`}
+          onClose={() => setCorrecting(null)}
+        >
+          <div className="p-6 space-y-4">
+            <p className="text-xs text-ink-500 leading-relaxed bg-ink-50 rounded-lg p-3">
+              Use this to reconcile an order whose recorded state has drifted from what
+              actually happened — a payment settled out of band, or a delivery that never got
+              marked. The amount is not editable: it is the settled sale value and it feeds
+              platform revenue and the seller's earnings. The change is recorded in the admin
+              audit log with its previous value.
+            </p>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1" htmlFor="correct-status">
+                New state
+              </label>
+              <select
+                id="correct-status"
+                value={correcting.status}
+                onChange={e => setCorrecting(c => ({ ...c, status: e.target.value }))}
+                className="input-field w-full"
+              >
+                {ORDER_STATUSES.map(s => (
+                  <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1" htmlFor="correct-reason">
+                Reason (required, recorded in the audit log)
+              </label>
+              <input
+                id="correct-reason"
+                value={correcting.reason}
+                onChange={e => setCorrecting(c => ({ ...c, reason: e.target.value }))}
+                placeholder="e.g. buyer paid by bank transfer outside the platform"
+                className="input-field w-full"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={saveCorrection}
+                disabled={busyId === correcting.id}
+                className="btn-primary"
+              >
+                {busyId === correcting.id ? 'Saving…' : 'Apply correction'}
+              </button>
+              <button type="button" onClick={() => setCorrecting(null)} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

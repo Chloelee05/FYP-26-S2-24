@@ -3,6 +3,7 @@ import { FileText, TrendingUp, ShieldAlert } from 'lucide-react';
 import {
   getAdminAnalytics, downloadAdminReport,
   getAdminUsers, emailSellerAnalytics, emailAllSellerAnalytics,
+  getSellerAnalyticsReport,
   getRecommendationConfig, saveRecommendationConfig,
 } from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
@@ -45,6 +46,8 @@ export default function AdminAnalytics() {
   const [msg, setMsg] = useState('');
   const [reportBusy, setReportBusy] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
+  const [sellerReport, setSellerReport] = useState(null);
+  const [reportOnly, setReportOnly] = useState(false);
   const [recMetrics, setRecMetrics] = useState(null);
   const [recByReason, setRecByReason] = useState([]);
   const [recForm, setRecForm] = useState({
@@ -109,6 +112,30 @@ export default function AdminAnalytics() {
     }
   };
 
+  // Reads the report without sending anything, so the tool is demonstrable on a server
+  // with no SMTP configured — which is every deployment of this app today.
+  const handleViewReport = async () => {
+    if (!selectedSellerId) {
+      setMsg('Select a seller first.');
+      return;
+    }
+    setEmailBusy(true);
+    setMsg('');
+    setSellerReport(null);
+    try {
+      const r = await getSellerAnalyticsReport(selectedSellerId);
+      setSellerReport(r.data);
+      setReportOnly(true);
+      setMsg(r.data?.emailConfigured
+        ? 'Report generated. Email is configured, so "Email selected seller" will deliver it.'
+        : 'Report generated. Email is not configured on this server, so nothing would be sent.');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not generate the seller analytics report.'));
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
   const handleEmailSeller = async () => {
     if (!selectedSellerId) {
       setMsg('Select a seller first.');
@@ -119,6 +146,16 @@ export default function AdminAnalytics() {
     try {
       const r = await emailSellerAnalytics(selectedSellerId);
       setMsg(r.data?.message ?? 'Analytics email sent.');
+      // With SMTP unconfigured the server returns emailConfigured:false and hands the
+      // report back inline rather than reporting a send that never happened.
+      if (r.data?.report) {
+        setSellerReport({
+          report: r.data.report,
+          emailConfigured: r.data.emailConfigured !== false,
+          sellerUsername: sellers.find(s => String(s.id) === String(selectedSellerId))?.username,
+        });
+        setReportOnly(r.data.emailConfigured === false);
+      }
     } catch (err) {
       setMsg(apiErrorMessage(err, 'Could not send analytics email.'));
     } finally {
@@ -192,6 +229,84 @@ export default function AdminAnalytics() {
       ) : (
         <div className="text-center py-12 text-ink-400">Loading analytics…</div>
       )}
+
+      {/* Requirement (d): the admin generates and emails "data analytics" to a seller.
+          Moved to the top of the page — it was the last card below a 300-line
+          recommendation console, which is a poor place for a named requirement. */}
+      <div className="card p-5 mb-6 border-l-4 border-primary-500">
+        <h2 className="font-bold text-ink-900 mb-1">Seller Data Analytics</h2>
+        <p className="text-sm text-ink-400 mb-4">
+          Generate a seller's performance report — most popular product/service per calendar
+          day, week, month and quarter, and the percentage of each star rating from buyers —
+          then read it here or email it to them.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-ink-500 mb-1" htmlFor="seller-select">Seller</label>
+            <select
+              id="seller-select"
+              value={selectedSellerId}
+              onChange={e => { setSelectedSellerId(e.target.value); setSellerReport(null); }}
+              className="border border-ink-200 rounded-lg px-3 py-2 text-sm min-w-[240px]"
+            >
+              <option value="">Select seller…</option>
+              {sellers.map(s => (
+                <option key={s.id} value={s.id}>{s.username} ({s.email})</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={handleViewReport}
+            disabled={emailBusy || !selectedSellerId}
+            className="btn-primary"
+          >
+            {emailBusy ? 'Generating…' : 'View report'}
+          </button>
+          <button
+            type="button"
+            onClick={handleEmailSeller}
+            disabled={emailBusy || !selectedSellerId}
+            className="btn-dark"
+          >
+            Email selected seller
+          </button>
+          <button
+            type="button"
+            onClick={handleEmailAllSellers}
+            disabled={emailBusy || sellers.length === 0}
+            className="px-4 py-2 border border-ink-200 text-sm rounded-lg hover:bg-ink-50 disabled:opacity-50"
+          >
+            Email all active sellers ({sellers.length})
+          </button>
+        </div>
+
+        {sellerReport?.report && (
+          <div className="mt-5 pt-5 border-t border-ink-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h3 className="font-semibold text-sm text-ink-900">
+                Report for {sellerReport.sellerUsername ?? 'the selected seller'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSellerReport(null)}
+                className="text-xs text-ink-400 hover:text-ink-600"
+              >
+                Hide
+              </button>
+            </div>
+            {reportOnly && (
+              <p className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2 mb-3">
+                Email is not configured on this server, so this report was generated but not
+                sent. Set the AUCTION_SMTP_* environment variables to enable delivery.
+              </p>
+            )}
+            <pre className="text-xs text-ink-700 bg-ink-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[28rem] overflow-y-auto">
+              {sellerReport.report}
+            </pre>
+          </div>
+        )}
+      </div>
 
       <div className="card p-5 mb-6">
         <h2 className="section-title text-base mb-4">Generate Reports</h2>
@@ -437,42 +552,6 @@ export default function AdminAnalytics() {
       </div>
 
       <RecommendationAttributionPanel />
-
-      <div className="card p-5">
-        <h2 className="font-bold text-ink-900 mb-1">Seller Analytics Email</h2>
-        <p className="text-sm text-ink-400 mb-4">Send a seller analytics report by email (admin-initiated)</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs text-ink-500 mb-1">Seller</label>
-            <select
-              value={selectedSellerId}
-              onChange={e => setSelectedSellerId(e.target.value)}
-              className="border border-ink-200 rounded-lg px-3 py-2 text-sm min-w-[200px]"
-            >
-              <option value="">Select seller…</option>
-              {sellers.map(s => (
-                <option key={s.id} value={s.id}>{s.username} ({s.email})</option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={handleEmailSeller}
-            disabled={emailBusy || !selectedSellerId}
-            className="btn-primary"
-          >
-            Email selected seller
-          </button>
-          <button
-            type="button"
-            onClick={handleEmailAllSellers}
-            disabled={emailBusy || sellers.length === 0}
-            className="px-4 py-2 border border-ink-200 text-sm rounded-lg hover:bg-ink-50 disabled:opacity-50"
-          >
-            Email all active sellers
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
