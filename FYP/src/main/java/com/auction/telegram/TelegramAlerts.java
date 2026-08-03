@@ -126,6 +126,16 @@ public final class TelegramAlerts {
             + "The order is still open in My purchases. Message the seller from there if you "
             + "want to take it further.";
 
+    private static final String DEFAULT_ORDER_PAYMENT_TIMEOUT_BUYER =
+            "Your order for {title} was cancelled.\n\n"
+            + "Payment was not received within the required window, so the order was "
+            + "automatically cancelled.";
+
+    private static final String DEFAULT_ORDER_PAYMENT_TIMEOUT_SELLER =
+            "{title} closed unsold.\n\n"
+            + "The winning bidder did not pay in time, so the order was cancelled. You can "
+            + "relist the item from your seller dashboard.";
+
     private TelegramAlerts() {
     }
 
@@ -271,6 +281,20 @@ public final class TelegramAlerts {
                 : orderAlert("REFUND_REJECTED", "telegram.alert.refundRejected",
                         DEFAULT_REFUND_REJECTED, auctionId, title, null, null, false,
                         "REFUND_RESULT:" + orderId);
+    }
+
+    /** Buyer: their unpaid order was auto-cancelled (payment deadline missed). */
+    public static Alert orderPaymentTimeoutBuyer(long orderId, long auctionId, String title) {
+        return orderAlert("ORDER_CANCELLED", "telegram.alert.orderPaymentTimeoutBuyer",
+                DEFAULT_ORDER_PAYMENT_TIMEOUT_BUYER, auctionId, title, null, null, false,
+                "ORDER_PAYMENT_TIMEOUT:" + orderId);
+    }
+
+    /** Seller: the winning bidder never paid, so the listing closed unsold. */
+    public static Alert orderPaymentTimeoutSeller(long orderId, long auctionId, String title) {
+        return orderAlert("ORDER_CANCELLED_SELLER", "telegram.alert.orderPaymentTimeoutSeller",
+                DEFAULT_ORDER_PAYMENT_TIMEOUT_SELLER, auctionId, title, null, null, true,
+                "ORDER_PAYMENT_TIMEOUT_SELLER:" + orderId);
     }
 
     /**

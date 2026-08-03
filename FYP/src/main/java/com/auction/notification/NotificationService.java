@@ -468,6 +468,46 @@ public final class NotificationService {
         });
     }
 
+    /**
+     * Notifies the non-paying buyer that their unpaid order was automatically cancelled
+     * (payment deadline missed). Companion to {@link #notifyOrderPaymentTimeoutSeller}; the
+     * two are always fired together by the scheduled auto-cancel sweep.
+     */
+    public static void notifyOrderPaymentTimeoutBuyer(long orderId) {
+        safe(() -> {
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.buyerId, "ORDER_CANCELLED",
+                    "Your order for \"" + o.title + "\" was cancelled because payment was not received in time.",
+                    "/purchases",
+                    "Order cancelled — payment deadline passed",
+                    "Your order for \"" + o.title + "\" on AuctionHub was automatically cancelled because "
+                            + "payment was not made within the required window.",
+                    TelegramAlerts.orderPaymentTimeoutBuyer(orderId, o.auctionId, o.title));
+        });
+    }
+
+    /**
+     * Notifies the seller that the winning buyer never paid, so the order was cancelled and
+     * the listing closed unsold (see {@code OrderDAO#cancelOverduePendingOrders} for the
+     * "unsold rather than re-award" decision).
+     */
+    public static void notifyOrderPaymentTimeoutSeller(long orderId) {
+        safe(() -> {
+            OrderSummary o = orderSummary(orderId);
+            if (o == null) return;
+            create(o.sellerId, "ORDER_CANCELLED_SELLER",
+                    "The winning bidder for \"" + o.title + "\" did not pay in time. "
+                            + "The order was cancelled and the listing closed unsold.",
+                    "/sales",
+                    "Buyer did not pay — order cancelled",
+                    "The winning bidder for \"" + o.title + "\" on AuctionHub did not pay within the required "
+                            + "window. The order was cancelled and the listing closed unsold. "
+                            + "You can relist the item from your seller dashboard.",
+                    TelegramAlerts.orderPaymentTimeoutSeller(orderId, o.auctionId, o.title));
+        });
+    }
+
     /** Notifies the order counterparty that a new direct message was received. */
     public static void notifyOrderMessage(long auctionId, int recipientId, String senderName) {
         safe(() -> {

@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -156,6 +157,82 @@ public class OrderDAO {
             return ps.executeUpdate() == 1;
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Cancels every {@code PENDING_PAYMENT} order whose {@code created_at} is older than
+     * {@code deadline} — the auto-cancellation of an unpaid winning bid (anti-abuse /
+     * lifecycle feature).
+     *
+     * <p><b>Design decision (see also migration_order_payment_timeout.sql):</b> a cancelled
+     * order is <em>not</em> re-awarded to the next-highest bidder, nor is the auction
+     * automatically relisted. The auction stays {@code FINISHED} with its existing
+     * {@code winner_id}/{@code winning_bid} untouched — that is a historical fact (who won
+     * the auction), separate from whether the resulting order was ever paid. The listing
+     * simply closes as unsold from a sale-completion point of view (the order row is the
+     * source of truth for that: {@code status = 'CANCELLED'}), and the seller is told they
+     * can relist, exactly as an auction that closes with zero bids already tells them. A
+     * re-award flow was deliberately not built: it raises questions (what if the next
+     * bidder also does not pay? how does it interact with Dutch/blind auctions, which have
+     * no "next bidder" concept at all?) that are not worth the additional surface area this
+     * close to a viva.</p>
+     *
+     * <p><b>Grandfathering:</b> {@code effectiveSince} excludes every order created before
+     * the feature's first migration apply — see the migration for why: a handful of orders
+     * were already stuck in {@code PENDING_PAYMENT} indefinitely in the live database before
+     * this shipped, and silently cancelling them the instant this deploys would be a surprise
+     * ahead of a demo. They stay exactly as they are, forever, without needing their ids
+     * hardcoded anywhere.</p>
+     *
+     * <p>Row-locked ({@code FOR UPDATE}) and the status re-checked in the {@code UPDATE}'s
+     * {@code WHERE} clause, so an order that was paid in the instant between the SELECT and
+     * the UPDATE (there is none — same transaction — but this is cheap insurance against a
+     * future caller reusing the connection differently) can never be cancelled after all:
+     * a {@code PAID} order is never touched by this method, regardless of its age.</p>
+     *
+     * @return the ids of the orders that were cancelled, for the caller to notify about
+     */
+    public List<Long> cancelOverduePendingOrders(Duration deadline, Instant effectiveSince) {
+        Instant cutoff = Instant.now().minus(deadline);
+        Connection conn = null;
+        try {
+            conn = DBUtil.connectDB();
+            conn.setAutoCommit(false);
+
+            List<Long> ids = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id FROM orders WHERE status = 'PENDING_PAYMENT' "
+                  + "AND created_at < ? AND created_at >= ? FOR UPDATE")) {
+                ps.setTimestamp(1, Timestamp.from(cutoff));
+                ps.setTimestamp(2, Timestamp.from(effectiveSince));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) ids.add(rs.getLong("id"));
+                }
+            }
+
+            if (!ids.isEmpty()) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE orders SET status = 'CANCELLED', cancel_reason = 'PAYMENT_TIMEOUT', "
+                      + "cancelled_at = CURRENT_TIMESTAMP "
+                      + "WHERE id = ? AND status = 'PENDING_PAYMENT'")) {
+                    for (Long id : ids) {
+                        ps.setLong(1, id);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+
+            conn.commit();
+            return ids;
+        } catch (Exception e) {
+            if (conn != null) try { conn.rollback(); } catch (SQLException ignored) { }
+            throw new RuntimeException(e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) { }
+            }
         }
     }
 
@@ -413,7 +490,7 @@ public class OrderDAO {
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
-          + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
+          + "  o.refund_status, o.refund_reason, o.refund_requested_at, o.cancel_reason, "
           + "  bu.username AS buyer_name, su.username AS seller_name, "
           + "  (SELECT i.image_url FROM auction_images i WHERE i.auction_id = o.auction_id "
           + "   ORDER BY i.id LIMIT 1) AS thumbnail_url, "
@@ -450,7 +527,7 @@ public class OrderDAO {
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
-          + "  o.refund_status, o.refund_reason, o.refund_requested_at, "
+          + "  o.refund_status, o.refund_reason, o.refund_requested_at, o.cancel_reason, "
           + "  bu.username AS buyer_name, su.username AS seller_name, "
           + "  (SELECT i.image_url FROM auction_images i WHERE i.auction_id = o.auction_id "
           + "   ORDER BY i.id LIMIT 1) AS thumbnail_url, "
@@ -569,7 +646,8 @@ public class OrderDAO {
                 rs.getString("refund_status"),
                 rs.getString("refund_reason"),
                 instant(rs.getTimestamp("refund_requested_at")),
-                rs.getString("thumbnail_url"));
+                rs.getString("thumbnail_url"),
+                rs.getString("cancel_reason"));
     }
 
     private static Instant instant(Timestamp ts) { return ts != null ? ts.toInstant() : null; }

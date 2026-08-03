@@ -130,4 +130,7 @@
 \echo '== platform settings (bid rate limit, payment deadline, login lockout tunables) =='
 \ir migration_platform_settings.sql
 
+\echo '== auto-cancellation of unpaid orders (payment timeout) =='
+\ir migration_order_payment_timeout.sql
+
 \echo 'All migrations applied.'

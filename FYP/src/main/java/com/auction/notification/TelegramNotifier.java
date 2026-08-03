@@ -115,7 +115,9 @@ final class TelegramNotifier {
             case "ORDER_COMPLETED":
             case "REFUND_REQUESTED":
             case "REFUND_APPROVED":
-            case "REFUND_REJECTED":  return p.orderUpdates;
+            case "REFUND_REJECTED":
+            case "ORDER_CANCELLED":
+            case "ORDER_CANCELLED_SELLER": return p.orderUpdates;
             default:                 return true;
         }
     }

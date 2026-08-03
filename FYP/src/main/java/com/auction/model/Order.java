@@ -30,6 +30,8 @@ public final class Order {
     private final Instant refundRequestedAt;
     /** First listing image, so order lists can show the item. */
     private final String thumbnailUrl;
+    /** Why a CANCELLED order was cancelled, e.g. "PAYMENT_TIMEOUT"; null otherwise. */
+    private final String cancelReason;
 
     public Order(long id, long auctionId, String auctionTitle, long buyerId, long sellerId,
                  BigDecimal amount, String status, Instant createdAt, Instant paidAt, Instant completedAt,
@@ -45,6 +47,16 @@ public final class Order {
                  String role, String counterparty, String shippingStatus, Instant shippingUpdatedAt,
                  boolean hasRated, String refundStatus, String refundReason, Instant refundRequestedAt,
                  String thumbnailUrl) {
+        this(id, auctionId, auctionTitle, buyerId, sellerId, amount, status, createdAt, paidAt,
+             completedAt, role, counterparty, shippingStatus, shippingUpdatedAt, hasRated,
+             refundStatus, refundReason, refundRequestedAt, thumbnailUrl, null);
+    }
+
+    public Order(long id, long auctionId, String auctionTitle, long buyerId, long sellerId,
+                 BigDecimal amount, String status, Instant createdAt, Instant paidAt, Instant completedAt,
+                 String role, String counterparty, String shippingStatus, Instant shippingUpdatedAt,
+                 boolean hasRated, String refundStatus, String refundReason, Instant refundRequestedAt,
+                 String thumbnailUrl, String cancelReason) {
         this.id = id;
         this.auctionId = auctionId;
         this.auctionTitle = auctionTitle;
@@ -64,6 +76,7 @@ public final class Order {
         this.refundReason = refundReason;
         this.refundRequestedAt = refundRequestedAt;
         this.thumbnailUrl = thumbnailUrl;
+        this.cancelReason = cancelReason;
     }
 
     public long getId()            { return id; }
@@ -85,4 +98,5 @@ public final class Order {
     public String getRefundReason()       { return refundReason; }
     public Instant getRefundRequestedAt() { return refundRequestedAt; }
     public String getThumbnailUrl()       { return thumbnailUrl; }
+    public String getCancelReason()       { return cancelReason; }
 }

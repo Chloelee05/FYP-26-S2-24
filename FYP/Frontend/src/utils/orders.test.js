@@ -115,6 +115,14 @@ describe('orderHeadline', () => {
   it('falls back to a generic line when shipping status is unrecognised', () => {
     expect(orderHeadline(order({ shippingStatus: 'WAT' }), 'buyer')).toBe('Order in progress');
   });
+
+  it('distinguishes an auto-cancelled unpaid order from any other cancellation', () => {
+    const o = order({ status: 'CANCELLED', cancelReason: 'PAYMENT_TIMEOUT' });
+    expect(orderHeadline(o, 'buyer')).toBe('Cancelled — payment deadline missed');
+    expect(orderHeadline(o, 'seller')).toBe('Cancelled — buyer missed payment deadline');
+    // A refund-approved cancellation (no cancelReason) still reads as a plain cancellation.
+    expect(orderHeadline(order({ status: 'CANCELLED' }), 'buyer')).toBe('Order cancelled');
+  });
 });
 
 describe('shipping helpers', () => {

@@ -85,6 +85,9 @@ export function orderHeadline(order, role) {
     return role === 'seller' ? 'Refund requested by buyer' : 'Refund requested';
   }
   if (refund === 'APPROVED') return 'Refund approved';
+  if (order.status === 'CANCELLED' && order.cancelReason === 'PAYMENT_TIMEOUT') {
+    return role === 'seller' ? 'Cancelled — buyer missed payment deadline' : 'Cancelled — payment deadline missed';
+  }
   if (order.status === 'CANCELLED')       return 'Order cancelled';
   if (order.status === 'COMPLETED')       return 'Order completed';
   if (order.status === 'PENDING_PAYMENT') {

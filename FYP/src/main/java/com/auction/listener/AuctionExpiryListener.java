@@ -1,5 +1,7 @@
 package com.auction.listener;
 
+import com.auction.dao.OrderDAO;
+import com.auction.dao.PlatformSettingsDAO;
 import com.auction.dao.WatchlistDAO;
 import com.auction.model.AuctionStatus;
 import com.auction.model.profile.WatchlistRow;
@@ -14,6 +16,8 @@ import jakarta.servlet.annotation.WebListener;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -64,6 +68,37 @@ public class AuctionExpiryListener implements ServletContextListener {
             // Watchlist "ending soon" alerts (deduplicated inside NotificationService).
             notifyEndingSoonWatchers();
         } catch (Exception ignored) { }
+
+        try {
+            // Auto-cancel unpaid winning bids past the configurable payment deadline.
+            // Reuses this existing 60-second sweep rather than a second background thread.
+            cancelOverdueUnpaidOrders();
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * Auto-cancellation of unpaid winning bids (anti-abuse / lifecycle feature). See
+     * {@link OrderDAO#cancelOverduePendingOrders} for the full design decision (unsold
+     * rather than re-award; grandfathering of orders that predate this feature).
+     */
+    private static void cancelOverdueUnpaidOrders() {
+        PlatformSettingsDAO settingsDAO = new PlatformSettingsDAO();
+        // -1 sentinel: the migration has not been applied yet (or the row was deleted), so
+        // there is no known cutoff. Skip the pass entirely rather than guessing one — an
+        // unmigrated deployment must never auto-cancel anything.
+        long effectiveSinceMs = settingsDAO.getLong(
+                "order_payment_timeout_effective_since_epoch_ms", -1L);
+        if (effectiveSinceMs < 0) return;
+
+        int deadlineHours = settingsDAO.getInt("order_payment_deadline_hours", 48);
+        Instant effectiveSince = Instant.ofEpochMilli(effectiveSinceMs);
+
+        List<Long> cancelledOrderIds = new OrderDAO()
+                .cancelOverduePendingOrders(Duration.ofHours(deadlineHours), effectiveSince);
+        for (Long orderId : cancelledOrderIds) {
+            NotificationService.notifyOrderPaymentTimeoutBuyer(orderId);
+            NotificationService.notifyOrderPaymentTimeoutSeller(orderId);
+        }
     }
 
     private static void notifyEndingSoonWatchers() throws Exception {
