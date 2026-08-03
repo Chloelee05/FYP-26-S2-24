@@ -275,6 +275,55 @@ class SellerAnalyticsEmailTest {
         }
     }
 
+    /**
+     * The report's money columns are all {@code NUMERIC}. Period revenue was being read
+     * through an int accessor, so every figure in the period breakdown was truncated to
+     * whole dollars, and the same accessor was used for {@code winning_bid} once that column
+     * became {@code NUMERIC(12,2)}.
+     */
+    @Nested
+    @DisplayName("money is never truncated")
+    class Money {
+
+        @Test
+        @DisplayName("keeps the cents of a sum")
+        void keepsCents() {
+            assertEquals(new BigDecimal("1234.56"),
+                    SellerAnalyticsDAO.money(new BigDecimal("1234.56")));
+        }
+
+        @Test
+        @DisplayName("pads a whole-dollar sum to two places rather than dropping the scale")
+        void padsScale() {
+            assertEquals(new BigDecimal("1400.00"),
+                    SellerAnalyticsDAO.money(new BigDecimal("1400")));
+        }
+
+        @Test
+        @DisplayName("rounds a higher-precision sum half up instead of truncating")
+        void roundsHalfUp() {
+            assertEquals(new BigDecimal("0.13"), SellerAnalyticsDAO.money(new BigDecimal("0.125")));
+            assertEquals(new BigDecimal("99.99"), SellerAnalyticsDAO.money(new BigDecimal("99.994")));
+        }
+
+        @Test
+        @DisplayName("treats an absent sum as zero, not null")
+        void nullIsZero() {
+            assertEquals(new BigDecimal("0.00"), SellerAnalyticsDAO.money(null));
+        }
+
+        @Test
+        @DisplayName("renders cents in the period breakdown the assessor reads")
+        void centsReachTheEmail() {
+            Map<String, Object> a = sample();
+            a.put("periodStats", Arrays.asList(
+                    map("period", "last 7 days", "sold", 2,
+                        "revenue", new BigDecimal("1234.56"), "bids", 9)));
+            String body = SellerAnalyticsDAO.toEmailBody("Hal", a);
+            assertTrue(body.contains("$1234.56"), "period revenue must not be truncated");
+        }
+    }
+
     @Nested
     @DisplayName("rolling-window totals")
     class RollingWindows {

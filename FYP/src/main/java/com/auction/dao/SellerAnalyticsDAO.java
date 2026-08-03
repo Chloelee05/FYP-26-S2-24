@@ -3,6 +3,7 @@ package com.auction.dao;
 import com.auction.util.DBUtil;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -30,7 +31,9 @@ public class SellerAnalyticsDAO {
 
         try (Connection conn = DBUtil.connectDB()) {
             int total = 0, active = 0, sold = 0;
-            long revenue = 0;
+            // winning_bid is NUMERIC(12,2). Reading the sum as a long silently drops the
+            // cents of every sale, so the seller's revenue is short by up to 99c per lot.
+            BigDecimal revenue = BigDecimal.ZERO;
             try (PreparedStatement ps = conn.prepareStatement(countsSql)) {
                 ps.setInt(1, sellerId);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -38,7 +41,7 @@ public class SellerAnalyticsDAO {
                         total = rs.getInt("total");
                         active = rs.getInt("active");
                         sold = rs.getInt("sold");
-                        revenue = rs.getLong("revenue");
+                        revenue = money(rs.getBigDecimal("revenue"));
                     }
                 }
             }
@@ -73,14 +76,16 @@ public class SellerAnalyticsDAO {
                 }
             }
 
-            double avgSalePrice = sold > 0 ? (double) revenue / sold : 0;
+            BigDecimal avgSalePrice = sold > 0
+                    ? revenue.divide(BigDecimal.valueOf(sold), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO.setScale(2);
             double sellThrough = total > 0 ? (double) sold / total * 100.0 : 0;
 
             out.put("totalListings", total);
             out.put("activeListings", active);
             out.put("soldCount", sold);
             out.put("totalRevenue", revenue);
-            out.put("avgSalePrice", Math.round(avgSalePrice * 100.0) / 100.0);
+            out.put("avgSalePrice", avgSalePrice);
             out.put("sellThroughRate", Math.round(sellThrough * 10.0) / 10.0);
             out.put("bidsReceived", bidsReceived);
             out.put("topListings", topListings);
@@ -219,7 +224,10 @@ public class SellerAnalyticsDAO {
             row.put("sold", countSince(conn,
                     "SELECT COUNT(*) FROM orders WHERE seller_id = ? AND created_at >= now() - interval '"
                   + intervals[i] + "'", sellerId));
-            row.put("revenue", countSince(conn,
+            // orders.amount is NUMERIC(10,2), so this has to be read as a decimal. Read as an
+            // int it truncated to whole dollars, which made every period's revenue in the
+            // email quietly wrong — one of the figures the report exists to show.
+            row.put("revenue", sumDecimal(conn,
                     "SELECT COALESCE(SUM(amount), 0) FROM orders WHERE seller_id = ? AND created_at >= now() - interval '"
                   + intervals[i] + "'", sellerId));
             row.put("bids", countSince(conn,
@@ -231,6 +239,13 @@ public class SellerAnalyticsDAO {
         return rows;
     }
 
+    /**
+     * Runs a single-column {@code COUNT(*)} for one seller.
+     *
+     * <p>Only for counts. Money columns are {@code NUMERIC} and must go through
+     * {@link #sumDecimal}; this method used to serve both, which is how the period revenue
+     * figures ended up truncated to whole dollars.</p>
+     */
     private int countSince(Connection conn, String sql, int sellerId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, sellerId);
@@ -274,9 +289,15 @@ public class SellerAnalyticsDAO {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, sellerId);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getBigDecimal(1) : BigDecimal.ZERO;
+                return money(rs.next() ? rs.getBigDecimal(1) : null);
             }
         }
+    }
+
+    /** Normalises a money column to two decimal places, treating a null sum as zero. */
+    static BigDecimal money(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO.setScale(2)
+                             : value.setScale(2, RoundingMode.HALF_UP);
     }
 
     private List<Map<String, Object>> loadProductRatings(Connection conn, int sellerId) throws Exception {
