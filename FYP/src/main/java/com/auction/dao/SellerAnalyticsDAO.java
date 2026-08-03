@@ -54,7 +54,7 @@ public class SellerAnalyticsDAO {
 
             List<Map<String, Object>> topListings = new ArrayList<>();
             String topSql =
-                "SELECT d.title, "
+                "SELECT d.title, d.listing_kind, "
               + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id) AS bid_count, "
               + "  COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) AS top_bid "
               + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
@@ -65,6 +65,7 @@ public class SellerAnalyticsDAO {
                     while (rs.next()) {
                         Map<String, Object> row = new LinkedHashMap<>();
                         row.put("title", rs.getString("title"));
+                        row.put("listingKind", rs.getString("listing_kind"));
                         row.put("bidCount", rs.getInt("bid_count"));
                         row.put("topBid", rs.getBigDecimal("top_bid"));
                         topListings.add(row);
@@ -84,6 +85,8 @@ public class SellerAnalyticsDAO {
             out.put("bidsReceived", bidsReceived);
             out.put("topListings", topListings);
             out.put("periodStats", loadPeriodStats(conn, sellerId));
+            out.put("popularityByPeriod", loadPopularityByPeriod(conn, sellerId));
+            out.put("popularityMetricNote", POPULARITY_NOTE);
             out.put("productRatings", loadProductRatings(conn, sellerId));
             out.put("earningsSummary", loadEarningsSummary(conn, sellerId));
             return out;
@@ -92,8 +95,122 @@ public class SellerAnalyticsDAO {
         }
     }
 
+    /**
+     * Explains the ranking, because "most popular" has two defensible readings on an
+     * auction marketplace and the report must not pretend otherwise.
+     */
+    static final String POPULARITY_NOTE =
+            "Popularity is reported two ways per calendar period: by bids received "
+          + "(buyer interest) and by sale value (commercial outcome). Units sold cannot "
+          + "rank listings here because an auction sells a single lot, so every sold "
+          + "listing would tie at one.";
+
+    /**
+     * Calendar granularities, how many buckets to show, and their display label.
+     *
+     * <p>The labels say "with activity" because a bucket with no bid and no sale is
+     * dropped rather than padded in. Listings here go quiet for weeks at a time, so
+     * "the last 7 days" would usually be six empty rows and one real one.</p>
+     */
+    private static final String[][] POPULARITY_PERIODS = {
+        { "day",     "7",  "Daily — 7 most recent days with activity" },
+        { "week",    "4",  "Weekly — 4 most recent weeks with activity" },
+        { "month",   "6",  "Monthly — 6 most recent months with activity" },
+        { "quarter", "4",  "Quarterly — 4 most recent quarters with activity" },
+    };
+
+    /**
+     * Names the most popular listing in each calendar day, week, month and quarter.
+     *
+     * <p>This is the product-by-period cross-tab the minimum requirements ask for.
+     * {@link #loadPeriodStats} answers a different question — how much moved in a rolling
+     * window — and names no listing at all.</p>
+     *
+     * <p>Buckets are calendar-aligned with {@code date_trunc} rather than rolling
+     * {@code now() - interval} windows, because the requirement enumerates "each day /
+     * week / month / quarter", which reads as named calendar periods: a reader expects
+     * "week of 27 July", not "the last seven days". Calendar buckets are also the only
+     * form that lets two reports of the same period agree.</p>
+     */
+    private List<Map<String, Object>> loadPopularityByPeriod(Connection conn, int sellerId)
+            throws Exception {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String[] period : POPULARITY_PERIODS) {
+            Map<String, Object> section = new LinkedHashMap<>();
+            section.put("granularity", period[0]);
+            section.put("label", period[2]);
+            section.put("buckets",
+                    loadPopularityBuckets(conn, sellerId, period[0], Integer.parseInt(period[1])));
+            out.add(section);
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> loadPopularityBuckets(Connection conn, int sellerId,
+                                                            String granularity, int limit)
+            throws Exception {
+        // granularity is one of the hard-coded literals in POPULARITY_PERIODS, never user
+        // input, but date_trunc's unit cannot be bound as a parameter so it is passed as a
+        // bind value to date_trunc rather than concatenated into the statement.
+        String sql =
+            "WITH bid_activity AS ("
+          + "  SELECT date_trunc(?, b.bid_time)::date AS bucket, a.auction_id, COUNT(*) AS bids"
+          + "  FROM bids b JOIN auction a ON a.auction_id = b.auction_id"
+          + "  WHERE a.seller_id = ? GROUP BY 1, 2"
+          + "), bid_top AS ("
+          + "  SELECT bucket, auction_id, bids,"
+          + "         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY bids DESC, auction_id) AS rn"
+          + "  FROM bid_activity"
+          + "), sale_activity AS ("
+          + "  SELECT date_trunc(?, o.created_at)::date AS bucket, o.auction_id,"
+          + "         COALESCE(SUM(o.amount), 0) AS revenue"
+          + "  FROM orders o"
+          + "  WHERE o.seller_id = ? AND o.status IN ('PAID', 'COMPLETED') GROUP BY 1, 2"
+          + "), sale_top AS ("
+          + "  SELECT bucket, auction_id, revenue,"
+          + "         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY revenue DESC, auction_id) AS rn"
+          + "  FROM sale_activity"
+          + ") "
+          + "SELECT COALESCE(bt.bucket, st.bucket) AS bucket, "
+          + "  bd.title AS bid_title, bd.listing_kind AS bid_kind, bt.bids, "
+          + "  sd.title AS sale_title, sd.listing_kind AS sale_kind, st.revenue "
+          + "FROM      (SELECT * FROM bid_top  WHERE rn = 1) bt "
+          + "FULL JOIN (SELECT * FROM sale_top WHERE rn = 1) st ON st.bucket = bt.bucket "
+          + "LEFT JOIN auction_details bd ON bd.id = bt.auction_id "
+          + "LEFT JOIN auction_details sd ON sd.id = st.auction_id "
+          + "ORDER BY 1 DESC LIMIT ?";
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, granularity);
+            ps.setInt(2, sellerId);
+            ps.setString(3, granularity);
+            ps.setInt(4, sellerId);
+            ps.setInt(5, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("periodStart", String.valueOf(rs.getDate("bucket")));
+                    row.put("topByBidsTitle", rs.getString("bid_title"));
+                    row.put("topByBidsKind", rs.getString("bid_kind"));
+                    row.put("topByBidsCount", rs.getInt("bids"));
+                    row.put("topBySalesTitle", rs.getString("sale_title"));
+                    row.put("topBySalesKind", rs.getString("sale_kind"));
+                    BigDecimal revenue = rs.getBigDecimal("revenue");
+                    row.put("topBySalesRevenue", revenue == null ? BigDecimal.ZERO : revenue);
+                    rows.add(row);
+                }
+            }
+        }
+        return rows;
+    }
+
     private List<Map<String, Object>> loadPeriodStats(Connection conn, int sellerId) throws Exception {
-        String[] labels = { "daily", "weekly", "monthly", "quarterly" };
+        // Deliberately rolling windows, and labelled as such. The calendar-aligned
+        // product-by-period answer lives in loadPopularityByPeriod; these labels used to
+        // read "daily"/"weekly"/"monthly"/"quarterly" over 1/7/30/90-day windows, which
+        // named calendar periods the numbers were not measuring.
+        String[] labels = { "last 24 hours", "last 7 days", "last 30 days", "last 90 days" };
         String[] intervals = { "1 day", "7 days", "30 days", "90 days" };
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < labels.length; i++) {
@@ -164,7 +281,7 @@ public class SellerAnalyticsDAO {
 
     private List<Map<String, Object>> loadProductRatings(Connection conn, int sellerId) throws Exception {
         String sql =
-            "SELECT d.title, ur.auction_id, COUNT(*) AS review_count, "
+            "SELECT d.title, d.listing_kind, ur.auction_id, COUNT(*) AS review_count, "
           + "  ROUND(AVG(ur.rating)::numeric, 1) AS avg_rating, "
           + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 5) / NULLIF(COUNT(*), 0), 1) AS pct5, "
           + "  ROUND(100.0 * COUNT(*) FILTER (WHERE ur.rating = 4) / NULLIF(COUNT(*), 0), 1) AS pct4, "
@@ -175,7 +292,7 @@ public class SellerAnalyticsDAO {
           + "JOIN auction a ON a.auction_id = ur.auction_id "
           + "JOIN auction_details d ON d.id = a.auction_id "
           + "WHERE a.seller_id = ? AND ur.reviewee_user_id = ? "
-          + "GROUP BY d.title, ur.auction_id "
+          + "GROUP BY d.title, d.listing_kind, ur.auction_id "
           + "ORDER BY review_count DESC, avg_rating DESC LIMIT 10";
         List<Map<String, Object>> rows = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -185,6 +302,7 @@ public class SellerAnalyticsDAO {
                 while (rs.next()) {
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("title", rs.getString("title"));
+                    row.put("listingKind", rs.getString("listing_kind"));
                     row.put("auctionId", rs.getLong("auction_id"));
                     row.put("reviewCount", rs.getInt("review_count"));
                     row.put("avgRating", rs.getDouble("avg_rating"));
@@ -216,34 +334,115 @@ public class SellerAnalyticsDAO {
         sb.append("• Sell-through rate: ").append(a.get("sellThroughRate")).append("%\n");
         sb.append("• Total bids received: ").append(a.get("bidsReceived")).append('\n');
 
+        Object earnings = a.get("earningsSummary");
+        if (earnings instanceof Map) {
+            Map<String, Object> e = (Map<String, Object>) earnings;
+            sb.append("\nEarnings (completed orders):\n");
+            sb.append("  Gross sales:   $").append(e.get("grossSales")).append('\n');
+            sb.append("  Platform fee (").append(e.get("commissionRatePct")).append("%): $")
+              .append(e.get("platformFee")).append('\n');
+            sb.append("  Featured fees: $").append(e.get("featuredFees")).append('\n');
+            sb.append("  Net earnings:  $").append(e.get("netEarnings"))
+              .append(" over ").append(e.get("completedOrders")).append(" completed order(s)\n");
+        }
+
         Object top = a.get("topListings");
         if (top instanceof List && !((List<?>) top).isEmpty()) {
             sb.append("\nTop listings by bids:\n");
             for (Map<String, Object> row : (List<Map<String, Object>>) top) {
-                sb.append("  - ").append(row.get("title"))
+                sb.append("  - ").append(row.get("title")).append(kindSuffix(row.get("listingKind")))
                   .append(" (").append(row.get("bidCount")).append(" bids, top $")
                   .append(row.get("topBid")).append(")\n");
             }
         }
+
+        appendPopularity(sb, a);
+
         Object periods = a.get("periodStats");
         if (periods instanceof List && !((List<?>) periods).isEmpty()) {
-            sb.append("\nPeriod breakdown:\n");
+            sb.append("\nRolling-window totals:\n");
             for (Map<String, Object> p : (List<Map<String, Object>>) periods) {
                 sb.append("  ").append(p.get("period")).append(": ")
                   .append(p.get("sold")).append(" sold, $").append(p.get("revenue"))
                   .append(", ").append(p.get("bids")).append(" bids\n");
             }
         }
-        Object ratings = a.get("productRatings");
-        if (ratings instanceof List && !((List<?>) ratings).isEmpty()) {
-            sb.append("\nProduct ratings:\n");
-            for (Map<String, Object> pr : (List<Map<String, Object>>) ratings) {
-                sb.append("  - ").append(pr.get("title"))
-                  .append(" avg ").append(pr.get("avgRating")).append("/5 (")
-                  .append(pr.get("reviewCount")).append(" reviews)\n");
-            }
-        }
+
+        appendStarRatings(sb, a);
+
         sb.append("\n— AuctionHub");
         return sb.toString();
+    }
+
+    /**
+     * Renders the calendar day / week / month / quarter popularity cross-tab, which the
+     * minimum requirements name explicitly ("which pdt/service is most popular for each
+     * day / week / month / quarter").
+     */
+    @SuppressWarnings("unchecked")
+    private static void appendPopularity(StringBuilder sb, Map<String, Object> a) {
+        Object sections = a.get("popularityByPeriod");
+        if (!(sections instanceof List) || ((List<?>) sections).isEmpty()) return;
+
+        sb.append("\nMost popular listing by calendar period\n");
+        Object note = a.get("popularityMetricNote");
+        if (note != null) sb.append("  (").append(note).append(")\n");
+
+        for (Map<String, Object> section : (List<Map<String, Object>>) sections) {
+            sb.append("\n  ").append(section.get("label")).append(":\n");
+            Object buckets = section.get("buckets");
+            if (!(buckets instanceof List) || ((List<?>) buckets).isEmpty()) {
+                sb.append("    no activity in this period\n");
+                continue;
+            }
+            for (Map<String, Object> b : (List<Map<String, Object>>) buckets) {
+                sb.append("    ").append(b.get("periodStart")).append('\n');
+                Object bidTitle = b.get("topByBidsTitle");
+                if (bidTitle != null) {
+                    sb.append("      most bids:  ").append(bidTitle)
+                      .append(kindSuffix(b.get("topByBidsKind")))
+                      .append(" — ").append(b.get("topByBidsCount")).append(" bid(s)\n");
+                }
+                Object saleTitle = b.get("topBySalesTitle");
+                if (saleTitle != null) {
+                    sb.append("      top sale:   ").append(saleTitle)
+                      .append(kindSuffix(b.get("topBySalesKind")))
+                      .append(" — $").append(b.get("topBySalesRevenue")).append('\n');
+                } else if (bidTitle != null) {
+                    sb.append("      top sale:   no sale in this period\n");
+                }
+            }
+        }
+    }
+
+    /**
+     * Renders the per-listing star distribution, the second metric the requirements name
+     * ("%-tage of star reviews for each pdt/service from buyers"). The percentages were
+     * computed but dropped on the floor here, so the email carried only the average.
+     */
+    @SuppressWarnings("unchecked")
+    private static void appendStarRatings(StringBuilder sb, Map<String, Object> a) {
+        Object ratings = a.get("productRatings");
+        if (!(ratings instanceof List) || ((List<?>) ratings).isEmpty()) return;
+
+        sb.append("\nStar review breakdown per product/service (from buyers):\n");
+        for (Map<String, Object> pr : (List<Map<String, Object>>) ratings) {
+            sb.append("  - ").append(pr.get("title")).append(kindSuffix(pr.get("listingKind")))
+              .append(": average ").append(pr.get("avgRating")).append("/5 from ")
+              .append(pr.get("reviewCount")).append(" review(s)\n");
+            Object pct = pr.get("starPercentages");
+            if (pct instanceof Map) {
+                Map<String, Object> stars = (Map<String, Object>) pct;
+                for (String star : new String[] { "5", "4", "3", "2", "1" }) {
+                    Object value = stars.get(star);
+                    sb.append("      ").append(star).append(" star: ")
+                      .append(value == null ? 0.0 : value).append("%\n");
+                }
+            }
+        }
+    }
+
+    private static String kindSuffix(Object listingKind) {
+        return "SERVICE".equalsIgnoreCase(String.valueOf(listingKind)) ? " [service]" : "";
     }
 }
