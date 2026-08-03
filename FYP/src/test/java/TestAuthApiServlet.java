@@ -1,3 +1,4 @@
+import com.auction.dao.PlatformSettingsDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
@@ -6,6 +7,7 @@ import com.auction.servlet.api.AuthApiServlet;
 import com.auction.test.ApiTestSupport;
 import com.auction.util.AuthSession;
 import com.auction.util.DevMode;
+import com.auction.util.LoginAttemptLimiter;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpStore;
 import com.auction.util.SecurityUtil;
@@ -34,6 +36,8 @@ class TestAuthApiServlet {
 
     private UserDAO mockDAO;
     private OtpStore otpStore;
+    private LoginAttemptLimiter loginAttemptLimiter;
+    private PlatformSettingsDAO mockSettings;
     private Wrapper servlet;
     private HttpServletRequest req;
     private HttpServletResponse resp;
@@ -42,9 +46,17 @@ class TestAuthApiServlet {
     void setUp() {
         mockDAO  = mock(UserDAO.class);
         otpStore = new OtpStore();
+        // A fresh instance per test, not LoginAttemptLimiter.getInstance() — otherwise
+        // lockout state from one test would leak into the next via the shared singleton.
+        loginAttemptLimiter = new LoginAttemptLimiter();
+        mockSettings = mock(PlatformSettingsDAO.class);
+        when(mockSettings.getInt(eq("login_lockout_threshold"), anyInt())).thenReturn(5);
+        when(mockSettings.getInt(eq("login_lockout_cooldown_minutes"), anyInt())).thenReturn(15);
         servlet  = new Wrapper();
         servlet.setUserDAO(mockDAO);
         servlet.setOtpStore(otpStore);
+        servlet.setLoginAttemptLimiter(loginAttemptLimiter);
+        servlet.setPlatformSettingsDAO(mockSettings);
         req  = mock(HttpServletRequest.class);
         resp = mock(HttpServletResponse.class);
     }
@@ -110,6 +122,101 @@ class TestAuthApiServlet {
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(403);
+    }
+
+    // ── Login brute-force lockout ────────────────────────────────────────────
+
+    /** Wires one wrong-password login attempt against {@code email}, runs it, and returns its writer. */
+    private StringWriter wrongPasswordAttempt(String email) throws Exception {
+        when(req.getPathInfo()).thenReturn("/login");
+        when(req.getParameter("email")).thenReturn(email);
+        when(req.getParameter("password")).thenReturn("WrongPassword1!");
+        when(mockDAO.getUserByEmail(email)).thenReturn(null);
+        StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+        return sw;
+    }
+
+    @Test
+    @DisplayName("5 consecutive wrong passwords lock the account out")
+    void loginLocksOutAfterThreshold() throws Exception {
+        String email = "bruteforced@email.com";
+        for (int i = 0; i < 5; i++) {
+            wrongPasswordAttempt(email);
+        }
+        verify(resp, times(5)).setStatus(401);
+
+        StringWriter sw = wrongPasswordAttempt(email);
+        JsonNode body = ApiTestSupport.parse(sw);
+        verify(resp).setStatus(429);
+        assertTrue(body.get("error").asText().toLowerCase().contains("too many"),
+                "a lockout must return a distinct rejection, not a generic 401");
+    }
+
+    @Test
+    @DisplayName("fewer than the threshold does not lock the account out")
+    void loginBelowThresholdStillReturns401() throws Exception {
+        String email = "user@email.com";
+        for (int i = 0; i < 4; i++) {
+            wrongPasswordAttempt(email);
+        }
+        verify(resp, times(4)).setStatus(401);
+        verify(resp, never()).setStatus(429);
+    }
+
+    @Test
+    @DisplayName("a correct login before the threshold resets the failure count")
+    void loginSuccessResetsLockoutCounter() throws Exception {
+        String email = "alice@email.com";
+        User user = new User("alice", email, SecurityUtil.hashPassword("Password1!"), Role.BUYER);
+        user.setId(42);
+        user.setStatusId(Status.ACTIVE.getId());
+        when(mockDAO.getUserByEmail(email)).thenReturn(user);
+
+        for (int i = 0; i < 4; i++) {
+            wrongPasswordAttempt(email);
+        }
+
+        // wrongPasswordAttempt's stubbing of getUserByEmail(email) -> null must be
+        // re-pointed at the real account before the correct-password attempt.
+        when(mockDAO.getUserByEmail(email)).thenReturn(user);
+        when(req.getPathInfo()).thenReturn("/login");
+        when(req.getParameter("email")).thenReturn(email);
+        when(req.getParameter("password")).thenReturn("Password1!");
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+        verify(resp).setStatus(200);
+
+        // Another 4 wrong passwords after the reset must not lock the account out —
+        // if the reset had not happened, this 4th failure would be the 8th overall
+        // and would already have tripped a threshold of 5.
+        for (int i = 0; i < 4; i++) {
+            wrongPasswordAttempt(email);
+        }
+        assertFalse(loginAttemptLimiter.isLockedOut(email));
+    }
+
+    @Test
+    @DisplayName("locking out one account does not affect a different account")
+    void loginLockoutDoesNotAffectOtherAccounts() throws Exception {
+        String attacker = "attacker@email.com";
+        String other = "other@email.com";
+        for (int i = 0; i < 5; i++) {
+            wrongPasswordAttempt(attacker);
+        }
+        assertTrue(loginAttemptLimiter.isLockedOut(attacker));
+        assertFalse(loginAttemptLimiter.isLockedOut(other));
+
+        User user = new User("otheruser", other, SecurityUtil.hashPassword("Password1!"), Role.BUYER);
+        user.setId(99);
+        user.setStatusId(Status.ACTIVE.getId());
+        when(mockDAO.getUserByEmail(other)).thenReturn(user);
+        when(req.getPathInfo()).thenReturn("/login");
+        when(req.getParameter("email")).thenReturn(other);
+        when(req.getParameter("password")).thenReturn("Password1!");
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+        verify(resp).setStatus(200);
     }
 
     @Test

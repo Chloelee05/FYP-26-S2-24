@@ -1,11 +1,13 @@
 package com.auction.servlet.api;
 
+import com.auction.dao.PlatformSettingsDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
 import com.auction.model.User;
 import com.auction.util.DevMode;
 import com.auction.util.InputValidator;
+import com.auction.util.LoginAttemptLimiter;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
 import com.auction.util.OtpStore;
@@ -19,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -40,15 +43,22 @@ public class AuthApiServlet extends ApiBase {
 
     private UserDAO  userDAO;
     private OtpStore otpStore;
+    private LoginAttemptLimiter loginAttemptLimiter;
+    private PlatformSettingsDAO platformSettingsDAO;
 
     public AuthApiServlet() {
         this.userDAO  = new UserDAO();
         this.otpStore = new OtpStore();
+        this.loginAttemptLimiter = LoginAttemptLimiter.getInstance();
+        this.platformSettingsDAO = new PlatformSettingsDAO();
     }
 
     /** Test hook */
     public void setUserDAO(UserDAO userDAO)  { this.userDAO  = userDAO; }
     public void setOtpStore(OtpStore otpStore) { this.otpStore = otpStore; }
+    /** Test hook — swap in a fresh limiter so tests never share the process-wide singleton. */
+    public void setLoginAttemptLimiter(LoginAttemptLimiter loginAttemptLimiter) { this.loginAttemptLimiter = loginAttemptLimiter; }
+    public void setPlatformSettingsDAO(PlatformSettingsDAO platformSettingsDAO) { this.platformSettingsDAO = platformSettingsDAO; }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -77,11 +87,30 @@ public class AuthApiServlet extends ApiBase {
         String emailErr = InputValidator.getEmailFormatViolation(email.toLowerCase());
         if (emailErr != null) { badRequest(resp, emailErr); return; }
 
-        User user = userDAO.getUserByEmail(email.toLowerCase());
+        String accountKey = email.toLowerCase();
+        int maxFailures = platformSettingsDAO.getInt("login_lockout_threshold", LoginAttemptLimiter.DEFAULT_MAX_FAILURES);
+        Duration cooldown = Duration.ofMinutes(
+                platformSettingsDAO.getInt("login_lockout_cooldown_minutes", LoginAttemptLimiter.DEFAULT_COOLDOWN_MINUTES));
+
+        // Anti-brute-force: checked before touching the database, so a locked-out account
+        // cannot be used to keep hammering the password hash comparison either.
+        if (loginAttemptLimiter.isLockedOut(accountKey)) {
+            long secondsLeft = loginAttemptLimiter.lockoutSecondsRemaining(accountKey);
+            long minutesLeft = Math.max(1, (secondsLeft + 59) / 60);
+            error(resp, 429, "Too many failed login attempts. Please try again in "
+                    + minutesLeft + " minute" + (minutesLeft == 1 ? "" : "s") + ".");
+            return;
+        }
+
+        User user = userDAO.getUserByEmail(accountKey);
         if (user == null || !SecurityUtil.verifyPassword(password, user.getPassword())) {
+            loginAttemptLimiter.recordFailure(accountKey, maxFailures, cooldown);
             error(resp, 401, "Invalid email or password.");
             return;
         }
+        // Correct password: reset the failure count even if a status check below still
+        // blocks the login, since brute-force protection is only about guessing the password.
+        loginAttemptLimiter.recordSuccess(accountKey);
         if (user.getStatusId() == Status.SUSPENDED.getId()) {
             error(resp, 403, "Your account has been suspended.");
             return;
