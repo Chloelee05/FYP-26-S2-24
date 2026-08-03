@@ -158,6 +158,35 @@ describe('tabs tell unsold apart from cancelled', () => {
   });
 });
 
+// Sellers can now list a service, so a seller's own list has to say which of their listings
+// are services — previously the kind existed only on the admin's moderation table.
+describe('products and services', () => {
+  it('badges a service', async () => {
+    getSellerAuctions.mockResolvedValue(
+      page([auction({ title: 'Guitar Lessons', listingKind: 'SERVICE' })]),
+    );
+    renderPage();
+
+    expect(await screen.findByText('Service')).toBeInTheDocument();
+  });
+
+  it('leaves a product unbadged, since that is what a listing is by default', async () => {
+    renderPage();
+    await screen.findByText('GUCCI bag');
+
+    expect(screen.queryByText('Service')).not.toBeInTheDocument();
+    expect(screen.queryByText('Product')).not.toBeInTheDocument();
+  });
+
+  it('reads a row with no kind at all as a product', async () => {
+    getSellerAuctions.mockResolvedValue(page([auction({ listingKind: undefined })]));
+    renderPage();
+    await screen.findByText('GUCCI bag');
+
+    expect(screen.queryByText('Service')).not.toBeInTheDocument();
+  });
+});
+
 describe('price shown for a listing with no bids', () => {
   it('shows the starting price rather than $0.00', async () => {
     renderPage();

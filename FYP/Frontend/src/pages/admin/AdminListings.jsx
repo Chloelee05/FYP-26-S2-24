@@ -6,6 +6,7 @@ import {
   getListingContent,
 } from '../../api/admin';
 import { formatCurrency } from '../../utils/helpers';
+import { LISTING_KIND_STYLE, normalizeListingKind } from '../../utils/listingKind';
 import { apiErrorMessage } from '../../utils/apiError';
 import Modal from '../../components/Modal';
 
@@ -22,15 +23,14 @@ const AUCTION_STATUS_STYLE = {
   Cancelled: 'bg-red-50 text-red-700 ring-red-200',
 };
 
-const KIND_STYLE = {
-  PRODUCT: 'bg-sky-50 text-sky-700 ring-sky-200',
-  SERVICE: 'bg-violet-50 text-violet-700 ring-violet-200',
-};
+const KIND_STYLE = LISTING_KIND_STYLE;
 
 const REPORT_STYLE = (n) => n === 0 ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : n < 5 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-red-50 text-red-700 ring-red-200';
 
 const normState = (s) => (s ?? '').toUpperCase();
-const normKind = (k) => ((k ?? 'PRODUCT').toUpperCase() === 'SERVICE' ? 'SERVICE' : 'PRODUCT');
+// Sellers now set this field themselves on create, so the reading of it is shared with the
+// seller and public pages rather than defined once per surface.
+const normKind = normalizeListingKind;
 
 export default function AdminListings() {
   const [listings, setListings] = useState([]);

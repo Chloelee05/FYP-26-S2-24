@@ -671,7 +671,7 @@ public class BidDAO {
                 + "a.seller_id, a.auction_type, "
                 + "u.username AS seller_username, "
                 + "d.title, d.description, d.category, d.item_condition_id, d.starting_price, d.max_price, "
-                + "d.quantity, d.cost_price, d.dutch_floor_price, d.buy_it_now_price, "
+                + "d.quantity, d.cost_price, d.dutch_floor_price, d.buy_it_now_price, d.listing_kind, "
                 + "COALESCE(MAX(b.bid_amount), d.starting_price) AS current_bid, "
                 + "COUNT(b.bid_id)::int AS bid_count "
                 + "FROM auction a "
@@ -682,7 +682,8 @@ public class BidDAO {
                 + "GROUP BY a.auction_id, a.status_id, a.date_created, a.date_end, a.moderation_state, "
                 + "         a.seller_id, a.auction_type, u.username, d.title, d.description, d.category, "
                 + "         d.item_condition_id, d.starting_price, d.max_price, "
-                + "         d.quantity, d.cost_price, d.dutch_floor_price, d.buy_it_now_price";
+                + "         d.quantity, d.cost_price, d.dutch_floor_price, d.buy_it_now_price, "
+                + "         d.listing_kind";
 
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -738,6 +739,7 @@ public class BidDAO {
                 detail.setDateCreated(created != null ? created.toInstant() : null);
                 detail.setQuantity(rs.getInt("quantity"));
                 detail.setCostPrice(rs.getBigDecimal("cost_price"));
+                detail.setListingKind(rs.getString("listing_kind"));
                 return detail;
             }
         } catch (Exception e) {

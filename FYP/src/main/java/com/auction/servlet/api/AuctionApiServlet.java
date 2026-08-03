@@ -130,6 +130,9 @@ public class AuctionApiServlet extends ApiBase {
         body.put("description",    detail.getDescription());
         body.put("category",       detail.getCategory());
         body.put("condition",      detail.getCondition());
+        // A buyer bidding on a service is not buying a shipped object. The page says so, and
+        // it can only say so if the kind travels with the rest of the public detail.
+        body.put("listingKind",    detail.getListingKind());
         body.put("quantity",       detail.getQuantity());
         body.put("startingPrice",  detail.getStartingPrice());
         body.put("reservePrice",   detail.getMaxPrice());

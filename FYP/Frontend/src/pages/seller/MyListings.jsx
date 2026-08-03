@@ -12,6 +12,7 @@ import {
 import { getOrders } from '../../api/orders';
 import { formatCurrency } from '../../utils/helpers';
 import { listingStatusLabel, listingPrice } from '../../utils/listings';
+import { isService } from '../../utils/listingKind';
 import { publicPath } from '../../utils/appBase';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import CountdownTimer from '../../components/CountdownTimer';
@@ -20,7 +21,7 @@ import Modal from '../../components/Modal';
 
 // Backend SellerAuctionRow fields: auctionId, title, startingPrice, maxPrice,
 //   currentBid, bidCount, startDate (Instant), endDate (Instant), statusName (String),
-//   quantity, thumbnailUrl, watchCount
+//   quantity, thumbnailUrl, watchCount, listingKind ("PRODUCT" | "SERVICE")
 // statusName mirrors the AuctionStatus enum: "ACTIVE", "FINISHED", "CANCELLED", "PENDING"
 
 const STATUS_STYLE = {
@@ -481,6 +482,13 @@ export default function MyListings() {
                             <span className={`${STATUS_STYLE[listingStatusLabel(auction)?.toUpperCase()] || 'badge-neutral'} shrink-0`}>
                               {listingStatusLabel(auction)}
                             </span>
+                            {/* Only services are badged. A product is the norm, so labelling
+                                every other row would be noise rather than information. */}
+                            {isService(auction.listingKind) && (
+                              <span className="badge bg-violet-50 text-violet-700 ring-violet-200 shrink-0">
+                                Service
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-ink-400">
                             <span>{auction.bidCount} bids</span>

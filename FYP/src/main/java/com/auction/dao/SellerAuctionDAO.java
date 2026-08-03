@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.model.AuctionStatus;
 import com.auction.model.Bid;
+import com.auction.model.ListingKind;
 import com.auction.model.seller.SellerAuctionRow;
 import com.auction.util.DBUtil;
 
@@ -180,7 +181,7 @@ public class SellerAuctionDAO {
     public AuctionEditData getAuctionForEdit(long auctionId, int sellerId) throws Exception {
         String sql =
             "SELECT a.auction_id, a.seller_id, a.status_id, "
-          + "       d.title, d.description, d.category, d.item_condition_id, d.max_price, "
+          + "       d.title, d.description, d.category, d.listing_kind, d.item_condition_id, d.max_price, "
           + "       d.quantity, d.cost_price, "
           + "       a.date_created AS start_date, a.date_end "
           + "FROM auction a "
@@ -202,6 +203,7 @@ public class SellerAuctionDAO {
                         rs.getString("title"),
                         rs.getString("description"),
                         rs.getString("category"),
+                        rs.getString("listing_kind"),
                         rs.getInt("item_condition_id"),
                         rs.getBigDecimal("max_price"),
                         rs.getInt("quantity"),
@@ -226,8 +228,9 @@ public class SellerAuctionDAO {
     }
 
     /**
-     * Text-and-images-only edit, for the legacy JSP form which has no stock or cost fields.
-     * Passing null for both leaves {@code quantity} and {@code cost_price} untouched.
+     * Text-and-images-only edit, for the legacy JSP form which has no stock, cost or
+     * product/service fields. Passing null for those leaves {@code quantity},
+     * {@code cost_price} and {@code listing_kind} untouched.
      */
     public void editAuction(long auctionId, int sellerId,
                             String title, String description,
@@ -235,7 +238,7 @@ public class SellerAuctionDAO {
                             Instant newEndDate,
                             List<Long> deleteImageIds,
                             List<String> newImageFilenames) throws Exception {
-        editAuction(auctionId, sellerId, title, description, category, itemConditionId,
+        editAuction(auctionId, sellerId, title, description, category, null, itemConditionId,
                 null, null, newEndDate, deleteImageIds, newImageFilenames);
     }
 
@@ -255,15 +258,19 @@ public class SellerAuctionDAO {
      *       bids present, so freezing it on the first bid would have been the inconsistency.
      *       The caller clamps it to at least 1: emptying a listing is
      *       {@link #removeUnit}'s job, because it ends the listing and has to say so first.</li>
-     *   <li><b>Zero bids only</b> — title, description, category, condition and images. These
-     *       define <em>what is being sold</em>, and rewriting them under a live bid would mean
-     *       someone had committed money to a different item.</li>
+     *   <li><b>Zero bids only</b> — title, description, category, product/service kind,
+     *       condition and images. These define <em>what is being sold</em>, and rewriting them
+     *       under a live bid would mean someone had committed money to a different item.
+     *       {@code listing_kind} belongs in this tier and not the one above it: turning a
+     *       product into a service after someone has bid changes whether anything is going to
+     *       be shipped to them.</li>
      * </ul>
      *
      * <p>Precondition enforcement (ownership, editable status) is re-checked here on every
      * submit rather than trusted from the GET that populated the form, to close the TOCTOU
      * window; the bid count is likewise re-read inside the transaction.</p>
      *
+     * @param listingKind PRODUCT or SERVICE, or null to leave the existing kind alone
      * @param quantity new unit count, or null to leave it alone
      * @param costPrice new seller-private cost, or null to leave it alone
      * @param deleteImageIds IDs of existing auction_images rows to remove (may be empty)
@@ -271,7 +278,7 @@ public class SellerAuctionDAO {
      */
     public void editAuction(long auctionId, int sellerId,
                             String title, String description,
-                            String category, Integer itemConditionId,
+                            String category, String listingKind, Integer itemConditionId,
                             Integer quantity, BigDecimal costPrice,
                             Instant newEndDate,
                             List<Long> deleteImageIds,
@@ -298,7 +305,8 @@ public class SellerAuctionDAO {
 
                 // Title, description, category, condition, images require zero bids
                 if (countBidsConn(conn, auctionId) == 0) {
-                    updateDetails(conn, auctionId, title, description, category, itemConditionId);
+                    updateDetails(conn, auctionId, title, description, category,
+                            listingKind, itemConditionId);
                     deleteImages(conn, auctionId, deleteImageIds);
                     insertNewImages(conn, auctionId, newImageFilenames);
                 }
@@ -319,6 +327,7 @@ public class SellerAuctionDAO {
      */
     private static final String ROW_SELECT =
             "SELECT a.auction_id, d.title, d.starting_price, d.max_price, d.quantity, "
+          + "d.listing_kind, "
           + "COALESCE(MAX(b.bid_amount), 0) AS current_bid, "
           + "COUNT(b.bid_id) AS bid_count, "
           + "a.date_created AS start_date, a.date_end, "
@@ -336,7 +345,7 @@ public class SellerAuctionDAO {
 
     private static final String ROW_GROUP_BY =
             " GROUP BY a.auction_id, d.title, d.starting_price, d.max_price, d.quantity, "
-          + "a.date_created, a.date_end, s.status";
+          + "d.listing_kind, a.date_created, a.date_end, s.status";
 
     /**
      * Returns a seller-scoped page of auction rows ordered by end date descending.
@@ -572,7 +581,8 @@ public class SellerAuctionDAO {
                 rs.getString("status_name"),
                 rs.getInt("quantity"),
                 rs.getString("thumbnail_url"),
-                rs.getInt("watch_count"));
+                rs.getInt("watch_count"),
+                rs.getString("listing_kind"));
     }
 
     // ------------------------------------------------------------------ relist
@@ -674,17 +684,31 @@ public class SellerAuctionDAO {
         }
     }
 
+    /**
+     * Writes the descriptive fields.
+     *
+     * <p>{@code listingKind} is normalised and applied with {@code COALESCE(?, listing_kind)}
+     * rather than written unconditionally, because null here means "the caller has no opinion"
+     * — the legacy JSP form has no such field, and its edits must not reset a service back to
+     * a product. The column is NOT NULL, so the COALESCE can only ever resolve to one of the
+     * two values the CHECK constraint accepts.</p>
+     */
     private void updateDetails(Connection conn, long auctionId,
                                String title, String description,
-                               String category, Integer itemConditionId) throws Exception {
-        String sql = "UPDATE auction_details SET title = ?, description = ?, category = ?, item_condition_id = ? WHERE id = ?";
+                               String category, String listingKind,
+                               Integer itemConditionId) throws Exception {
+        String sql = "UPDATE auction_details SET title = ?, description = ?, category = ?, "
+                   + "listing_kind = COALESCE(?, listing_kind), item_condition_id = ? WHERE id = ?";
+        ListingKind kind = ListingKind.parse(listingKind);
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, title);
             ps.setString(2, description);
             ps.setString(3, category != null ? category : "");
-            if (itemConditionId != null) ps.setInt(4, itemConditionId);
-            else ps.setNull(4, java.sql.Types.INTEGER);
-            ps.setLong(5, auctionId);
+            if (kind != null) ps.setString(4, kind.name());
+            else ps.setNull(4, java.sql.Types.VARCHAR);
+            if (itemConditionId != null) ps.setInt(5, itemConditionId);
+            else ps.setNull(5, java.sql.Types.INTEGER);
+            ps.setLong(6, auctionId);
             if (ps.executeUpdate() == 0) throw new Exception("auction_details row not found");
         }
     }
@@ -773,6 +797,8 @@ public class SellerAuctionDAO {
         public final String title;
         public final String description;
         public final String category;
+        /** PRODUCT or SERVICE; a legacy row that predates the column reads back as PRODUCT. */
+        public final String listingKind;
         public final int itemConditionId;
         public final BigDecimal maxPrice;   // null when no cap
         public final int quantity;
@@ -783,6 +809,7 @@ public class SellerAuctionDAO {
 
         public AuctionEditData(long auctionId, long sellerId, int statusId,
                                String title, String description, String category,
+                               String listingKind,
                                int itemConditionId, BigDecimal maxPrice,
                                int quantity, BigDecimal costPrice,
                                Instant startDate, Instant endDate,
@@ -793,6 +820,8 @@ public class SellerAuctionDAO {
             this.title = title;
             this.description = description;
             this.category = category;
+            ListingKind parsedKind = ListingKind.parse(listingKind);
+            this.listingKind = (parsedKind != null ? parsedKind : ListingKind.DEFAULT).name();
             this.itemConditionId = itemConditionId;
             this.maxPrice = maxPrice;
             this.quantity = quantity;

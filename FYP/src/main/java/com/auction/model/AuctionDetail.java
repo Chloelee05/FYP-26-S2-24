@@ -40,6 +40,11 @@ public final class AuctionDetail {
     private int quantity = 1;
     private BigDecimal costPrice;       // seller-private; never exposed to buyers
     private BigDecimal buyItNowPrice;   // optional fixed purchase price (SCRUM-40)
+    /**
+     * PRODUCT or SERVICE. Public, unlike the cost price: someone bidding on ten guitar
+     * lessons needs to know before they commit that nothing is going to arrive in the post.
+     */
+    private String listingKind = ListingKind.DEFAULT.name();
 
     public AuctionDetail(long auctionId, String title, String description, String category,
                          String condition, BigDecimal startingPrice, BigDecimal currentBid,
@@ -88,4 +93,11 @@ public final class AuctionDetail {
     public void setCostPrice(BigDecimal c)     { this.costPrice = c; }
     public BigDecimal getBuyItNowPrice()       { return buyItNowPrice; }
     public void setBuyItNowPrice(BigDecimal p) { this.buyItNowPrice = p; }
+    public String getListingKind()             { return listingKind; }
+
+    /** Anything unrecognised, including null, leaves the listing a PRODUCT. */
+    public void setListingKind(String kind) {
+        ListingKind parsed = ListingKind.parse(kind);
+        this.listingKind = (parsed != null ? parsed : ListingKind.DEFAULT).name();
+    }
 }

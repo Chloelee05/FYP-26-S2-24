@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.ListingKind;
 import com.auction.util.DBUtil;
 
 import java.sql.Connection;
@@ -46,7 +47,12 @@ public class AdminManagementDAO {
     private static final List<String> ORDER_STATUSES =
             List.of("PENDING_PAYMENT", "PAID", "COMPLETED", "CANCELLED");
 
-    private static final List<String> LISTING_KINDS = List.of("PRODUCT", "SERVICE");
+    /**
+     * The two values {@code auction_details_listing_kind_check} permits. Taken from
+     * {@link ListingKind} rather than restated, now that sellers set this field on create and
+     * the same value set has to hold on both paths.
+     */
+    private static final List<String> LISTING_KINDS = ListingKind.names();
 
     public enum Outcome { SUCCESS, NOT_FOUND, INVALID, UNCHANGED }
 

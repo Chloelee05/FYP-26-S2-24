@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getAuctionForEdit, editAuction } from '../../api/seller';
 import { getCategories } from '../../api/auction';
 import { normalizeCategories } from '../../utils/helpers';
+import { normalizeListingKind } from '../../utils/listingKind';
 import ImageUploader from '../../components/ImageUploader';
 import { apiErrorMessage } from '../../utils/apiError';
 
@@ -11,6 +12,11 @@ const CONDITIONS = [
   { label: 'Slightly Used', id: 2 },
   { label: 'Used',          id: 3 },
   { label: 'Damaged',       id: 4 },
+];
+
+const KINDS = [
+  { id: 'PRODUCT', label: 'Product' },
+  { id: 'SERVICE', label: 'Service' },
 ];
 
 const toLocalDatetime = (isoString) => {
@@ -30,8 +36,8 @@ export default function EditAuction() {
   const [categoryError, setCategoryError] = useState('');
   const [bidCount, setBidCount] = useState(0);
   const [form, setForm] = useState({
-    title: '', description: '', category: '', itemCondition: '1', endDate: '',
-    quantity: '1', costPrice: '',
+    title: '', description: '', category: '', listingKind: 'PRODUCT',
+    itemCondition: '1', endDate: '', quantity: '1', costPrice: '',
   });
   const [existingImages, setExistingImages] = useState([]);
   const [newImageUrls, setNewImageUrls] = useState([]);
@@ -56,6 +62,7 @@ export default function EditAuction() {
           title:         d.title        || '',
           description:   d.description  || '',
           category:      d.category     || '',
+          listingKind:   normalizeListingKind(d.listingKind),
           itemCondition: String(d.conditionId || 1),
           endDate:       toLocalDatetime(d.endDate),
           quantity:      String(d.quantity ?? 1),
@@ -89,6 +96,7 @@ export default function EditAuction() {
         title:          form.title,
         description:    form.description,
         category:       form.category     || undefined,
+        listingKind:    normalizeListingKind(form.listingKind),
         itemCondition:  form.itemCondition,
         quantity:       form.quantity,
         // Blank means "leave it alone" all the way through to the DAO, so an omitted cost
@@ -116,8 +124,8 @@ export default function EditAuction() {
         {hasBids && (
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm px-4 py-2 rounded-lg mb-4">
             Bids have been placed, so what is on offer is fixed: the title, description,
-            category, condition and photos can no longer change. The end date, the quantity
-            on sale and your private cost price are still yours to maintain.
+            category, product/service kind, condition and photos can no longer change. The end
+            date, the quantity on sale and your private cost price are still yours to maintain.
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -139,6 +147,26 @@ export default function EditAuction() {
               rows={5}
               className={`w-full border border-ink-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 resize-none ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
             />
+          </div>
+
+          {/* Same tier as the title and category: it says what is on offer, so it is frozen
+              once someone has bid. Turning a product into a service after a bid would change
+              whether anything is going to be shipped to that bidder. */}
+          <div>
+            <label className="field-label" htmlFor="edit-listing-kind">This listing is a</label>
+            <select
+              id="edit-listing-kind"
+              value={form.listingKind}
+              onChange={e => update('listingKind', e.target.value)}
+              disabled={hasBids}
+              className={`select-field ${hasBids ? 'bg-ink-100 cursor-not-allowed' : ''}`}
+            >
+              {KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+            </select>
+            <p className="field-hint">
+              A service is work you perform rather than an item you ship. Buyers are told
+              which it is on the auction page.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

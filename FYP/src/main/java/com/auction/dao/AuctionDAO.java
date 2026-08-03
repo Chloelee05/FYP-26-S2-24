@@ -222,8 +222,8 @@ public class AuctionDAO {
     private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
         String sql = "INSERT INTO auction_details "
                    + "(id, title, description, category, item_condition_id, starting_price, max_price, "
-                   + " quantity, cost_price, dutch_floor_price, buy_it_now_price) "
-                   + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                   + " quantity, cost_price, dutch_floor_price, buy_it_now_price, listing_kind) "
+                   + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, auctionId);
             stmt.setString(2, auction.getAuction_name());
@@ -252,6 +252,9 @@ public class AuctionDAO {
             } else {
                 stmt.setNull(11, java.sql.Types.NUMERIC);
             }
+            // Never null: Auction defaults it to PRODUCT and normalises anything unrecognised
+            // back to PRODUCT, so this can only ever be a value the CHECK constraint accepts.
+            stmt.setString(12, auction.getListingKind());
             int rowsAffected = stmt.executeUpdate();
             if (rowsAffected == 0) throw new Exception("Failed at auction_details");
         }

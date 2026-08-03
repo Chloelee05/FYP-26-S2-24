@@ -22,6 +22,8 @@ public class Auction implements  Serializable{
     private ItemCondition itemCondition;
     private List<Long> auctionTagsList;
     private String category;
+    /** PRODUCT or SERVICE; never null, so a listing always inserts a value the CHECK accepts. */
+    private String listingKind = ListingKind.DEFAULT.name();
 
     public Auction(){
     }
@@ -148,4 +150,17 @@ public class Auction implements  Serializable{
 
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
+
+    public String getListingKind() { return listingKind; }
+
+    /**
+     * Sets the product/service discriminator. Anything that is not one of the two permitted
+     * values — including null, which is what an older client that sends no kind at all
+     * produces — leaves the listing a PRODUCT, so behaviour is unchanged for every caller
+     * that does not know about this field.
+     */
+    public void setListingKind(String listingKind) {
+        ListingKind parsed = ListingKind.parse(listingKind);
+        this.listingKind = (parsed != null ? parsed : ListingKind.DEFAULT).name();
+    }
 }

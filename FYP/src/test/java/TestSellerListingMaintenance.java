@@ -314,7 +314,7 @@ class TestSellerListingMaintenance {
             verify(resp).setStatus(400);
             assertTrue(error().toLowerCase().contains("description"), error());
             verify(sellerDao, never()).editAuction(anyLong(), anyInt(), anyString(), anyString(),
-                    any(), any(), any(), any(), any(), any(), any());
+                    any(), any(), any(), any(), any(), any(), any(), any());
         }
 
         @Test
@@ -348,7 +348,7 @@ class TestSellerListingMaintenance {
 
             verify(resp).setStatus(200);
             verify(sellerDao).editAuction(eq(7L), eq(SELLER_ID), eq("A title"), eq("A description"),
-                    any(), any(), eq(5), eq(new BigDecimal("12.34")), any(), any(), any());
+                    any(), any(), any(), eq(5), eq(new BigDecimal("12.34")), any(), any(), any());
         }
 
         @Test
@@ -358,7 +358,7 @@ class TestSellerListingMaintenance {
 
             verify(resp).setStatus(200);
             verify(sellerDao).editAuction(eq(7L), eq(SELLER_ID), anyString(), anyString(),
-                    any(), any(), isNull(), isNull(), any(), any(), any());
+                    any(), any(), any(), isNull(), isNull(), any(), any(), any());
         }
 
         @ParameterizedTest
@@ -372,7 +372,7 @@ class TestSellerListingMaintenance {
             verify(resp).setStatus(400);
             assertTrue(error().contains("Quantity"), error());
             verify(sellerDao, never()).editAuction(anyLong(), anyInt(), anyString(), anyString(),
-                    any(), any(), any(), any(), any(), any(), any());
+                    any(), any(), any(), any(), any(), any(), any(), any());
         }
 
         @Test
@@ -395,7 +395,7 @@ class TestSellerListingMaintenance {
 
             verify(resp).setStatus(200);
             verify(sellerDao).editAuction(anyLong(), anyInt(), anyString(), anyString(),
-                    any(), any(), any(), eq(BigDecimal.ZERO), any(), any(), any());
+                    any(), any(), any(), any(), eq(BigDecimal.ZERO), any(), any(), any());
         }
 
         @Test
@@ -403,7 +403,7 @@ class TestSellerListingMaintenance {
         void notEditableIsClientError() throws Exception {
             doThrow(new IllegalStateException("Auction is not editable"))
                     .when(sellerDao).editAuction(anyLong(), anyInt(), anyString(), anyString(),
-                            any(), any(), any(), any(), any(), any(), any());
+                            any(), any(), any(), any(), any(), any(), any(), any());
 
             servlet.doPost(req, resp);
 
@@ -423,7 +423,7 @@ class TestSellerListingMaintenance {
         void returnsStockAndCost() throws Exception {
             path("/7/edit");
             SellerAuctionDAO.AuctionEditData data = new SellerAuctionDAO.AuctionEditData(
-                    7L, SELLER_ID, 1, "Title", "Description", "Electronics", 1, null,
+                    7L, SELLER_ID, 1, "Title", "Description", "Electronics", "PRODUCT", 1, null,
                     6, new BigDecimal("40.00"),
                     java.time.Instant.now(), java.time.Instant.now().plusSeconds(3600),
                     Collections.emptyList());

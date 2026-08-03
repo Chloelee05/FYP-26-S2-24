@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { createAuction } from '../../api/seller';
 import { getCategories, getTags } from '../../api/auction';
 import { normalizeCategories } from '../../utils/helpers';
+import { isService, listingKindLabel, LISTING_KIND_STYLE, normalizeListingKind } from '../../utils/listingKind';
 import { publicPath } from '../../utils/appBase';
 import ImageUploader from '../../components/ImageUploader';
 import Modal from '../../components/Modal';
@@ -14,6 +15,13 @@ const CONDITIONS = [
   { label: 'Slightly Used', id: 2 },
   { label: 'Used',          id: 3 },
   { label: 'Damaged',       id: 4 },
+];
+
+// What is being sold. Values must match the backend ListingKind enum and the
+// auction_details.listing_kind CHECK constraint.
+const KINDS = [
+  { id: 'PRODUCT', label: 'Product', help: 'A physical item you will send to the winning buyer.' },
+  { id: 'SERVICE', label: 'Service', help: 'Work you will perform — lessons, repairs, a booking. Nothing is shipped.' },
 ];
 
 // Auction strategy ids must match the backend AuctionType enum.
@@ -37,6 +45,7 @@ export default function CreateAuction() {
   const [selectedTags, setSelectedTags] = useState([]);   // array of tag ids (numbers)
   const [form, setForm] = useState({
     auctionName: '', auctionDetails: '', itemCondition: '1', category: '',
+    listingKind: 'PRODUCT',
     auctionType: '1', quantity: '1', costPrice: '', dutchFloorPrice: '',
     startPrice: '', maxPrice: '', buyItNowPrice: '', startDate: '', endDate: '',
   });
@@ -97,6 +106,7 @@ export default function CreateAuction() {
         auctionName:     form.auctionName,
         auctionDetails:  form.auctionDetails,
         itemCondition:   form.itemCondition,
+        listingKind:     normalizeListingKind(form.listingKind),
         auctionType:     form.auctionType,
         quantity:        form.quantity     || '1',
         costPrice:       form.costPrice    || undefined,
@@ -153,11 +163,21 @@ export default function CreateAuction() {
             )}
 
             <h4 className="text-xl font-bold text-ink-900 mb-1">{form.auctionName || 'Untitled listing'}</h4>
-            <div className="flex flex-wrap gap-2 text-xs text-ink-500 mb-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500 mb-3">
+              <span className={`badge ${LISTING_KIND_STYLE[normalizeListingKind(form.listingKind)]}`}>
+                {listingKindLabel(form.listingKind)}
+              </span>
               {form.category && <span className="bg-ink-100 px-2 py-0.5 rounded">{form.category}</span>}
-              <span>Condition: {conditionLabel}</span>
+              {/* A service has no condition, so the preview does not claim one — the same
+                  rule the public auction page follows. */}
+              {!isService(form.listingKind) && <span>Condition: {conditionLabel}</span>}
               <span>{strategyLabel}</span>
             </div>
+            {isService(form.listingKind) && (
+              <p className="text-xs text-violet-700 bg-violet-50 rounded-lg p-2.5 mb-3">
+                Buyers will be told this is a service and that nothing will be shipped.
+              </p>
+            )}
             {selectedTagNames.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {selectedTagNames.map(name => (
@@ -244,6 +264,25 @@ export default function CreateAuction() {
               {categories.map(c => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)}
             </select>
             {categoryError && <p className="text-xs text-amber-600 mt-1">{categoryError}</p>}
+          </div>
+
+          {/* What is being sold. The requirements name services alongside products, so this
+              is the seller's to set — an admin reclassifying afterwards is a correction, not
+              the way a service gets listed. PRODUCT is preselected, which is what every
+              listing made before this field existed already is. */}
+          <div>
+            <label className="field-label" htmlFor="listing-kind">This listing is a *</label>
+            <select
+              id="listing-kind"
+              value={form.listingKind}
+              onChange={e => update('listingKind', e.target.value)}
+              className="select-field"
+            >
+              {KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+            </select>
+            <p className="field-hint">
+              {KINDS.find(k => k.id === form.listingKind)?.help}
+            </p>
           </div>
 
           <div>

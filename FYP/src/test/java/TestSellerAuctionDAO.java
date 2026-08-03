@@ -500,7 +500,7 @@ public class TestSellerAuctionDAO {
                 when(mockRs.getInt(1)).thenReturn(2);      // two bids
                 when(mockPs.executeUpdate()).thenReturn(1);
 
-                dao.editAuction(10L, 42, "New title", "New description", "Cat", 1,
+                dao.editAuction(10L, 42, "New title", "New description", "Cat", "SERVICE", 1,
                         7, new BigDecimal("5.55"), null, null, null);
 
                 assertTrue(anySqlContains("quantity = ?"));
@@ -523,7 +523,7 @@ public class TestSellerAuctionDAO {
                 when(mockRs.getInt(1)).thenReturn(0);      // no bids
                 when(mockPs.executeUpdate()).thenReturn(1);
 
-                dao.editAuction(10L, 42, "New title", "New description", "Cat", 1,
+                dao.editAuction(10L, 42, "New title", "New description", "Cat", "SERVICE", 1,
                         2, null, null, null, null);
 
                 assertTrue(anySqlContains("SET title = ?"));
@@ -540,7 +540,7 @@ public class TestSellerAuctionDAO {
                 when(mockRs.getInt(1)).thenReturn(3);
                 when(mockPs.executeUpdate()).thenReturn(1);
 
-                dao.editAuction(10L, 42, "t", "d", "c", 1,
+                dao.editAuction(10L, 42, "t", "d", "c", null, 1,
                         6, null, null, null, null);
 
                 assertTrue(anySqlContains("SET quantity = ? WHERE id = ?"));
@@ -557,7 +557,7 @@ public class TestSellerAuctionDAO {
                 when(mockRs.getInt(1)).thenReturn(3);
                 when(mockPs.executeUpdate()).thenReturn(1);
 
-                dao.editAuction(10L, 42, "t", "d", "c", 1,
+                dao.editAuction(10L, 42, "t", "d", "c", null, 1,
                         null, BigDecimal.ZERO, null, null, null);
 
                 assertTrue(anySqlContains("SET cost_price = ? WHERE id = ?"));
@@ -589,9 +589,196 @@ public class TestSellerAuctionDAO {
                 when(mockRs.next()).thenReturn(false);   // isEditableBy finds nothing
 
                 assertThrows(IllegalStateException.class, () ->
-                        dao.editAuction(10L, 999, "t", "d", "c", 1,
+                        dao.editAuction(10L, 999, "t", "d", "c", null, 1,
                                 5, new BigDecimal("1.00"), null, null, null));
                 verify(mockConn).rollback();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ product vs service
+
+    /**
+     * The seller's half of the product/service discriminator.
+     *
+     * <p>{@code listing_kind} already existed but only an admin could write it. These pin the
+     * two properties that make it the seller's without putting existing rows at risk: the kind
+     * is written with the rest of what is on offer (so it freezes on the first bid), and a
+     * caller that says nothing about it — the legacy JSP form, which has no such field — leaves
+     * whatever is stored alone instead of resetting it to PRODUCT.</p>
+     */
+    @Nested
+    @DisplayName("listing_kind – a seller's product or service")
+    class ListingKindWrites {
+
+        @Test
+        @DisplayName("the edit form is given the stored kind, so it can pre-select it")
+        void editFormReadsTheKind() throws Exception {
+            Timestamp ts = Timestamp.from(java.time.Instant.now());
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, false);
+                when(mockRs.getTimestamp("start_date")).thenReturn(ts);
+                when(mockRs.getTimestamp("date_end")).thenReturn(ts);
+                when(mockRs.getString("listing_kind")).thenReturn("SERVICE");
+
+                SellerAuctionDAO.AuctionEditData d = dao.getAuctionForEdit(10L, 42);
+
+                assertNotNull(d);
+                assertEquals("SERVICE", d.listingKind);
+                assertTrue(anySqlContains("d.listing_kind"));
+            }
+        }
+
+        @Test
+        @DisplayName("a row written before the column existed reads back as a product")
+        void legacyRowIsAProduct() throws Exception {
+            Timestamp ts = Timestamp.from(java.time.Instant.now());
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, false);
+                when(mockRs.getTimestamp("start_date")).thenReturn(ts);
+                when(mockRs.getTimestamp("date_end")).thenReturn(ts);
+                when(mockRs.getString("listing_kind")).thenReturn(null);
+
+                assertEquals("PRODUCT", dao.getAuctionForEdit(10L, 42).listingKind);
+            }
+        }
+
+        @Test
+        @DisplayName("with no bids the kind is written alongside the rest of the offer")
+        void writtenWithoutBids() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(0);      // no bids
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "Lessons", "Ten hours", "Lessons", "SERVICE", 1,
+                        null, null, null, null, null);
+
+                assertTrue(anySqlContains("listing_kind = COALESCE(?, listing_kind)"));
+                verify(mockPs).setString(4, "SERVICE");
+            }
+        }
+
+        /**
+         * Same tier as the title: turning a product into a service after someone has bid would
+         * change whether anything is going to be shipped to that bidder.
+         */
+        @Test
+        @DisplayName("once a bid exists the kind is frozen with the rest of the offer")
+        void frozenOnceBidsExist() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(1);      // one bid
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "Lessons", "Ten hours", "Lessons", "SERVICE", 1,
+                        3, null, null, null, null);
+
+                assertFalse(anySqlContains("listing_kind"),
+                        "the kind must stay frozen while bids exist");
+            }
+        }
+
+        /**
+         * The COALESCE is the point: binding NULL keeps whatever the row already holds, so an
+         * edit through the legacy form cannot silently reclassify a service as a product.
+         */
+        @Test
+        @DisplayName("a null kind binds SQL NULL, so COALESCE keeps the stored value")
+        void nullKindKeepsStoredValue() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(0);
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "t", "d", "c", null, 1,
+                        null, null, null, null, null);
+
+                verify(mockPs).setNull(4, java.sql.Types.VARCHAR);
+                verify(mockPs, never()).setString(eq(4), anyString());
+            }
+        }
+
+        /**
+         * Defence in depth. The servlet already refuses an unrecognised kind with a 400, so
+         * this can only be reached by a future caller — and it must not be the path by which a
+         * value the {@code auction_details_listing_kind_check} constraint refuses reaches the
+         * database and turns an edit into an HTTP 500.
+         */
+        @Test
+        @DisplayName("a kind the CHECK would refuse is not written at all")
+        void unrecognisedKindIsNotWritten() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(0);
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "t", "d", "c", "GOODS", 1,
+                        null, null, null, null, null);
+
+                verify(mockPs).setNull(4, java.sql.Types.VARCHAR);
+                verify(mockPs, never()).setString(4, "GOODS");
+            }
+        }
+
+        @Test
+        @DisplayName("case and surrounding space are normalised before the write")
+        void kindIsNormalised() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(0);
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "t", "d", "c", "  service  ", 1,
+                        null, null, null, null, null);
+
+                verify(mockPs).setString(4, "SERVICE");
+            }
+        }
+
+        @Test
+        @DisplayName("the legacy JSP overload leaves the kind alone")
+        void legacyOverloadLeavesKindAlone() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                when(mockRs.next()).thenReturn(true, true);
+                when(mockRs.getInt(1)).thenReturn(0);
+                when(mockPs.executeUpdate()).thenReturn(1);
+
+                dao.editAuction(10L, 42, "t", "d", "c", 1, null, null, null);
+
+                verify(mockPs).setNull(4, java.sql.Types.VARCHAR);
+            }
+        }
+
+        @Test
+        @DisplayName("the seller's own listing rows carry the kind, so services are visible there")
+        void listRowsCarryTheKind() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(mockConn);
+                Timestamp ts = Timestamp.from(java.time.Instant.now());
+                when(mockRs.next()).thenReturn(true, false);
+                when(mockRs.getTimestamp("start_date")).thenReturn(ts);
+                when(mockRs.getTimestamp("date_end")).thenReturn(ts);
+                when(mockRs.getString("listing_kind")).thenReturn("SERVICE");
+
+                List<com.auction.model.seller.SellerAuctionRow> rows =
+                        dao.listSellerAuctions(42, SellerAuctionDAO.ListingBucket.ALL,
+                                null, "newest", 1, 10);
+
+                assertEquals(1, rows.size());
+                assertEquals("SERVICE", rows.get(0).getListingKind());
+                // Selected and grouped: without the GROUP BY entry the aggregate query is
+                // invalid Postgres and My listings 500s for every seller.
+                assertTrue(anySqlContains("d.listing_kind, "));
+                assertTrue(anySqlContains("d.quantity, d.listing_kind, a.date_created"));
             }
         }
     }

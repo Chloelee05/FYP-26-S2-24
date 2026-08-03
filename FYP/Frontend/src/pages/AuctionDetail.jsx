@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn } from 'lucide-react';
+import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn, Wrench } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
 import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, checkWatching, askQuestion, getSellerProfile, getSimilarAuctions } from '../api/auction';
@@ -10,6 +10,7 @@ import { replyToQuestion } from '../api/seller';
 import { declareWinner } from '../api/orders';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, decodeHtmlEntities } from '../utils/helpers';
+import { isService, LISTING_KIND_STYLE, SERVICE_BUYER_NOTE } from '../utils/listingKind';
 import { publicPath } from '../utils/appBase';
 import useNow from '../hooks/useNow';
 import usePolling from '../hooks/usePolling';
@@ -359,6 +360,8 @@ export default function AuctionDetail() {
 
   const typeBadgeClass = isDutch ? 'badge-accent' : isBlind ? 'badge-purple' : 'badge-info';
 
+  const serviceListing = isService(auction.listingKind);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
       {showReport && (
@@ -380,8 +383,18 @@ export default function AuctionDetail() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-2">
                 <span className={typeBadgeClass}>{auction.auctionTypeName ?? 'Standard (Ascending)'}</span>
+                {/* Only services are badged: a product is what a listing is by default, so
+                    labelling every other listing would be noise rather than information. */}
+                {serviceListing && (
+                  <span className={`badge ${LISTING_KIND_STYLE.SERVICE}`}>Service</span>
+                )}
                 {auction.category && <span className="badge-neutral">{auction.category}</span>}
-                {auction.condition && <span className="badge-neutral">{auction.condition}</span>}
+                {/* A service has no condition. The seller's form still records one because
+                    the column is required, but "Brand New" said about ten guitar lessons is
+                    not information a buyer can use. */}
+                {auction.condition && !serviceListing && (
+                  <span className="badge-neutral">{auction.condition}</span>
+                )}
                 {auction.quantity > 1 && <span className="badge-neutral">Qty {auction.quantity}</span>}
               </div>
               <h1 className="font-display text-2xl sm:text-3xl font-bold text-ink-900 leading-tight">{auction.title}</h1>
@@ -393,6 +406,15 @@ export default function AuctionDetail() {
                   <span className="text-ink-400">Your cost: {formatCurrency(auction.costPrice)}</span>
                 )}
               </div>
+              {/* Said in words as well as badged, because the badge alone does not tell a
+                  buyer what is different about bidding on this: no address is collected and
+                  nothing arrives in the post. */}
+              {serviceListing && (
+                <p className="flex items-start gap-2 text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 mt-3">
+                  <Wrench size={14} className="mt-0.5 shrink-0" />
+                  <span>{SERVICE_BUYER_NOTE}</span>
+                </p>
+              )}
               {auction.tags?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3">
                   {auction.tags.map(tag => (

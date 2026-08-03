@@ -16,6 +16,7 @@ import com.auction.util.OtpMailer;
 import com.auction.model.Auction;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
+import com.auction.model.ListingKind;
 import com.auction.model.SellerPublicProfile;
 import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
@@ -332,6 +333,7 @@ public class SellerApiServlet extends ApiBase {
             body.put("title",        data.title);
             body.put("description",  data.description);
             body.put("category",     data.category);
+            body.put("listingKind",  data.listingKind);
             body.put("conditionId",  data.itemConditionId);
             body.put("condition",    conditionName);
             body.put("maxPrice",     data.maxPrice);
@@ -374,6 +376,7 @@ public class SellerApiServlet extends ApiBase {
         String buyItNowStr    = param(req, "buyItNowPrice");
         String auctionTypeStr = param(req, "auctionType");
         String itemCondStr    = param(req, "itemCondition");
+        String listingKindStr = param(req, "listingKind");
         String[] tagIdsArr    = req.getParameterValues("tags");
         String[] imageUrlsArr = req.getParameterValues("imageUrls");
 
@@ -423,6 +426,18 @@ public class SellerApiServlet extends ApiBase {
         if (auctionTypeStr != null && !auctionTypeStr.isBlank()) {
             try { auctionType = AuctionType.getAuctionType(Integer.parseInt(auctionTypeStr)); }
             catch (IllegalArgumentException e) { badRequest(resp, "Invalid auction type."); return; }
+        }
+
+        // Product or service. Omitting it means PRODUCT — the column's default, what every
+        // listing created before sellers could choose already is, and what the legacy JSP
+        // create form still sends. A kind that was supplied and is not one of the two is
+        // rejected rather than quietly turned into a product, which would store something
+        // other than what the seller asked for.
+        String listingKind = ListingKind.DEFAULT.name();
+        if (listingKindStr != null && !listingKindStr.isBlank()) {
+            ListingKind kind = ListingKind.parse(listingKindStr);
+            if (kind == null) { badRequest(resp, "listingKind must be PRODUCT or SERVICE."); return; }
+            listingKind = kind.name();
         }
 
         int quantity = 1;
@@ -521,6 +536,7 @@ public class SellerApiServlet extends ApiBase {
         auction.setDutchFloorPrice(dutchFloor);
         auction.setBuyItNowPrice(buyItNow);
         auction.setCategory(category);
+        auction.setListingKind(listingKind);
 
         try {
             long auctionId = mainDAO.createAuction(auction, imageUrls);
@@ -704,6 +720,7 @@ public class SellerApiServlet extends ApiBase {
         String endDateStr     = param(req, "endDate");
         String quantityStr    = param(req, "quantity");
         String costPriceStr   = param(req, "costPrice");
+        String listingKindStr = param(req, "listingKind");
         if (title == null || title.isBlank()) { badRequest(resp, "title is required."); return; }
         // param() turns a blank string into null, so a seller who cleared the Description box
         // used to reach a NOT NULL column and get a 500 with a red "Could not update auction."
@@ -743,6 +760,16 @@ public class SellerApiServlet extends ApiBase {
             } catch (Exception e) { badRequest(resp, "Invalid item condition."); return; }
         }
 
+        // Unlike create, an omitted kind here means "leave it as it is" rather than PRODUCT:
+        // the legacy JSP edit form has no such field, and an edit through it must not silently
+        // reclassify a service back into a product.
+        String listingKind = null;
+        if (listingKindStr != null && !listingKindStr.isBlank()) {
+            ListingKind kind = ListingKind.parse(listingKindStr);
+            if (kind == null) { badRequest(resp, "listingKind must be PRODUCT or SERVICE."); return; }
+            listingKind = kind.name();
+        }
+
         Instant newEndDate = null;
         if (endDateStr != null && !endDateStr.isBlank()) {
             try { newEndDate = OffsetDateTime.parse(endDateStr).toInstant(); }
@@ -768,7 +795,8 @@ public class SellerApiServlet extends ApiBase {
 
         try {
             auctionDAO.editAuction(auctionId, sellerId, title, description,
-                    category, itemConditionId, quantity, costPrice, newEndDate, deleteIds, newUrls);
+                    category, listingKind, itemConditionId, quantity, costPrice,
+                    newEndDate, deleteIds, newUrls);
             okMsg(resp, "Auction updated successfully.");
         } catch (IllegalStateException e) {
             error(resp, 400, e.getMessage());
