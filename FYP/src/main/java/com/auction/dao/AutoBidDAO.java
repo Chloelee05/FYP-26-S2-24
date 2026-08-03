@@ -112,6 +112,11 @@ public class AutoBidDAO {
     /**
      * Returns the buyer's current auto-bid row (decrypted max + increment),
      * or {@code null} if no auto-bid is registered for this auction.
+     *
+     * <p>A row whose ciphertext will not open under the current key is reported as
+     * {@code null} too, matching how {@link #fetchAllDecrypted} skips it: such a row is
+     * already inert for bidding, so surfacing it as a 500 to a buyer who simply opened an
+     * auction page tells them nothing they can act on.</p>
      */
     public AutoBidRow getAutoBidForUser(long auctionId, int userId) {
         String sql = "SELECT max_amount_enc, bid_increment, created_at "
@@ -122,9 +127,18 @@ public class AutoBidDAO {
             ps.setInt(2, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return null;
-                BigDecimal max = new BigDecimal(SecurityUtil.decrypt(rs.getString("max_amount_enc")));
+                String enc = rs.getString("max_amount_enc");
                 BigDecimal inc = rs.getBigDecimal("bid_increment");
                 Instant createdAt = rs.getTimestamp("created_at").toInstant();
+                BigDecimal max;
+                try {
+                    max = new BigDecimal(SecurityUtil.decrypt(enc));
+                } catch (Exception e) {
+                    LOGGER.warning(String.format(
+                            "AutoBidDAO: could not decrypt max_amount for user %d on auction %d; "
+                            + "treating as no auto-bid.", userId, auctionId));
+                    return null;
+                }
                 return new AutoBidRow(userId, max, createdAt,
                         inc != null ? inc : MIN_INCREMENT);
             }
