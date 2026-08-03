@@ -2,6 +2,7 @@ package com.auction.servlet;
 
 import com.auction.dao.UserDAO;
 import com.auction.model.User;
+import com.auction.util.DevMode;
 import com.auction.util.InputValidator;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
@@ -23,7 +24,8 @@ import java.util.logging.Logger;
  * Accepts an email address or phone number, validates it, looks up the account,
  * generates a 6-digit OTP via {@link OtpStore}, then sends it by SMTP when
  * {@link MailConfig#isSmtpConfigured()} is true ({@code AUCTION_SMTP_HOST}, etc.).
- * Otherwise the OTP is exposed only as {@code simulatedOtp} for local development.
+ * Otherwise the OTP is written to the server log, and rendered on the page as
+ * {@code simulatedOtp} only when {@link DevMode#isEnabled()}.
  */
 @WebServlet("/forgot-password")
 public class ForgotPasswordServlet extends HttpServlet {
@@ -108,7 +110,9 @@ public class ForgotPasswordServlet extends HttpServlet {
             }
         } else {
             LOG.warning("AUCTION_SMTP_HOST not set — password reset OTP for " + identifier + ": " + otp);
-            req.setAttribute("simulatedOtp", otp);
+            if (DevMode.isEnabled()) {
+                req.setAttribute("simulatedOtp", otp);
+            }
         }
 
         req.setAttribute("OtpSent", "If that account exists, an OTP has been sent.");

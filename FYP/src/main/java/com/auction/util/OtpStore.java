@@ -11,10 +11,19 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Simulated delivery: callers receive the generated OTP string and are responsible for
  * forwarding it to the user (email API, SMS gateway, etc.).
+ *
+ * <p>A wrong code counts against {@link #MAX_ATTEMPTS}; spending them all destroys the OTP,
+ * so the caller must request a fresh one. Without that cap a 6-digit code sitting in a
+ * 5-minute window is enumerable, and the reset endpoint is unauthenticated. This mirrors
+ * {@code TelegramAttemptLimiter}, which guards the equivalent 6-digit linking code — the
+ * difference is that this counter lives on the OTP itself rather than per caller, because
+ * password reset has no chat id or session to key a limiter on.</p>
  */
 public class OtpStore {
 
     static final int OTP_TTL_SECONDS = 300; // 5-minute window
+    /** Wrong guesses tolerated before the OTP is destroyed. */
+    public static final int MAX_ATTEMPTS = 5;
     private static final int OTP_RANGE = 1_000_000; // produces 000000–999999
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -47,11 +56,13 @@ public class OtpStore {
 
     /**
      * Verifies that {@code otp} matches the stored value for {@code identifier} and has
-     * not expired. An expired entry is removed on first access (lazy eviction).
+     * not expired. An expired entry is removed on first access (lazy eviction), and the
+     * entry is also removed once {@link #MAX_ATTEMPTS} wrong codes have been supplied.
      *
      * @param identifier lowercase email or phone
      * @param otp        the code entered by the user; leading/trailing whitespace is stripped
-     * @return {@code true} only if the OTP matches and is still within its TTL
+     * @return {@code true} only if the OTP matches, is still within its TTL, and the
+     *         attempt allowance has not been spent
      */
     public boolean verify(String identifier, String otp) {
         if (identifier == null || otp == null) return false;
@@ -62,7 +73,15 @@ public class OtpStore {
             store.remove(key);
             return false;
         }
-        return entry.otp.equals(otp.trim());
+        if (entry.otp.equals(otp.trim())) {
+            return true;
+        }
+        // Burn the code rather than the caller: there is no session or chat id to rate-limit
+        // on here, so the allowance has to travel with the OTP.
+        if (entry.recordFailure() >= MAX_ATTEMPTS) {
+            store.remove(key);
+        }
+        return false;
     }
 
     /**
@@ -77,10 +96,16 @@ public class OtpStore {
     private static final class OtpEntry {
         final String otp;
         final Instant expiry;
+        private int failures;
 
         OtpEntry(String otp, Instant expiry) {
             this.otp = otp;
             this.expiry = expiry;
+        }
+
+        /** Records one wrong code and returns the running total. */
+        synchronized int recordFailure() {
+            return ++failures;
         }
     }
 }

@@ -4,6 +4,7 @@ import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
 import com.auction.model.User;
+import com.auction.util.DevMode;
 import com.auction.util.InputValidator;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
@@ -124,7 +125,7 @@ public class AuthApiServlet extends ApiBase {
             twoFaBody.put("requires2fa",  true);
             twoFaBody.put("pendingToken", pending.getToken());
             twoFaBody.put("maskedEmail",  SecurityUtil.maskEmail(user.getEmail()));
-            if (!MailConfig.isSmtpConfigured()) twoFaBody.put("devOtp", otp);
+            if (DevMode.isEnabled()) twoFaBody.put("devOtp", otp);
             ok(resp, twoFaBody);
             return;
         }
@@ -247,7 +248,7 @@ public class AuthApiServlet extends ApiBase {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("message", "If that account exists, an OTP has been sent.");
-        if (!MailConfig.isSmtpConfigured()) body.put("devOtp", otp);
+        if (DevMode.isEnabled()) body.put("devOtp", otp);
         ok(resp, body);
     }
 

@@ -6,6 +6,7 @@ import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.servlet.ForgotPasswordServlet;
 import com.auction.servlet.ResetPasswordServlet;
+import com.auction.util.DevMode;
 import com.auction.util.OtpStore;
 import com.auction.util.SecurityUtil;
 import jakarta.servlet.RequestDispatcher;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -107,6 +109,30 @@ public class TestPasswordResetServlet extends Mockito {
 
     @Test
     public void testValidEmailGeneratesOtpAndSetsAttributes() throws Exception {
+        HttpServletRequest request = runForgotForKnownAccount(false);
+
+        verify(request).setAttribute(eq("OtpSent"), anyString());
+        verify(request).setAttribute(eq("resetIdentifier"), eq("john@email.com"));
+    }
+
+    @Test
+    public void testOtpIsNotRenderedOnThePageWithoutDevMode() throws Exception {
+        // This page is reachable in production (POST /forgot-password still maps to the JSP
+        // flow), so rendering the live code would hand any visitor an account takeover.
+        HttpServletRequest request = runForgotForKnownAccount(false);
+
+        verify(request, never()).setAttribute(eq("simulatedOtp"), any());
+    }
+
+    @Test
+    public void testOtpIsRenderedOnThePageInDevMode() throws Exception {
+        HttpServletRequest request = runForgotForKnownAccount(true);
+
+        verify(request).setAttribute(eq("simulatedOtp"), eq("482031"));
+    }
+
+    /** Posts a forgot-password request for an existing account with dev mode forced either way. */
+    private HttpServletRequest runForgotForKnownAccount(boolean devMode) throws Exception {
         User existingUser = new User("john", "john@email.com", "hash", Role.BUYER);
         existingUser.setId(1);
 
@@ -125,12 +151,13 @@ public class TestPasswordResetServlet extends Mockito {
         stubForward(request);
         when(request.getParameter("identifier")).thenReturn("john@email.com");
 
-        servlet.doPost(request, response);
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(devMode);
+            servlet.doPost(request, response);
+        }
 
         verify(mockStore).generateAndStore("john@email.com");
-        verify(request).setAttribute(eq("simulatedOtp"), eq("482031"));
-        verify(request).setAttribute(eq("OtpSent"), anyString());
-        verify(request).setAttribute(eq("resetIdentifier"), eq("john@email.com"));
+        return request;
     }
 
     @Test

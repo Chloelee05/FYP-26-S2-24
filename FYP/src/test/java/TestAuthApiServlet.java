@@ -5,6 +5,8 @@ import com.auction.model.User;
 import com.auction.servlet.api.AuthApiServlet;
 import com.auction.test.ApiTestSupport;
 import com.auction.util.AuthSession;
+import com.auction.util.DevMode;
+import com.auction.util.MailConfig;
 import com.auction.util.OtpStore;
 import com.auction.util.SecurityUtil;
 import com.auction.util.TokenStore;
@@ -14,6 +16,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.io.StringWriter;
 
@@ -121,6 +124,127 @@ class TestAuthApiServlet {
 
         verify(resp).setStatus(200);
         assertNull(TokenStore.getInstance().get(session.getToken()));
+    }
+
+    // ── OTP disclosure (password reset + 2FA) ────────────────────────────────
+    //
+    // The forgot-password and 2FA responses used to carry the live OTP whenever SMTP was
+    // unconfigured, which on the deployment was always. Disclosure now hangs on
+    // AUCTION_DEV_MODE alone, so these assert both halves of that switch.
+
+    /** Wires a forgot-password request for an account that exists, and returns the writer. */
+    private StringWriter forgotPasswordFor(String email) throws Exception {
+        User user = new User("victim", email,
+                SecurityUtil.hashPassword("Password1!"), Role.BUYER);
+        user.setStatusId(Status.ACTIVE.getId());
+        when(req.getPathInfo()).thenReturn("/forgot-password");
+        when(req.getParameter("identifier")).thenReturn(email);
+        when(mockDAO.getUserByEmail(email)).thenReturn(user);
+        return ApiTestSupport.bindJsonWriter(resp);
+    }
+
+    @Test
+    @DisplayName("forgot-password hides the OTP when dev mode is off")
+    void forgotPasswordHidesOtpWithoutDevMode() throws Exception {
+        StringWriter sw = forgotPasswordFor("victim@email.com");
+
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class);
+             MockedStatic<MailConfig> mail = mockStatic(MailConfig.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(false);
+            mail.when(MailConfig::isSmtpConfigured).thenReturn(false);
+            servlet.doPost(req, resp);
+        }
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        verify(resp).setStatus(200);
+        assertNull(body.get("devOtp"),
+                "an unconfigured mailer must not turn the response into an OTP oracle");
+        assertEquals("If that account exists, an OTP has been sent.",
+                body.get("message").asText());
+    }
+
+    @Test
+    @DisplayName("forgot-password returns the OTP when dev mode is on")
+    void forgotPasswordReturnsOtpInDevMode() throws Exception {
+        StringWriter sw = forgotPasswordFor("victim@email.com");
+
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class);
+             MockedStatic<MailConfig> mail = mockStatic(MailConfig.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(true);
+            mail.when(MailConfig::isSmtpConfigured).thenReturn(false);
+            servlet.doPost(req, resp);
+        }
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        String devOtp = body.get("devOtp").asText();
+        assertEquals(6, devOtp.length());
+        assertTrue(otpStore.verify("victim@email.com", devOtp),
+                "the disclosed code should be the one actually stored");
+    }
+
+    @Test
+    @DisplayName("forgot-password reply is identical for unknown accounts")
+    void forgotPasswordDoesNotEnumerate() throws Exception {
+        when(req.getPathInfo()).thenReturn("/forgot-password");
+        when(req.getParameter("identifier")).thenReturn("nobody@email.com");
+        when(mockDAO.getUserByEmail("nobody@email.com")).thenReturn(null);
+        StringWriter unknown = ApiTestSupport.bindJsonWriter(resp);
+
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(false);
+            servlet.doPost(req, resp);
+        }
+
+        assertEquals("If that account exists, an OTP has been sent.",
+                ApiTestSupport.parse(unknown).get("message").asText());
+    }
+
+    @Test
+    @DisplayName("2FA login hides the OTP when dev mode is off")
+    void twoFactorLoginHidesOtpWithoutDevMode() throws Exception {
+        StringWriter sw = twoFactorLoginFor("2fa@email.com");
+
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class);
+             MockedStatic<MailConfig> mail = mockStatic(MailConfig.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(false);
+            mail.when(MailConfig::isSmtpConfigured).thenReturn(false);
+            servlet.doPost(req, resp);
+        }
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        assertTrue(body.get("requires2fa").asBoolean());
+        assertNull(body.get("devOtp"),
+                "the second factor must not be handed back with the challenge");
+    }
+
+    @Test
+    @DisplayName("2FA login returns the OTP when dev mode is on")
+    void twoFactorLoginReturnsOtpInDevMode() throws Exception {
+        StringWriter sw = twoFactorLoginFor("2fa@email.com");
+
+        try (MockedStatic<DevMode> dev = mockStatic(DevMode.class);
+             MockedStatic<MailConfig> mail = mockStatic(MailConfig.class)) {
+            dev.when(DevMode::isEnabled).thenReturn(true);
+            mail.when(MailConfig::isSmtpConfigured).thenReturn(false);
+            servlet.doPost(req, resp);
+        }
+
+        JsonNode body = ApiTestSupport.parse(sw);
+        assertEquals(6, body.get("devOtp").asText().length());
+    }
+
+    /** Wires a valid login for a 2FA-enabled account, and returns the writer. */
+    private StringWriter twoFactorLoginFor(String email) throws Exception {
+        User user = new User("twofa", email,
+                SecurityUtil.hashPassword("Password1!"), Role.BUYER);
+        user.setId(11);
+        user.setStatusId(Status.ACTIVE.getId());
+        user.setTwoFactorEnabled(true);
+        when(req.getPathInfo()).thenReturn("/login");
+        when(req.getParameter("email")).thenReturn(email);
+        when(req.getParameter("password")).thenReturn("Password1!");
+        when(mockDAO.getUserByEmail(email)).thenReturn(user);
+        return ApiTestSupport.bindJsonWriter(resp);
     }
 
     @Test
