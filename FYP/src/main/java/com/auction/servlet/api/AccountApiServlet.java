@@ -37,6 +37,15 @@ public class AccountApiServlet extends ApiBase {
      */
     private static final int MAX_EXPIRY_YEARS_AHEAD = 30;
 
+    /** Longest phone number accepted. E.164 allows 15 digits; this leaves room for formatting. */
+    private static final int MAX_PHONE_LENGTH = 32;
+
+    /** Matches the {@code users.username} column width. */
+    private static final int MAX_USERNAME_LENGTH = 255;
+
+    /** Bounded because the column is unlimited {@code TEXT} once encrypted. */
+    private static final int MAX_ADDRESS_LENGTH = 500;
+
     private UserDAO            userDAO;
     private ProfileActivityDAO actDAO;
     private PaymentMethodDAO   paymentDAO;
@@ -388,30 +397,64 @@ public class AccountApiServlet extends ApiBase {
         ok(resp, actDAO.listTransactions(userId, filter));
     }
 
+    /**
+     * POST /api/account/update — display name, phone, address, photo.
+     *
+     * <p>{@code updateProfile} writes every column unconditionally, so an omitted parameter
+     * has to fall back to the stored value or saving one field erases the others. That guard
+     * existed for {@code profileImageUrl} only, which meant changing the display name alone
+     * silently destroyed the member's phone number and postal address — data they had
+     * entered and could not get back, in the same request that reported success.</p>
+     *
+     * <p>The three optional fields are read with {@code req.getParameter} rather than
+     * {@link ApiBase#param}, because {@code param()} folds {@code ""} into {@code null} and
+     * so cannot tell "this form did not carry the field" from "the member emptied the box".
+     * The raw value distinguishes them: absent keeps what is stored, blank clears it. A
+     * member who wants their address gone can therefore still remove it, which a
+     * preserve-on-blank rule would have made impossible.</p>
+     */
     private void handleUpdate(HttpServletRequest req, HttpServletResponse resp, int userId)
             throws IOException {
         User current = userDAO.getUserById(userId);
         if (current == null) { error(resp, 404, "User not found."); return; }
 
-        String username        = param(req, "username");
-        String phone           = param(req, "phone");
-        String address         = param(req, "address");
+        String rawUsername     = req.getParameter("username");
+        String rawPhone        = req.getParameter("phone");
+        String rawAddress      = req.getParameter("address");
         String profileImageUrl = param(req, "profileImageUrl");
 
-        if (username == null) username = current.getUsername();
+        String username = current.getUsername();
+        if (rawUsername != null) {
+            // A blank display name becomes this member's name on every search result,
+            // review and bid, so it is refused rather than stored.
+            if (rawUsername.isBlank()) {
+                badRequest(resp, "Display name cannot be empty."); return;
+            }
+            username = rawUsername.trim();
+            if (username.length() > MAX_USERNAME_LENGTH) {
+                badRequest(resp, "Display name must be " + MAX_USERNAME_LENGTH
+                        + " characters or fewer."); return;
+            }
+        }
+        if (rawPhone != null && rawPhone.trim().length() > MAX_PHONE_LENGTH) {
+            badRequest(resp, "Phone number must be " + MAX_PHONE_LENGTH
+                    + " characters or fewer."); return;
+        }
+        if (rawAddress != null && rawAddress.trim().length() > MAX_ADDRESS_LENGTH) {
+            badRequest(resp, "Address must be " + MAX_ADDRESS_LENGTH
+                    + " characters or fewer."); return;
+        }
+
         // The email address is the sign-in identity and is not editable from the
         // profile form, so any submitted value is ignored rather than trusted.
         String email = current.getEmail();
-        // updateProfile writes profile_image_url unconditionally, so an omitted
-        // parameter has to fall back to the stored value — otherwise saving the
-        // profile form wipes the photo that /upload-photo just stored.
         if (profileImageUrl == null) profileImageUrl = current.getProfileImageUrl();
 
-        String phoneEncrypted   = null;
-        String addressEncrypted = null;
+        String phoneEncrypted;
+        String addressEncrypted;
         try {
-            if (phone   != null && !phone.isBlank())   phoneEncrypted   = SecurityUtil.encrypt(phone.trim());
-            if (address != null && !address.isBlank()) addressEncrypted = SecurityUtil.encrypt(address.trim());
+            phoneEncrypted   = encryptedOrKeep(rawPhone,   current.getPhoneEncrypted());
+            addressEncrypted = encryptedOrKeep(rawAddress, current.getAddressEncrypted());
         } catch (Exception e) {
             serverError(resp, "Encryption error."); return;
         }
@@ -428,6 +471,20 @@ public class AccountApiServlet extends ApiBase {
             session.setAttribute("maskedUsername", SecurityUtil.maskUsername(username));
         }
         okMsg(resp, "Profile updated successfully.");
+    }
+
+    /**
+     * Ciphertext to persist for one optional encrypted field.
+     *
+     * @param raw    the parameter exactly as submitted: null when absent, blank when cleared
+     * @param stored the ciphertext already on the row
+     * @return {@code stored} when the field was not submitted, null when it was cleared,
+     *         fresh ciphertext otherwise
+     */
+    private static String encryptedOrKeep(String raw, String stored) throws Exception {
+        if (raw == null)     return stored;
+        if (raw.isBlank())   return null;
+        return SecurityUtil.encrypt(raw.trim());
     }
 
     private void handleDelete(HttpServletRequest req, HttpServletResponse resp, int userId)
