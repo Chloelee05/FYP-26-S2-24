@@ -50,15 +50,27 @@ public class BidDAO {
     /** Maximum page size for public bid history (SCRUM-58). */
     public static final int MAX_BID_HISTORY_PAGE_SIZE = 50;
 
+    /** Fallback rate-limit window when {@code platform_settings} has no row yet. */
+    public static final int DEFAULT_BID_RATE_LIMIT_SECONDS = 3;
+
     private final AutoBidDAO autoBidDAO;
+    private final PlatformSettingsDAO platformSettingsDAO;
 
     public BidDAO() {
         this.autoBidDAO = new AutoBidDAO();
+        this.platformSettingsDAO = new PlatformSettingsDAO();
     }
 
     /** Injection constructor for testing (allows mocking {@link AutoBidDAO}). */
     public BidDAO(AutoBidDAO autoBidDAO) {
         this.autoBidDAO = autoBidDAO;
+        this.platformSettingsDAO = new PlatformSettingsDAO();
+    }
+
+    /** Injection constructor for testing (allows mocking both collaborators). */
+    public BidDAO(AutoBidDAO autoBidDAO, PlatformSettingsDAO platformSettingsDAO) {
+        this.autoBidDAO = autoBidDAO;
+        this.platformSettingsDAO = platformSettingsDAO;
     }
 
     /** Outcome codes returned by {@link #placeBid}. */
@@ -73,6 +85,12 @@ public class BidDAO {
         SELF_BID,
         /** Bid amount ≤ current floor (current highest bid or starting price). */
         BID_TOO_LOW,
+        /**
+         * This buyer placed a bid on this same auction less than the configured rate-limit
+         * window ago (anti-spam; see {@code platform_settings.bid_rate_limit_seconds}). Not
+         * anti-sniping — the project's answer to sniping is proxy auto-bid, unchanged here.
+         */
+        BID_TOO_FAST,
         /** Bid amount exceeds the seller-set max-price cap. */
         EXCEEDS_MAX_PRICE,
         /** Sealed (blind) auction: this buyer has already submitted a bid. */
@@ -220,6 +238,23 @@ public class BidDAO {
                 return BidOutcome.of(BidResult.SELF_BID);
             }
 
+            // Anti-spam rate limit: reject a repeat bid from this same buyer, on this same
+            // auction, inside the configured window. Scoped to (buyerId, auctionId) only —
+            // it reads that buyer's own last bid_time on this auction, so a rejected fast bid
+            // never writes any state and can never block a different buyer or a different
+            // auction. This is rate limiting, not anti-sniping: the auction clock and the
+            // proxy auto-bid path are both untouched.
+            int rateLimitSeconds = platformSettingsDAO.getInt(
+                    "bid_rate_limit_seconds", DEFAULT_BID_RATE_LIMIT_SECONDS);
+            if (rateLimitSeconds > 0) {
+                Instant lastBidTime = lastBidTime(conn, auctionId, buyerId);
+                if (lastBidTime != null
+                        && Instant.now().isBefore(lastBidTime.plusSeconds(rateLimitSeconds))) {
+                    conn.rollback();
+                    return BidOutcome.of(BidResult.BID_TOO_FAST);
+                }
+            }
+
             // Fetch current highest bid (within same transaction)
             BigDecimal currentMax;
             String maxBidSql = "SELECT MAX(bid_amount) FROM bids WHERE auction_id = ?";
@@ -304,6 +339,26 @@ public class BidDAO {
                 return rs.next() ? rs.getInt("user_id") : null;
             }
         }
+    }
+
+    /**
+     * The most recent {@code bid_time} this buyer has on this auction, or {@code null} when
+     * they have not bid on it yet. Read inside the caller's locked transaction so the rate
+     * limit check sees a consistent view alongside the floor check.
+     */
+    static Instant lastBidTime(Connection conn, long auctionId, int buyerId) throws SQLException {
+        String sql = "SELECT MAX(bid_time) FROM bids WHERE auction_id = ? AND user_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, buyerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    Timestamp ts = rs.getTimestamp(1);
+                    return ts != null ? ts.toInstant() : null;
+                }
+            }
+        }
+        return null;
     }
 
     /** Returns the {@code auction_type} id, or -1 when the auction does not exist. */

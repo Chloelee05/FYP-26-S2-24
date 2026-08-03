@@ -44,6 +44,7 @@ export default function AuctionDetail() {
   const [questions, setQuestions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(0);
   const [bidAmount, setBidAmount] = useState('');
+  const [bidCooldownUntil, setBidCooldownUntil] = useState(0);
   const [autoBidMax, setAutoBidMax] = useState('');
   const [autoBidIncrement, setAutoBidIncrement] = useState('50');
   const [myAutoBid, setMyAutoBid] = useState(null);   // active auto-bid from server
@@ -207,9 +208,17 @@ export default function AuctionDetail() {
     return fallback;
   };
 
+  // Courtesy client-side cooldown mirroring the server's per-(user, auction) rate limit
+  // (BidDAO#placeBid, BID_TOO_FAST). This is UX only — the server is the source of truth
+  // and enforces the real window from platform_settings.bid_rate_limit_seconds; disabling
+  // the button here just avoids most round-trips that would come back rejected anyway.
+  const BID_COOLDOWN_MS = 3000;
+  const bidCooldownRemaining = Math.max(0, Math.ceil((bidCooldownUntil - now) / 1000));
+
   const handlePlaceBid = async () => {
     if (!user) { setError('Please log in to place a bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot place bids.'); return; }
+    if (bidCooldownRemaining > 0) return;
     const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
     if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
     if (amount <= bidFloor) { setError(`Your bid must be higher than ${formatCurrency(bidFloor)}.`); return; }
@@ -218,6 +227,7 @@ export default function AuctionDetail() {
       await placeBid(id, amount);
       setMessage('Bid placed successfully!');
       setBidAmount('');
+      setBidCooldownUntil(Date.now() + BID_COOLDOWN_MS);
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
       getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     } catch (err) {
@@ -735,8 +745,13 @@ export default function AuctionDetail() {
                     ))}
                   </div>
                   <Feedback message={message} error={error} />
-                  <button onClick={handlePlaceBid} className="btn-primary btn-block btn-lg">
-                    <Gavel size={16} /> Place Bid
+                  <button
+                    onClick={handlePlaceBid}
+                    disabled={bidCooldownRemaining > 0}
+                    className="btn-primary btn-block btn-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Gavel size={16} />
+                    {bidCooldownRemaining > 0 ? `Wait ${bidCooldownRemaining}s…` : 'Place Bid'}
                   </button>
                 </div>
 

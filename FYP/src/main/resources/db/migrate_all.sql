@@ -127,4 +127,7 @@
 \echo '== Telegram order lifecycle alert bodies (payment / shipping / delivery / refunds) =='
 \ir migration_telegram_order_alerts.sql
 
+\echo '== platform settings (bid rate limit, payment deadline, login lockout tunables) =='
+\ir migration_platform_settings.sql
+
 \echo 'All migrations applied.'
