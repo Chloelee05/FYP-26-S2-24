@@ -710,6 +710,14 @@ public class AdminApiServlet extends ApiBase {
         try { reportId = Long.parseLong(idStr.trim()); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid report ID."); return; }
 
+        // Listing and account reports number their rows independently, so an id on its own
+        // does not identify a report. Refuse the request rather than pick a table and risk
+        // moderating a stranger's report.
+        if (ReportDAO.reportTable(type) == null) {
+            badRequest(resp, "type must be 'listing' or 'account'."); return;
+        }
+        boolean listing = "listing".equalsIgnoreCase(type);
+
         try {
             if ("reply".equalsIgnoreCase(action.trim())) {
                 String reply = param(req, "reply");
@@ -725,7 +733,7 @@ public class AdminApiServlet extends ApiBase {
                 case "dismiss":  resolved = false; break;
                 default: badRequest(resp, "Unknown action: " + action); return;
             }
-            boolean ok = "listing".equalsIgnoreCase(type)
+            boolean ok = listing
                     ? reportDAO.setSellerReportStatus(reportId, resolved)
                     : reportDAO.setReportStatus(reportId, String.valueOf(resolved));
             if (ok) okMsg(resp, "Report updated.");

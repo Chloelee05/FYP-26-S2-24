@@ -337,15 +337,35 @@ public class ReportDAO {
         }
     }
 
+    /**
+     * Writes an admin reply onto the report identified by {@code id} in the table named by
+     * {@code type} ({@code "listing"} or {@code "account"}).
+     *
+     * <p>{@code seller_reports} and {@code account_reports} have independent id sequences, so
+     * the same id routinely exists in both and means two unrelated reports. An unrecognised or
+     * missing {@code type} therefore fails outright — the previous fallback of trying one
+     * table and then the other could attach a reply to whichever report happened to share the
+     * number.</p>
+     *
+     * @return {@code true} if a row was updated; {@code false} if the type was not recognised
+     *         or no report with that id exists in the matching table
+     */
     public boolean replyToReport(long id, String type, String replyText) throws Exception {
-        if ("listing".equalsIgnoreCase(type)) {
-            return updateAdminReply("seller_reports", id, replyText);
+        String table = reportTable(type);
+        if (table == null) {
+            return false;
         }
-        if (updateAdminReply("account_reports", id, replyText)) {
-            return true;
-        }
-        // Unknown/missing type — try listing table as fallback
-        return updateAdminReply("seller_reports", id, replyText);
+        return updateAdminReply(table, id, replyText);
+    }
+
+    /**
+     * Maps the {@code type} discriminator carried by {@link #getAllReportsUnified} rows to its
+     * table, or {@code null} when the caller supplied neither known value.
+     */
+    public static String reportTable(String type) {
+        if ("listing".equalsIgnoreCase(type)) return "seller_reports";
+        if ("account".equalsIgnoreCase(type)) return "account_reports";
+        return null;
     }
 
     private boolean updateAdminReply(String table, long id, String replyText) throws Exception {
