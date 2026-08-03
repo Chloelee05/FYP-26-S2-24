@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionStatus;
 import com.auction.model.Role;
 import com.auction.model.User;
 import com.auction.model.Status;
@@ -255,15 +256,63 @@ public class UserDAO {
         }
     }
 
+    /** {@code auction.cancel_reason} written on a departing member's live listings. */
+    static final String LISTING_CANCEL_REASON =
+            "Cancelled automatically: the seller closed their AuctionHub account.";
+
+    /** {@code orders.cancel_reason} — added to the CHECK by migration_account_closure.sql. */
+    static final String ORDER_CANCEL_REASON = "ACCOUNT_CLOSED";
+
+    /** {@code orders.refund_reason} raised on the departing seller's paid, undespatched sales. */
+    static final String REFUND_REASON =
+            "Raised automatically: the seller closed their AuctionHub account before despatch.";
+
     /**
      * PDPA-aligned account closure: removes identifying data in place (email, username, password,
      * phone, address, 2FA secrets) and marks the row {@link Status#DELETED}. The primary key is
      * retained so auction/bid foreign keys remain valid without exposing the data subject.
      * Any Telegram link and queued Telegram messages are revoked in the same transaction.
+     *
+     * @return true when the row was anonymised. Prefer {@link #closeAccount(int)} when the
+     *         caller wants to notify the counterparties that closure affected.
      */
     public boolean deleteAccount(int userId) {
+        return closeAccount(userId).isAnonymised();
+    }
+
+    /**
+     * Account closure, plus the clean-up that closure implies for the member's open business.
+     *
+     * <p>Anonymising the {@code users} row is not enough on its own. A departing seller's live
+     * listings kept running and stayed biddable, which meant members could go on bidding —
+     * and winning — against a seller who no longer exists and cannot despatch anything; their
+     * open orders were left dangling in the same way. All of it happens in the one transaction
+     * as the anonymisation, so the account cannot end up closed with its listings still live.</p>
+     *
+     * <p>The policy, per state:</p>
+     * <ul>
+     *   <li><b>ACTIVE / PENDING listings</b> → CANCELLED with a reason naming the closure.
+     *       Bids are left in place, as they are for a seller-initiated cancel: they are the
+     *       audit trail of a real auction.</li>
+     *   <li><b>PENDING_PAYMENT orders</b>, on either side → CANCELLED. Nothing has been paid,
+     *       so nobody is out of pocket, and neither party is left holding an obligation to a
+     *       counterparty who has gone.</li>
+     *   <li><b>PAID sales not yet despatched</b> → left PAID and flagged
+     *       {@code refund_status = 'REQUESTED'}. This is the case the buyer must never lose:
+     *       they have paid a seller who has just vanished. Cancelling the order outright
+     *       would make their money disappear with it, so instead the order enters the
+     *       existing refund queue that {@code OrderDAO#adminResolveRefund} already services,
+     *       where an admin approves the refund and the cancellation follows from that. An
+     *       order that already carries a refund decision is left alone.</li>
+     *   <li><b>PAID orders already in transit, and the departing member's own paid
+     *       purchases</b> → not touched. The goods are moving; unwinding that is a support
+     *       matter, not something to guess at inside a DELETE. The counterparty is told.</li>
+     *   <li><b>COMPLETED orders</b> → not touched. They are finished history.</li>
+     * </ul>
+     */
+    public ClosureImpact closeAccount(int userId) {
         try (Connection conn = DBUtil.connectDB()) {
-            return deleteAccountWithConnection(conn, userId);
+            return closeAccountWithConnection(conn, userId);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -273,6 +322,11 @@ public class UserDAO {
      * Same as {@link #deleteAccount(int)} but uses an existing connection (for unit tests with a mock).
      */
     boolean deleteAccountWithConnection(Connection conn, int userId) throws SQLException {
+        return closeAccountWithConnection(conn, userId).isAnonymised();
+    }
+
+    /** Same as {@link #closeAccount(int)} but uses an existing connection (for unit tests). */
+    ClosureImpact closeAccountWithConnection(Connection conn, int userId) throws SQLException {
         String token = UUID.randomUUID().toString().replace("-", "");
         String shortTok = token.substring(0, Math.min(16, token.length()));
         String anonymizedEmail = "deleted_" + userId + "_" + shortTok + "@invalid.auction.local";
@@ -294,14 +348,228 @@ public class UserDAO {
             ps.setInt(5, userId);
             boolean updated = ps.executeUpdate() == 1;
             revokeTelegramChannel(conn, userId);
+
+            // Read the orders that closure leaves in somebody else's hands before anything
+            // is rewritten, so the notification list describes the state the member is
+            // actually in rather than the state this method just produced.
+            List<AffectedOrder> handover = listHandoverOrders(conn, userId);
+            List<Long> cancelledListings = cancelOpenListings(conn, userId);
+            List<AffectedOrder> cancelledOrders = cancelUnpaidOrders(conn, userId);
+            List<AffectedOrder> refundDue = raiseRefundsOnUndespatchedSales(conn, userId);
+
             conn.commit();
-            return updated;
+            return new ClosureImpact(updated, cancelledListings, cancelledOrders,
+                    refundDue, handover);
         } catch (SQLException e) {
             conn.rollback();
             throw e;
         } finally {
             conn.setAutoCommit(previousAutoCommit);
         }
+    }
+
+    /**
+     * Cancels the departing member's ACTIVE and PENDING listings in the caller's transaction.
+     *
+     * <p>FINISHED and already-CANCELLED listings are left alone: they are concluded, and a
+     * concluded auction's status is a historical fact about what happened, not a live state.
+     * Bids survive for the same reason they survive a seller-initiated cancel.</p>
+     *
+     * @return the cancelled auction ids
+     */
+    private static List<Long> cancelOpenListings(Connection conn, int userId) throws SQLException {
+        List<Long> ids = new ArrayList<>();
+        String sql = "UPDATE auction SET status_id = ?, cancel_reason = ? "
+                + "WHERE seller_id = ? AND status_id IN (?, ?) "
+                + "RETURNING auction_id";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, AuctionStatus.CANCELLED.getId());
+            ps.setString(2, LISTING_CANCEL_REASON);
+            ps.setInt(3, userId);
+            ps.setInt(4, AuctionStatus.ACTIVE.getId());
+            ps.setInt(5, AuctionStatus.PENDING.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) ids.add(rs.getLong(1));
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Cancels every unpaid order the departing member is on either side of, in the caller's
+     * transaction. No money has moved on a {@code PENDING_PAYMENT} order, so cancelling it
+     * costs nobody anything and releases the counterparty from an obligation to somebody who
+     * has left.
+     *
+     * @return the cancelled orders, each carrying the counterparty to tell
+     */
+    private static List<AffectedOrder> cancelUnpaidOrders(Connection conn, int userId)
+            throws SQLException {
+        List<AffectedOrder> affected = new ArrayList<>();
+        String select = "SELECT o.id, o.buyer_id, o.seller_id, d.title "
+                + "FROM orders o JOIN auction_details d ON d.id = o.auction_id "
+                + "WHERE o.status = 'PENDING_PAYMENT' AND (o.seller_id = ? OR o.buyer_id = ?) "
+                + "FOR UPDATE OF o";
+        try (PreparedStatement ps = conn.prepareStatement(select)) {
+            ps.setInt(1, userId);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) affected.add(counterpartyOf(rs, userId));
+            }
+        }
+        if (affected.isEmpty()) return affected;
+
+        String update = "UPDATE orders SET status = 'CANCELLED', cancel_reason = ?, "
+                + "cancelled_at = CURRENT_TIMESTAMP "
+                + "WHERE id = ? AND status = 'PENDING_PAYMENT'";
+        try (PreparedStatement ps = conn.prepareStatement(update)) {
+            for (AffectedOrder order : affected) {
+                ps.setString(1, ORDER_CANCEL_REASON);
+                ps.setLong(2, order.getOrderId());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        return affected;
+    }
+
+    /**
+     * Flags the departing seller's paid-but-undespatched sales as refund-requested, in the
+     * caller's transaction.
+     *
+     * <p>The order stays {@code PAID}: the buyer's payment is a fact and the amount has to
+     * remain on a live row for the refund to be about something. What changes is that the
+     * order now sits in the pending-refund queue an admin already works through
+     * ({@code OrderDAO#adminResolveRefund}), so approving it performs the same
+     * refund-and-cancel transition as any other approved refund. Orders that already carry a
+     * refund decision are skipped rather than overwritten — the buyer may have had one
+     * declined, and that outcome is not this method's to reverse.</p>
+     *
+     * @return the flagged orders, each carrying the buyer who is owed the money
+     */
+    private static List<AffectedOrder> raiseRefundsOnUndespatchedSales(Connection conn, int userId)
+            throws SQLException {
+        List<AffectedOrder> affected = new ArrayList<>();
+        String select = "SELECT o.id, o.buyer_id, o.seller_id, d.title "
+                + "FROM orders o JOIN auction_details d ON d.id = o.auction_id "
+                + "WHERE o.seller_id = ? AND o.status = 'PAID' AND o.refund_status IS NULL "
+                + "AND (o.shipping_status IS NULL OR o.shipping_status = 'PREPARING') "
+                + "FOR UPDATE OF o";
+        try (PreparedStatement ps = conn.prepareStatement(select)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) affected.add(counterpartyOf(rs, userId));
+            }
+        }
+        if (affected.isEmpty()) return affected;
+
+        String update = "UPDATE orders SET refund_status = 'REQUESTED', refund_reason = ?, "
+                + "refund_requested_at = CURRENT_TIMESTAMP "
+                + "WHERE id = ? AND status = 'PAID' AND refund_status IS NULL";
+        try (PreparedStatement ps = conn.prepareStatement(update)) {
+            for (AffectedOrder order : affected) {
+                ps.setString(1, REFUND_REASON);
+                ps.setLong(2, order.getOrderId());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        return affected;
+    }
+
+    /**
+     * The paid orders closure deliberately leaves exactly as they are: sales already handed
+     * to a courier, and the departing member's own paid purchases. Read-only — the goods are
+     * in motion, and the right outcome depends on facts (did it arrive? was it as described?)
+     * that only the two people involved and support can establish. The counterparty is told
+     * so they are not left wondering why the other name went quiet.
+     */
+    private static List<AffectedOrder> listHandoverOrders(Connection conn, int userId)
+            throws SQLException {
+        List<AffectedOrder> affected = new ArrayList<>();
+        String sql = "SELECT o.id, o.buyer_id, o.seller_id, d.title "
+                + "FROM orders o JOIN auction_details d ON d.id = o.auction_id "
+                + "WHERE o.status = 'PAID' AND ("
+                + "  (o.seller_id = ? AND o.shipping_status IS NOT NULL "
+                + "     AND o.shipping_status <> 'PREPARING') "
+                + "  OR o.buyer_id = ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) affected.add(counterpartyOf(rs, userId));
+            }
+        }
+        return affected;
+    }
+
+    /** Maps an order row to the party that is <em>not</em> the departing member. */
+    private static AffectedOrder counterpartyOf(ResultSet rs, int departingUserId)
+            throws SQLException {
+        int buyerId = rs.getInt("buyer_id");
+        boolean counterpartyIsBuyer = buyerId != departingUserId;
+        return new AffectedOrder(
+                rs.getLong("id"),
+                counterpartyIsBuyer ? buyerId : rs.getInt("seller_id"),
+                counterpartyIsBuyer,
+                rs.getString("title"));
+    }
+
+    /**
+     * What an account closure did beyond anonymising the row, so the caller can tell the
+     * people it affected. Returned rather than notified from inside the DAO: the
+     * notifications must not be sent until the transaction has actually committed.
+     */
+    public static final class ClosureImpact {
+        private final boolean anonymised;
+        private final List<Long> cancelledListingIds;
+        private final List<AffectedOrder> cancelledOrders;
+        private final List<AffectedOrder> refundDueOrders;
+        private final List<AffectedOrder> handoverOrders;
+
+        ClosureImpact(boolean anonymised, List<Long> cancelledListingIds,
+                      List<AffectedOrder> cancelledOrders, List<AffectedOrder> refundDueOrders,
+                      List<AffectedOrder> handoverOrders) {
+            this.anonymised = anonymised;
+            this.cancelledListingIds = List.copyOf(cancelledListingIds);
+            this.cancelledOrders = List.copyOf(cancelledOrders);
+            this.refundDueOrders = List.copyOf(refundDueOrders);
+            this.handoverOrders = List.copyOf(handoverOrders);
+        }
+
+        /** True when the {@code users} row was found and anonymised. */
+        public boolean isAnonymised()                      { return anonymised; }
+        /** Listings taken down because their seller left. */
+        public List<Long> getCancelledListingIds()         { return cancelledListingIds; }
+        /** Unpaid orders cancelled, with the counterparty to tell. */
+        public List<AffectedOrder> getCancelledOrders()    { return cancelledOrders; }
+        /** Paid, undespatched sales now awaiting an admin refund decision. */
+        public List<AffectedOrder> getRefundDueOrders()    { return refundDueOrders; }
+        /** Paid orders left untouched because the goods are already in motion. */
+        public List<AffectedOrder> getHandoverOrders()     { return handoverOrders; }
+    }
+
+    /** One order touched by (or deliberately left alone by) a closure, and who to tell. */
+    public static final class AffectedOrder {
+        private final long orderId;
+        private final int counterpartyId;
+        private final boolean counterpartyIsBuyer;
+        private final String itemTitle;
+
+        AffectedOrder(long orderId, int counterpartyId, boolean counterpartyIsBuyer,
+                      String itemTitle) {
+            this.orderId = orderId;
+            this.counterpartyId = counterpartyId;
+            this.counterpartyIsBuyer = counterpartyIsBuyer;
+            this.itemTitle = (itemTitle == null || itemTitle.isBlank()) ? "your order" : itemTitle;
+        }
+
+        public long getOrderId()             { return orderId; }
+        /** The other party on the order — the one still here, and the one to notify. */
+        public int getCounterpartyId()       { return counterpartyId; }
+        /** True when the counterparty is the buyer, which decides where the alert links to. */
+        public boolean isCounterpartyBuyer() { return counterpartyIsBuyer; }
+        public String getItemTitle()         { return itemTitle; }
     }
 
     /**

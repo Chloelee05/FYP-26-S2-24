@@ -1,5 +1,6 @@
 package com.auction.servlet.api;
 
+import com.auction.dao.NotificationDAO;
 import com.auction.dao.PaymentMethodDAO;
 import com.auction.dao.ProfileActivityDAO;
 import com.auction.dao.ProfileActivityDAO.TxFilter;
@@ -49,17 +50,20 @@ public class AccountApiServlet extends ApiBase {
     private UserDAO            userDAO;
     private ProfileActivityDAO actDAO;
     private PaymentMethodDAO   paymentDAO;
+    private NotificationDAO    notificationDAO;
 
     public AccountApiServlet() {
-        this.userDAO    = new UserDAO();
-        this.actDAO     = new ProfileActivityDAO();
-        this.paymentDAO = new PaymentMethodDAO();
+        this.userDAO         = new UserDAO();
+        this.actDAO          = new ProfileActivityDAO();
+        this.paymentDAO      = new PaymentMethodDAO();
+        this.notificationDAO = new NotificationDAO();
     }
 
     /** Test hook */
     public void setUserDAO(UserDAO userDAO)                   { this.userDAO    = userDAO; }
     public void setProfileActivityDAO(ProfileActivityDAO dao) { this.actDAO     = dao; }
     public void setPaymentMethodDAO(PaymentMethodDAO pm)      { this.paymentDAO = pm; }
+    public void setNotificationDAO(NotificationDAO dao)       { this.notificationDAO = dao; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -493,11 +497,69 @@ public class AccountApiServlet extends ApiBase {
         if (!"DELETE".equals(confirm)) {
             badRequest(resp, "Type DELETE to confirm account deletion."); return;
         }
-        boolean ok = userDAO.deleteAccount(userId);
-        if (!ok) { serverError(resp, "Could not delete account."); return; }
+        UserDAO.ClosureImpact impact = userDAO.closeAccount(userId);
+        if (!impact.isAnonymised()) { serverError(resp, "Could not delete account."); return; }
+        notifyClosureCounterparties(impact);
         AuthSession session = authSession(req);
         if (session != null) session.invalidate();
         okMsg(resp, "Account deleted.");
+    }
+
+    /**
+     * Tells the people a closure affected, once it has committed.
+     *
+     * <p>Best-effort, and deliberately after the transaction rather than inside the DAO: a
+     * member must not be prevented from closing their account because a notification insert
+     * failed, and nothing should be announced about a closure that then rolled back.</p>
+     */
+    private void notifyClosureCounterparties(UserDAO.ClosureImpact impact) {
+        try {
+            for (UserDAO.AffectedOrder order : impact.getCancelledOrders()) {
+                notificationDAO.create(order.getCounterpartyId(),
+                        order.isCounterpartyBuyer() ? "ORDER_CANCELLED" : "ORDER_CANCELLED_SELLER",
+                        order.isCounterpartyBuyer()
+                                ? "Your order for \"" + order.getItemTitle() + "\" was cancelled because "
+                                        + "the seller closed their account. No payment was taken."
+                                : "The order for \"" + order.getItemTitle() + "\" was cancelled because "
+                                        + "the buyer closed their account before paying. You can relist the item.",
+                        order.isCounterpartyBuyer() ? "/purchases" : "/sales");
+            }
+
+            for (UserDAO.AffectedOrder order : impact.getRefundDueOrders()) {
+                notificationDAO.create(order.getCounterpartyId(), "ACCOUNT_CLOSED_REFUND",
+                        "The seller of \"" + order.getItemTitle() + "\" closed their account before "
+                                + "despatching it. A refund has been raised on your behalf and is "
+                                + "awaiting review — your payment is not lost.",
+                        "/purchases");
+            }
+            notifyAdminsOfRefundsDue(impact.getRefundDueOrders());
+
+            for (UserDAO.AffectedOrder order : impact.getHandoverOrders()) {
+                notificationDAO.create(order.getCounterpartyId(), "ACCOUNT_CLOSED_COUNTERPARTY",
+                        "The other party on your order for \"" + order.getItemTitle() + "\" has closed "
+                                + "their account. The order is unchanged — contact support if you need "
+                                + "help completing it.",
+                        order.isCounterpartyBuyer() ? "/purchases" : "/sales");
+            }
+        } catch (RuntimeException e) {
+            getServletContext().log("account closure notifications failed", e);
+        }
+    }
+
+    /**
+     * Puts the refunds a closure raised in front of an admin, because nobody else can approve
+     * them: the seller who would normally decide has just left.
+     */
+    private void notifyAdminsOfRefundsDue(java.util.List<UserDAO.AffectedOrder> refundDue) {
+        if (refundDue.isEmpty()) return;
+        String message = refundDue.size() == 1
+                ? "A seller closed their account with 1 paid, undespatched order. "
+                        + "A refund is awaiting your decision."
+                : "A seller closed their account with " + refundDue.size()
+                        + " paid, undespatched orders. Refunds are awaiting your decision.";
+        for (int adminId : userDAO.listAdminUserIds()) {
+            notificationDAO.create(adminId, "ADMIN_ACCOUNT_CLOSURE_REFUND", message, "/admin/orders");
+        }
     }
 
     private String sub(HttpServletRequest req) {

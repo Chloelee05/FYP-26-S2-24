@@ -140,3 +140,22 @@ describe('editing a saved payment method', () => {
     expect(editor.queryByLabelText('Account number')).not.toBeInTheDocument();
   });
 });
+
+describe('delete-account copy', () => {
+  it('no longer claims bids and the watchlist are removed — they are kept by design', () => {
+    renderSettings('danger');
+    expect(screen.queryByText(/listings, bids and watchlist are removed/i)).not.toBeInTheDocument();
+  });
+
+  it('says personal details are erased and past bids are kept unattributed', () => {
+    renderSettings('danger');
+    expect(screen.getByText(/personal details are erased/i)).toBeInTheDocument();
+    expect(screen.getByText(/past bids and reviews stay/i)).toBeInTheDocument();
+  });
+
+  it('warns that running listings are cancelled and paid buyers are refunded', () => {
+    renderSettings('danger');
+    expect(screen.getByText(/still running is cancelled/i)).toBeInTheDocument();
+    expect(screen.getByText(/refund is raised for them automatically/i)).toBeInTheDocument();
+  });
+});

@@ -785,6 +785,20 @@ function NotificationPreferencesSection() {
 }
 
 // ── Delete account section ────────────────────────────────────────────────────
+// What closure actually does, in the order it matters to the person reading it. The old copy
+// promised "your listings, bids and watchlist are removed", which was not true of two of the
+// three: bids and watchlist rows are kept on purpose, because deleting a bid would rewrite
+// the history of an auction other people took part in and won. Describing the real design —
+// personal data erased, participation kept but no longer attributable — is both honest and a
+// better account of the PDPA position than the sentence it replaces.
+const DELETION_EFFECTS = [
+  'Your personal details are erased: name, email, phone, address, photo and two-factor setup.',
+  'Your past bids and reviews stay, no longer linked to you by name, so auctions other people took part in remain valid.',
+  'Any listing of yours that is still running is cancelled, and unpaid orders on it are cancelled too.',
+  'If a buyer has already paid you for something you have not sent, a refund is raised for them automatically.',
+  'This cannot be undone — you would need to register again.',
+];
+
 function DeleteAccountSection() {
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -813,11 +827,7 @@ function DeleteAccountSection() {
       <Feedback error={error} />
 
       <ul className="space-y-2 text-sm text-ink-600">
-        {[
-          'Your listings, bids and watchlist are removed.',
-          'Open orders and refunds can no longer be managed.',
-          'This cannot be undone — you would need to register again.',
-        ].map(point => (
+        {DELETION_EFFECTS.map(point => (
           <li key={point} className="flex items-start gap-2.5">
             <AlertCircle size={15} className="text-red-500 mt-0.5 shrink-0" />
             {point}

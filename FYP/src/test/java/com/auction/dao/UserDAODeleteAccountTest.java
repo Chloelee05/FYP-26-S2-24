@@ -8,6 +8,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,9 +17,25 @@ import static org.mockito.Mockito.*;
 
 /**
  * SCRUM-190: secure account deletion / anonymisation in {@link UserDAO} (mocked JDBC).
+ *
+ * <p>The clean-up closure performs on the departing member's listings and orders is covered
+ * separately by {@link UserDAOClosureTest}; these stay on the anonymisation itself, which is
+ * the part that must not regress.</p>
  */
 @DisplayName("UserDAO deleteAccount (SCRUM-190)")
 class UserDAODeleteAccountTest {
+
+    /**
+     * A statement that answers every clean-up query with no rows, so these tests exercise the
+     * anonymisation without having to describe a member's whole open book of business.
+     */
+    private static PreparedStatement noRowsStatement() throws SQLException {
+        PreparedStatement ps = mock(PreparedStatement.class);
+        ResultSet empty = mock(ResultSet.class);
+        when(empty.next()).thenReturn(false);
+        when(ps.executeQuery()).thenReturn(empty);
+        return ps;
+    }
 
     @Test
     @DisplayName("Anonymizes PII, sets DELETED status, hashes replacement password via SecurityUtil")
@@ -27,7 +44,9 @@ class UserDAODeleteAccountTest {
         PreparedStatement ps = mock(PreparedStatement.class);
         PreparedStatement unlinkPs = mock(PreparedStatement.class);
         PreparedStatement outboxPs = mock(PreparedStatement.class);
+        PreparedStatement cleanup = noRowsStatement();
         when(conn.getAutoCommit()).thenReturn(true);
+        when(conn.prepareStatement(anyString())).thenReturn(cleanup);
         when(conn.prepareStatement(contains("UPDATE users"))).thenReturn(ps);
         when(conn.prepareStatement(contains("UPDATE telegram_links"))).thenReturn(unlinkPs);
         when(conn.prepareStatement(contains("UPDATE telegram_outbox"))).thenReturn(outboxPs);
@@ -69,7 +88,7 @@ class UserDAODeleteAccountTest {
     @DisplayName("Returns false when no row matches id")
     void deleteAccountWithConnection_noRow() throws Exception {
         Connection conn = mock(Connection.class);
-        PreparedStatement ps = mock(PreparedStatement.class);
+        PreparedStatement ps = noRowsStatement();
         when(conn.getAutoCommit()).thenReturn(true);
         when(conn.prepareStatement(anyString())).thenReturn(ps);
         when(ps.executeUpdate()).thenReturn(0);

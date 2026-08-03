@@ -133,4 +133,7 @@
 \echo '== auto-cancellation of unpaid orders (payment timeout) =='
 \ir migration_order_payment_timeout.sql
 
+\echo '== account closure clean-up (cancel listings / orders of a departing member) =='
+\ir migration_account_closure.sql
+
 \echo 'All migrations applied.'

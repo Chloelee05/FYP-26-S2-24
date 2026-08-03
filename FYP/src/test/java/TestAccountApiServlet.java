@@ -91,7 +91,7 @@ class TestAccountApiServlet {
         ApiTestSupport.bindJsonWriter(resp);
         servlet.doPost(req, resp);
         verify(resp).setStatus(400);
-        verify(mockUserDAO, never()).deleteAccount(anyInt());
+        verify(mockUserDAO, never()).closeAccount(anyInt());
     }
 
     // ── Payment methods: multiple types ──────────────────────────────────────────
