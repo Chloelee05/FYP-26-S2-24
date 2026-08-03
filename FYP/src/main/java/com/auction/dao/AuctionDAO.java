@@ -100,7 +100,15 @@ public class AuctionDAO {
     }
 
     /**
-     * Sum of winning_bid over completed listing rows (dollars; placeholder until payments tracked per auction).
+     * Sum of winning_bid over completed listing rows, in whole dollars.
+     *
+     * <p>Reads the aggregate as a {@link BigDecimal} and rounds once, at the end.
+     * {@code winning_bid} is NUMERIC(12,2) as of migration_seller_maintain_listing.sql, and
+     * {@code getLong} on a numeric aggregate truncates toward zero — which would have thrown
+     * away up to a dollar of the platform's total revenue rather than the cents it looks like.
+     * The whole-dollar return type is kept because the admin dashboard, the generated PDF
+     * report and their tests all consume it as a {@code long}; rounding the total once is the
+     * closest correct figure that shape can carry.</p>
      */
     public long sumWinningBidDollars() {
         try (Connection conn = DBUtil.connectDB()) {
@@ -108,7 +116,9 @@ public class AuctionDAO {
             try (PreparedStatement ps = conn.prepareStatement(sql);
                  ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getLong(1);
+                    BigDecimal total = rs.getBigDecimal(1);
+                    return total == null ? 0L
+                            : total.setScale(0, java.math.RoundingMode.HALF_UP).longValue();
                 }
             }
         } catch (Exception e) {

@@ -1,6 +1,7 @@
 package com.auction.util;
 
 import com.auction.dao.OrderDAO;
+import com.auction.dao.SellerAuctionDAO;
 import com.auction.model.AuctionStatus;
 import com.auction.notification.NotificationService;
 
@@ -77,10 +78,16 @@ public final class AuctionFinalizer {
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
                 ps.setInt(1, winnerId);
-                ps.setInt(2, winningBid.intValue());
+                // The bid, to the cent. This used to be setInt(winningBid.intValue()), which
+                // truncated: a $33.77 winning bid became a $33.00 order, because
+                // ensureOrderForAuction reads the order amount straight back out of this column.
+                // winning_bid is NUMERIC(12,2) as of migration_seller_maintain_listing.sql.
+                ps.setBigDecimal(2, winningBid.setScale(2, java.math.RoundingMode.HALF_UP));
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            // One unit leaves on a conclusion: this model awards one auction to one winner.
+            SellerAuctionDAO.decrementStockForSale(conn, auctionId);
             new OrderDAO().ensureOrderForAuction(conn, auctionId);
             return FinalizeResult.ok(winnerId);
         }

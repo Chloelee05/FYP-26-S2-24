@@ -133,7 +133,16 @@
 \echo '== auto-cancellation of unpaid orders (payment timeout) =='
 \ir migration_order_payment_timeout.sql
 
+\echo '== seller record maintenance (winning_bid cents, quantity floor of zero) =='
+\ir migration_seller_maintain_listing.sql
+
 \echo '== account closure clean-up (cancel listings / orders of a departing member) =='
 \ir migration_account_closure.sql
+
+\echo '== admin management (product/service kind on listings, admin audit log) =='
+\ir migration_admin_management.sql
+
+\echo '== admin demo data (approval queue, service listings, open moderation cases) =='
+\ir migration_admin_demo_data.sql
 
 \echo 'All migrations applied.'

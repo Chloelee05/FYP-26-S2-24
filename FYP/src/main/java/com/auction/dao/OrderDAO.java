@@ -111,10 +111,16 @@ public class OrderDAO {
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
                 ps.setInt(1, winnerId);
-                ps.setInt(2, amount.setScale(0, RoundingMode.HALF_UP).intValue());
+                // Was setInt(amount.setScale(0, HALF_UP)), which rounded the cents away — and
+                // rounded where AuctionFinalizer truncated, so the same auction concluded at a
+                // different figure depending on which path got there first. Both now write the
+                // bid itself into the NUMERIC(12,2) column.
+                ps.setBigDecimal(2, amount.setScale(2, RoundingMode.HALF_UP));
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            // One unit leaves on a conclusion — see SellerAuctionDAO.decrementStockForSale.
+            SellerAuctionDAO.decrementStockForSale(conn, auctionId);
 
             long orderId;
             try (PreparedStatement ps = conn.prepareStatement(

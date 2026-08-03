@@ -446,10 +446,15 @@ public class BidDAO {
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
                 ps.setInt(1, buyerId);
-                ps.setInt(2, clockPrice.setScale(0, java.math.RoundingMode.HALF_UP).intValue());
+                // The clock price to the cent. A descending clock lands on fractional figures
+                // almost by definition, so rounding here charged the buyer something they never
+                // accepted; winning_bid is NUMERIC(12,2) as of
+                // migration_seller_maintain_listing.sql.
+                ps.setBigDecimal(2, clockPrice.setScale(2, java.math.RoundingMode.HALF_UP));
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            SellerAuctionDAO.decrementStockForSale(conn, auctionId);
             new OrderDAO().ensureOrderForAuction(conn, auctionId);
 
             conn.commit();
@@ -530,10 +535,13 @@ public class BidDAO {
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
                 ps.setInt(1, buyerId);
-                ps.setInt(2, binPrice.setScale(0, java.math.RoundingMode.HALF_UP).intValue());
+                // The advertised Buy It Now price to the cent, so the order matches the price
+                // the buyer was shown when they clicked.
+                ps.setBigDecimal(2, binPrice.setScale(2, java.math.RoundingMode.HALF_UP));
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            SellerAuctionDAO.decrementStockForSale(conn, auctionId);
             new OrderDAO().ensureOrderForAuction(conn, auctionId);
 
             conn.commit();
