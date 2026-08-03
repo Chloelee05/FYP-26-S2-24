@@ -31,6 +31,17 @@ export const deleteAccount = () =>
 export const getPaymentMethods = () => api.get('/account/payment-methods');
 export const addPaymentMethod = (data) =>
   api.post('/account/payment-methods', form({ action: 'add', ...data }), F);
+
+/**
+ * Edits a saved method in place. The server decides which fields are allowed from the
+ * stored method_type, so `data` carries only the editable ones: cardholder name and expiry
+ * for a card, the email for PayPal, the account-holder and bank name for a bank account.
+ * Card and bank numbers are not editable — only their ciphertext and last 4 digits are
+ * stored, so replacing a number is an add followed by a delete.
+ */
+export const updatePaymentMethod = (id, data) =>
+  api.post('/account/payment-methods', form({ action: 'update', id, ...data }), F);
+
 export const deletePaymentMethod = (id) =>
   api.post('/account/payment-methods', form({ action: 'delete', id }), F);
 export const setDefaultPaymentMethod = (id) =>

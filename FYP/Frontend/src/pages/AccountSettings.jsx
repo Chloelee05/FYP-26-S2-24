@@ -4,11 +4,12 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   AlertCircle, CheckCircle2, User, KeyRound,
   ShieldCheck, Bell, Trash2, Upload, ArrowLeft, Copy, Loader2, Lock,
-  CreditCard, Wallet, Landmark, Plus, Send,
+  CreditCard, Wallet, Landmark, Plus, Send, Pencil,
 } from 'lucide-react';
 import {
   getProfile, updateProfile, uploadProfilePhoto, deleteAccount,
-  getPaymentMethods, addPaymentMethod, deletePaymentMethod, setDefaultPaymentMethod,
+  getPaymentMethods, addPaymentMethod, updatePaymentMethod, deletePaymentMethod,
+  setDefaultPaymentMethod,
 } from '../api/user';
 import { changePassword } from '../api/auth';
 import { setup2FA, confirm2FA, disable2FA } from '../api/twoFactor';
@@ -861,6 +862,83 @@ const EMPTY_CARD   = { cardHolder: '', cardNumber: '', expMonth: '', expYear: ''
 const EMPTY_PAYPAL = { paypalEmail: '', makeDefault: false };
 const EMPTY_BANK   = { accountHolder: '', accountNumber: '', bankName: '', makeDefault: false };
 
+/**
+ * The editable fields of a saved method, by type. Card and bank *numbers* are absent on
+ * purpose: only their ciphertext plus a brand and last 4 digits are stored, so changing a
+ * number changes everything the row is recognised by and needs fresh encryption — that is a
+ * new method, not an edit of this one. What genuinely changes on a method somebody keeps is
+ * the name on it, the expiry a reissue prints, or the PayPal address it points at.
+ */
+const EDIT_FIELDS = {
+  CARD: [
+    { key: 'cardHolder', label: 'Cardholder name', type: 'text',   from: m => m.cardHolder ?? '' },
+    { key: 'expMonth',   label: 'Exp. month',      type: 'number', from: m => m.expMonth ?? '', min: 1, max: 12, width: 'w-24' },
+    { key: 'expYear',    label: 'Exp. year',       type: 'number', from: m => m.expYear ?? '',  min: 2000, width: 'w-28' },
+  ],
+  PAYPAL: [
+    { key: 'paypalEmail', label: 'PayPal email', type: 'email', from: m => m.accountRef ?? '' },
+  ],
+  BANK_TRANSFER: [
+    { key: 'accountHolder', label: 'Account holder name', type: 'text', from: m => m.cardHolder ?? '' },
+    { key: 'bankName',      label: 'Bank name',           type: 'text', from: m => m.accountRef ?? '' },
+  ],
+};
+
+const editFieldsFor = (method) => EDIT_FIELDS[method.methodType] ?? EDIT_FIELDS.CARD;
+
+const initialEditForm = (method) =>
+  Object.fromEntries(editFieldsFor(method).map(f => [f.key, String(f.from(method))]));
+
+/** Inline editor for one saved method — the update half of "maintain payment details". */
+function EditMethodForm({ method, saving, onCancel, onSave }) {
+  const fields = editFieldsFor(method);
+  const [form, setForm] = useState(() => initialEditForm(method));
+
+  const unchangeable = method.methodType === 'CARD'
+    ? 'The card number cannot be changed. Add the new card and remove this one.'
+    : method.methodType === 'BANK_TRANSFER'
+      ? 'The account number cannot be changed. Add the new account and remove this one.'
+      : null;
+
+  // The form carries an accessible name because the add-a-method form below repeats these
+  // field labels, and that name is what tells a screen reader which of the two it is in.
+  return (
+    <form
+      onSubmit={e => { e.preventDefault(); onSave(form); }}
+      aria-label={`Edit ${method.displayLabel ?? 'payment method'}`}
+      className="border border-primary-200 bg-primary-50/30 rounded-xl px-4 py-3 space-y-3"
+    >
+      <p className="text-sm font-semibold text-ink-900">
+        Edit {method.displayLabel ?? 'payment method'}
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        {fields.map(({ key, label, type, min, max, width }) => (
+          <div key={key} className={width ? undefined : 'flex-1 min-w-[12rem]'}>
+            <label className="field-label" htmlFor={`pm-edit-${method.id}-${key}`}>{label}</label>
+            <input
+              id={`pm-edit-${method.id}-${key}`}
+              type={type}
+              required
+              min={min}
+              max={max}
+              value={form[key]}
+              onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+              className={`input-field ${width ?? ''}`}
+            />
+          </div>
+        ))}
+      </div>
+      {unchangeable && <p className="field-hint">{unchangeable}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={saving} className="btn-primary btn-sm">
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+        <button type="button" onClick={onCancel} className="btn-secondary btn-sm">Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 function PaymentMethodsSection() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -868,6 +946,8 @@ function PaymentMethodsSection() {
   const [cardForm, setCardForm] = useState(EMPTY_CARD);
   const [paypalForm, setPaypalForm] = useState(EMPTY_PAYPAL);
   const [bankForm, setBankForm] = useState(EMPTY_BANK);
+  const [editingId, setEditingId] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -897,6 +977,20 @@ function PaymentMethodsSection() {
       loadCards();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not add payment method.'));
+    }
+  };
+
+  const handleUpdateMethod = async (id, values) => {
+    setError(''); setMessage(''); setSavingEdit(true);
+    try {
+      await updatePaymentMethod(id, values);
+      setEditingId(null);
+      setMessage('Payment method updated.');
+      await loadCards();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not update that payment method.'));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -933,6 +1027,17 @@ function PaymentMethodsSection() {
           </div>
         ) : cards.map(c => {
           const MethodIcon = METHOD_ICONS[c.methodType] ?? CreditCard;
+          if (editingId === c.id) {
+            return (
+              <EditMethodForm
+                key={c.id}
+                method={c}
+                saving={savingEdit}
+                onCancel={() => setEditingId(null)}
+                onSave={values => handleUpdateMethod(c.id, values)}
+              />
+            );
+          }
           return (
             <div key={c.id} className="flex items-center justify-between gap-3 border border-ink-200 rounded-xl px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
@@ -961,6 +1066,13 @@ function PaymentMethodsSection() {
                     Set default
                   </button>
                 )}
+                <button
+                  onClick={() => { setEditingId(c.id); setError(''); setMessage(''); }}
+                  aria-label={`Edit ${c.displayLabel ?? 'payment method'}`}
+                  className="text-ink-400 hover:text-primary-600 transition-colors p-1"
+                >
+                  <Pencil size={16} />
+                </button>
                 <button
                   onClick={() => handleDeleteCard(c.id)}
                   aria-label="Remove payment method"
@@ -1030,7 +1142,7 @@ function PaymentMethodsSection() {
                 <label className="field-label" htmlFor="pm-year">Exp. year</label>
                 <input
                   id="pm-year"
-                  type="number" required min="2024" placeholder="YYYY"
+                  type="number" required min={new Date().getFullYear()} placeholder="YYYY"
                   value={cardForm.expYear}
                   onChange={e => setCardForm(f => ({ ...f, expYear: e.target.value }))}
                   className="input-field w-28"

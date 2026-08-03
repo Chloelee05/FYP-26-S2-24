@@ -45,6 +45,25 @@ public class PaymentMethodDAO {
     }
 
     /**
+     * One method belonging to {@code userId}, or {@code null} when the id does not exist or
+     * belongs to somebody else. Callers need the {@code method_type} before they can decide
+     * which fields an update is even allowed to carry.
+     */
+    public PaymentMethod findForUser(int userId, long id) {
+        String sql = "SELECT " + SELECT_COLS + " FROM payment_methods WHERE id = ? AND user_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? map(rs) : null;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Adds a card for the user. Encrypts the PAN, derives brand + last4, and makes
      * the card default when it is the user's first one (or {@code makeDefault}).
      * Returns the new id, or -1 on failure.
@@ -120,6 +139,73 @@ public class PaymentMethodDAO {
         }
     }
 
+    /**
+     * Edits a stored card's cardholder name and expiry date, scoped to the owner and to
+     * {@code method_type = 'CARD'}. Returns true if a row was changed.
+     *
+     * <p><b>The PAN is deliberately not updatable.</b> Only the ciphertext, the brand and the
+     * last 4 digits of a card number are ever stored, so "change the number" cannot be an
+     * edit of the row the user is looking at — the brand and last4 they identify it by both
+     * change, and the ciphertext has to be produced afresh. That is an add followed by a
+     * delete, and the API says so rather than pretending otherwise. What genuinely does
+     * change on a card the member keeps is the name on it and the expiry printed on the
+     * front, which is what a bank reissue produces and what this updates.</p>
+     */
+    public boolean updateCard(int userId, long id, String cardHolder, int expMonth, int expYear) {
+        String sql = "UPDATE payment_methods SET card_holder = ?, exp_month = ?, exp_year = ? "
+                + "WHERE id = ? AND user_id = ? AND method_type = 'CARD'";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, cardHolder);
+            ps.setInt(2, expMonth);
+            ps.setInt(3, expYear);
+            ps.setLong(4, id);
+            ps.setInt(5, userId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Repoints a linked PayPal method at a different email, scoped to the owner.
+     * The email is the whole identity of a PayPal method, so it is the only editable field.
+     */
+    public boolean updatePaypal(int userId, long id, String paypalEmail) {
+        String sql = "UPDATE payment_methods SET account_ref = ? "
+                + "WHERE id = ? AND user_id = ? AND method_type = 'PAYPAL'";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, paypalEmail);
+            ps.setLong(2, id);
+            ps.setInt(3, userId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Edits a bank method's account-holder name and bank name, scoped to the owner.
+     * The account number itself is encrypted and its last 4 digits are what the member
+     * recognises the row by, so changing it is an add rather than an edit — same reasoning
+     * as {@link #updateCard}.
+     */
+    public boolean updateBankTransfer(int userId, long id, String accountHolder, String bankName) {
+        String sql = "UPDATE payment_methods SET card_holder = ?, account_ref = ? "
+                + "WHERE id = ? AND user_id = ? AND method_type = 'BANK_TRANSFER'";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, accountHolder);
+            ps.setString(2, bankName);
+            ps.setLong(3, id);
+            ps.setInt(4, userId);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /** Deletes a method (scoped to owner). Returns true if a row was removed. */
     public boolean delete(int userId, long id) {
         String sql = "DELETE FROM payment_methods WHERE id = ? AND user_id = ?";
@@ -133,13 +219,19 @@ public class PaymentMethodDAO {
         }
     }
 
-    /** Marks a method default and clears the flag on the user's other methods. */
+    /**
+     * Marks a method default and clears the flag on the user's other methods.
+     *
+     * <p>The promotion runs first and the transaction is rolled back when it matches nothing.
+     * Clearing first would mean an id that is not the caller's — a stale tab, a guessed
+     * number — wiped the default they actually had and left the account with none, while the
+     * caller was told the change failed.</p>
+     */
     public boolean setDefault(int userId, long id) {
         Connection conn = null;
         try {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
-            clearDefault(conn, userId);
             String sql = "UPDATE payment_methods SET is_default = TRUE WHERE id = ? AND user_id = ?";
             boolean updated;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -147,8 +239,18 @@ public class PaymentMethodDAO {
                 ps.setInt(2, userId);
                 updated = ps.executeUpdate() == 1;
             }
+            if (!updated) {
+                conn.rollback();
+                return false;
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE payment_methods SET is_default = FALSE WHERE user_id = ? AND id <> ?")) {
+                ps.setInt(1, userId);
+                ps.setLong(2, id);
+                ps.executeUpdate();
+            }
             conn.commit();
-            return updated;
+            return true;
         } catch (Exception e) {
             if (conn != null) try { conn.rollback(); } catch (SQLException ignored) { }
             throw new RuntimeException(e);
