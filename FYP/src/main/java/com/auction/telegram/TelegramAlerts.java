@@ -74,6 +74,11 @@ public final class TelegramAlerts {
             "{title} has closed, and your bid was not the winning one.\n\n"
             + "It sold for {price}. Browse AuctionHub to find something similar.";
 
+    private static final String DEFAULT_AUCTION_CANCELLED =
+            "The seller has cancelled {title}.\n\n"
+            + "Your bid no longer stands and nothing is owed. Browse AuctionHub to find "
+            + "something similar.";
+
     private static final String DEFAULT_SELLER_PRICE =
             "{title} is now at {price}.\n\n"
             + "{bids} so far. Bidding is live — no action needed from you.";
@@ -151,6 +156,25 @@ public final class TelegramAlerts {
     /** "The auction closed without you" — deliberately says nothing about who won. */
     public static Alert lost(long auctionId, int userId, String title, BigDecimal price) {
         return build("LOST", "telegram.alert.lost", DEFAULT_LOST, auctionId, userId, title, price);
+    }
+
+    /**
+     * "The seller withdrew it" — sent to each bidder when a listing is cancelled.
+     *
+     * <p>No {@code price} parameter. The item never sold, so there is no closing figure to
+     * report, and repeating the recipient's own bid back at them tells them nothing they do
+     * not know. The seller's stated reason is likewise left out for the same reason
+     * {@link #refundRequested} omits the buyer's: it is free text of unbounded length, and it
+     * is in the in-app notification and the email, where there is room for it.</p>
+     *
+     * <p>Keyed per recipient like {@link #lost}, not per auction like {@link #sellerUnsold}:
+     * this goes to many people, and one bidder's delivery must not deduplicate another's.</p>
+     */
+    public static Alert auctionCancelled(long auctionId, int userId, String title) {
+        String template = TelegramCopy.get("telegram.alert.auctionCancelled", DEFAULT_AUCTION_CANCELLED);
+        String body = render(template, title, null) + link(auctionId);
+        return new Alert("AUCTION_CANCELLED", body, auctionId,
+                "AUCTION_CANCELLED:" + auctionId + ":" + userId);
     }
 
     /**

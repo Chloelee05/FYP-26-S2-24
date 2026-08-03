@@ -65,6 +65,7 @@ public class TestEditAuctionServlet {
         return new AuctionEditData(
                 10L, sellerId, statusId,
                 "Old Title", "Old Description", "", 1, null,
+                3, new java.math.BigDecimal("12.50"),
                 Instant.now(), Instant.now().plusSeconds(3600),
                 Collections.emptyList());
     }

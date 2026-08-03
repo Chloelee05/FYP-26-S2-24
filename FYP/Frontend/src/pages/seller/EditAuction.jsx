@@ -31,6 +31,7 @@ export default function EditAuction() {
   const [bidCount, setBidCount] = useState(0);
   const [form, setForm] = useState({
     title: '', description: '', category: '', itemCondition: '1', endDate: '',
+    quantity: '1', costPrice: '',
   });
   const [existingImages, setExistingImages] = useState([]);
   const [newImageUrls, setNewImageUrls] = useState([]);
@@ -57,6 +58,10 @@ export default function EditAuction() {
           category:      d.category     || '',
           itemCondition: String(d.conditionId || 1),
           endDate:       toLocalDatetime(d.endDate),
+          quantity:      String(d.quantity ?? 1),
+          // A cost price that was never recorded stays empty rather than becoming 0, so
+          // saving the form without touching it leaves the column NULL.
+          costPrice:     d.costPrice == null ? '' : String(d.costPrice),
         });
         setExistingImages(d.images ?? []);
       })
@@ -68,6 +73,15 @@ export default function EditAuction() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Checked here as well as on the server: the column is NOT NULL, and clearing this box
+    // used to reach the insert and come back as a bare "Could not update auction." banner.
+    if (!form.title.trim())       { setError('Title is required.'); return; }
+    if (!form.description.trim()) { setError('Description is required.'); return; }
+    const qty = Number(form.quantity);
+    if (!Number.isInteger(qty) || qty < 1) {
+      setError('Quantity must be a whole number of at least 1. To remove the last item, use Remove item on My listings.');
+      return;
+    }
     setError(''); setLoading(true);
     try {
       await editAuction({
@@ -76,6 +90,10 @@ export default function EditAuction() {
         description:    form.description,
         category:       form.category     || undefined,
         itemCondition:  form.itemCondition,
+        quantity:       form.quantity,
+        // Blank means "leave it alone" all the way through to the DAO, so an omitted cost
+        // price can never wipe one that is already recorded.
+        costPrice:      form.costPrice === '' ? undefined : form.costPrice,
         endDate:        toIso(form.endDate) || undefined,
         newImageUrls,
         deleteImageIds,
@@ -97,7 +115,9 @@ export default function EditAuction() {
         {error && <div className="alert-error mb-4">{error}</div>}
         {hasBids && (
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm px-4 py-2 rounded-lg mb-4">
-            Bids have been placed. Only the end date can be updated.
+            Bids have been placed, so what is on offer is fixed: the title, description,
+            category, condition and photos can no longer change. The end date, the quantity
+            on sale and your private cost price are still yours to maintain.
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -145,6 +165,44 @@ export default function EditAuction() {
               >
                 {CONDITIONS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
+            </div>
+          </div>
+
+          {/* Stock and the seller's private cost stay editable after bids arrive: they are
+              record-keeping about the seller's own inventory, not part of the offer buyers
+              bid against. Requirement Seller (b) names both. */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="field-label" htmlFor="edit-quantity">Quantity</label>
+              <input
+                id="edit-quantity"
+                type="number"
+                min="1"
+                step="1"
+                value={form.quantity}
+                onChange={e => update('quantity', e.target.value)}
+                className="input-field"
+              />
+              <p className="field-hint">
+                How many units are on sale. To take the last one off sale, use Remove item on
+                My listings — that ends the listing.
+              </p>
+            </div>
+            <div>
+              <label className="field-label" htmlFor="edit-cost-price">
+                Cost Price ($) <span className="text-ink-400 font-normal">(private)</span>
+              </label>
+              <input
+                id="edit-cost-price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.costPrice}
+                onChange={e => update('costPrice', e.target.value)}
+                placeholder="Your cost (not shown to buyers)"
+                className="input-field"
+              />
+              <p className="field-hint">Only you can see this. It never appears to buyers.</p>
             </div>
           </div>
 

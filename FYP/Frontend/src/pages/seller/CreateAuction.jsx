@@ -70,12 +70,26 @@ export default function CreateAuction() {
       setError('At least one photo is required.');
       return;
     }
+    // An omitted starting price used to be stored as 0, which means an item could be won for
+    // any amount at all. There is no such thing as a listing with no floor.
+    const start = Number(form.startPrice);
+    if (form.startPrice === '' || !(start > 0)) {
+      setError('Starting price is required and must be greater than 0.');
+      return;
+    }
     if (form.auctionType === '2') {
-      const start = Number(form.startPrice);
       const floor = Number(form.dutchFloorPrice);
-      if (!start || start <= 0) { setError('Dutch auctions need a starting (high) price.'); return; }
       if (form.dutchFloorPrice === '' || floor < 0) { setError('Dutch auctions need a floor (low) price.'); return; }
       if (floor >= start) { setError('Floor price must be below the starting price.'); return; }
+    }
+    // Buy It Now at or below the starting bid is an instant-loss trap: the first buyer to
+    // notice buys the item for less than anyone is allowed to bid.
+    if (form.auctionType === '1' && form.buyItNowPrice !== '') {
+      const bin = Number(form.buyItNowPrice);
+      if (!(bin > start)) {
+        setError('Buy It Now price must be above the starting price.');
+        return;
+      }
     }
     setError(''); setLoading(true);
     try {
@@ -262,10 +276,11 @@ export default function CreateAuction() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="field-label">
-                {form.auctionType === '2' ? 'Starting (High) Price ($) *' : 'Starting Bid ($)'}
+                {form.auctionType === '2' ? 'Starting (High) Price ($) *' : 'Starting Bid ($) *'}
               </label>
               <input type="number" min="0.01" step="0.01" value={form.startPrice}
                 onChange={e => update('startPrice', e.target.value)}
+                required
                 className="input-field" placeholder="0.00" />
             </div>
             <div>
@@ -303,7 +318,10 @@ export default function CreateAuction() {
               <input type="number" min="0.01" step="0.01" value={form.buyItNowPrice}
                 onChange={e => update('buyItNowPrice', e.target.value)}
                 className="input-field" placeholder="Instant purchase price" />
-              <p className="field-hint">Buyers can purchase immediately at this price instead of bidding.</p>
+              <p className="field-hint">
+                Buyers can purchase immediately at this price instead of bidding. It must be
+                above your starting bid.
+              </p>
             </div>
           )}
 

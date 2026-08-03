@@ -11,8 +11,13 @@ const form = (obj) => {
 };
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
-// Seller's own auction list
-export const getSellerAuctions = (params) => api.get('/seller/auctions', { params });
+// Seller's own auction list. Every argument is optional; the server paginates, filters by
+// bucket (ACTIVE / FINISHED / UNSOLD / CANCELLED), searches by title and sorts, and returns
+// { auctions, total, page, size, totalPages, bucket, counts } — see SellerApiServlet.
+// params: { bucket, q, sort, page, size } — all optional. config carries an AbortSignal so a
+// superseded page or search can be cancelled instead of landing after a newer one.
+export const getSellerAuctions = (params, config) =>
+  api.get('/seller/auctions', { params, ...config });
 
 // Get auction data for edit form
 export const getAuctionForEdit = (auctionId) => api.get(`/seller/${auctionId}/edit`);
@@ -53,5 +58,7 @@ export const rateBuyer = (auctionId, score, comment) =>
 export const getSellerAnalytics = () => api.get('/seller/analytics');
 export const emailSellerAnalytics = () => api.post('/seller/analytics', form({}), F);
 
-export const reduceAuctionQuantity = (auctionId) =>
-  api.post('/seller/reduce-quantity', form({ auctionId }), F);
+// Remove one unit from a listing. Pass a reason when this is the last unit: removing it
+// cancels the listing, and the reason is stored and sent to the bidders.
+export const removeAuctionUnit = (auctionId, reason) =>
+  api.post('/seller/reduce-quantity', form({ auctionId, reason }), F);

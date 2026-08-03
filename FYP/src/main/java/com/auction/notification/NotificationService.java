@@ -224,6 +224,52 @@ public final class NotificationService {
     }
 
     /**
+     * Tells everyone who bid on an auction that the seller has withdrawn it.
+     *
+     * <p>Nothing announced a cancellation before this, in any channel: a buyer who had bid on
+     * a listing the seller then pulled simply found it gone. That is the worse half of minimum
+     * requirement Seller (d) — the platform could cancel, but the people affected were never
+     * told. Reaching the same recipients as {@link #notifyAuctionLost} (every distinct bidder,
+     * once each however many times they bid) and deduplicated on
+     * {@code (userId, "AUCTION_CANCELLED", link)} for the same reason: a seller who removes the
+     * final unit of a listing reaches this through {@code reduce-quantity} rather than
+     * {@code cancel}, and neither path should be able to message anyone twice.</p>
+     *
+     * <p>The seller's own reason is passed through to the recipients. It is the only thing that
+     * distinguishes "I have no bids and want out" from "the item is damaged", the bidder is the
+     * person entitled to know which, and it is now a required field on the cancel form — so
+     * unlike the refund reason (which stays on the order page) it belongs in the message. It is
+     * sanitised at the servlet boundary before reaching here.</p>
+     *
+     * <p>Not preference-gated beyond the master switches, matching {@code LOST}: this is a
+     * material change to something the recipient has money committed to, not marketing.</p>
+     *
+     * @param reason the seller's stated reason; a blank or null value is simply omitted
+     */
+    public static void notifyAuctionCancelled(long auctionId, String reason) {
+        safe(() -> {
+            String title = auctionTitle(auctionId);
+            String link = "/auction/" + auctionId;
+            String because = (reason == null || reason.isBlank()) ? "" : " Reason given: " + reason.trim();
+            // The listing is closed, so a seller price alert still inside its cooldown is now
+            // wrong in the same way it would be after a sale.
+            TelegramNotifier.cancelPriceAlerts(auctionId);
+
+            for (int bidderId : distinctBidders(auctionId)) {
+                if (notificationDAO.exists(bidderId, "AUCTION_CANCELLED", link)) continue;
+                create(bidderId, "AUCTION_CANCELLED",
+                        "The seller cancelled \"" + title + "\", so your bid no longer stands." + because,
+                        link,
+                        "An auction you bid on was cancelled",
+                        "The seller has cancelled \"" + title + "\" on AuctionHub, so your bid no longer "
+                                + "stands and nothing is owed." + because
+                                + " Browse similar listings to keep looking.",
+                        TelegramAlerts.auctionCancelled(auctionId, bidderId, title));
+            }
+        });
+    }
+
+    /**
      * Notifies a watcher that an auction on their watchlist is ending soon.
      * Deduplicated per user + auction so the scheduler can run repeatedly.
      */
@@ -832,6 +878,26 @@ public final class NotificationService {
      * Every distinct bidder on the auction except {@code winnerId}. One row per person
      * however many times they bid, so a buyer who was outbid five times is told once.
      */
+    /**
+     * Every distinct bidder on the auction. The no-winner counterpart to
+     * {@link #losingBidders}: a cancelled auction has no winner to exclude, so everyone who
+     * bid is a recipient, once each however many bids they placed.
+     */
+    private static List<Integer> distinctBidders(long auctionId) {
+        String sql = "SELECT DISTINCT user_id FROM bids WHERE auction_id = ?";
+        List<Integer> out = new ArrayList<>();
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(rs.getInt(1));
+            }
+        } catch (Exception e) {
+            LOG.fine("distinctBidders lookup failed: " + e.getMessage());
+        }
+        return out;
+    }
+
     private static List<Integer> losingBidders(long auctionId, int winnerId) {
         String sql = "SELECT DISTINCT user_id FROM bids WHERE auction_id = ? AND user_id <> ?";
         List<Integer> out = new ArrayList<>();

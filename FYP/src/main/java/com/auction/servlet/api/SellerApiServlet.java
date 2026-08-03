@@ -17,6 +17,7 @@ import com.auction.model.Auction;
 import com.auction.model.AuctionType;
 import com.auction.model.ItemCondition;
 import com.auction.model.SellerPublicProfile;
+import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,13 +51,24 @@ public class SellerApiServlet extends ApiBase {
 
     private static final Logger LOG = Logger.getLogger(SellerApiServlet.class.getName());
 
+    /**
+     * Upper bound on a listing's unit count. Not a business rule so much as a guard against a
+     * mistyped or pasted figure becoming a permanent record on a marketplace where nothing
+     * ships more than one unit per auction anyway.
+     */
+    private static final int MAX_QUANTITY = 1000;
+
     private final SellerProfileDAO profileDAO  = new SellerProfileDAO();
-    private final SellerAuctionDAO auctionDAO  = new SellerAuctionDAO();
-    private final AuctionDAO       mainDAO     = new AuctionDAO();
+    private       SellerAuctionDAO auctionDAO  = new SellerAuctionDAO();
+    private       AuctionDAO       mainDAO     = new AuctionDAO();
     private final AuctionTagsDAO   tagsDAO     = new AuctionTagsDAO();
     private final ReviewDAO        reviewDAO   = new ReviewDAO();
     private final SellerAnalyticsDAO analyticsDAO = new SellerAnalyticsDAO();
     private final UserDAO          userDAO     = new UserDAO();
+
+    /** Test hooks */
+    public void setSellerAuctionDAO(SellerAuctionDAO dao) { this.auctionDAO = dao; }
+    public void setAuctionDAO(AuctionDAO dao)             { this.mainDAO    = dao; }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -243,18 +255,58 @@ public class SellerApiServlet extends ApiBase {
         int page = parseInt(param(req, "page"), 1);
         int size = Math.min(parseInt(param(req, "size"), 10), 50);
 
+        // Legacy single-status filter, kept for any caller still sending ?status=N.
+        if (statusId != null) {
+            try {
+                int total = auctionDAO.countSellerAuctions(sellerId, statusId);
+                List<?> rows = auctionDAO.listSellerAuctions(sellerId, statusId, page, size);
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("auctions",   rows);
+                body.put("total",      total);
+                body.put("page",       page);
+                body.put("size",       size);
+                body.put("totalPages", totalPages(total, size));
+                ok(resp, body);
+            } catch (Exception e) {
+                serverError(resp, "Could not load auctions.");
+            }
+            return;
+        }
+
+        // Bucket + search + sort are resolved in SQL so that pagination is honest: a page of
+        // ten rows out of twelve must not be searched or sorted in the browser, or the two
+        // listings the seller cannot see would be missing from the answer without saying so.
+        SellerAuctionDAO.ListingBucket bucket = SellerAuctionDAO.ListingBucket.parse(param(req, "bucket"));
+        String query = param(req, "q");
+        String sort  = param(req, "sort");
+
         try {
-            int total = auctionDAO.countSellerAuctions(sellerId, statusId);
-            List<?> rows = auctionDAO.listSellerAuctions(sellerId, statusId, page, size);
+            Map<String, Integer> counts = auctionDAO.countByBucket(sellerId, query);
+            int total = auctionDAO.countSellerAuctions(sellerId, bucket, query);
+            int pages = totalPages(total, size);
+            // A seller who deletes their way off page 3 should see page 3's new contents,
+            // not an empty table with a pager insisting there are only two pages.
+            if (page > pages) page = pages;
+            List<?> rows = auctionDAO.listSellerAuctions(sellerId, bucket, query, sort, page, size);
+
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("auctions",   rows);
             body.put("total",      total);
             body.put("page",       page);
-            body.put("totalPages", (int) Math.ceil((double) total / size));
+            body.put("size",       size);
+            body.put("totalPages", pages);
+            body.put("bucket",     bucket.name());
+            body.put("counts",     counts);
             ok(resp, body);
         } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Seller listing page failed for " + sellerId, e);
             serverError(resp, "Could not load auctions.");
         }
+    }
+
+    /** At least one page, so an empty list still renders as "page 1 of 1" rather than 1 of 0. */
+    private static int totalPages(int total, int size) {
+        return Math.max(1, (int) Math.ceil((double) total / size));
     }
 
     // ── GET: auction edit form data ──────────────────────────────────────────
@@ -283,6 +335,10 @@ public class SellerApiServlet extends ApiBase {
             body.put("conditionId",  data.itemConditionId);
             body.put("condition",    conditionName);
             body.put("maxPrice",     data.maxPrice);
+            body.put("quantity",     data.quantity);
+            // Seller-private: this endpoint is already owner-scoped (getAuctionForEdit
+            // filters on seller_id), so the cost price never reaches anyone else.
+            body.put("costPrice",    data.costPrice);
             body.put("startDate",    data.startDate != null ? data.startDate.toString() : null);
             body.put("endDate",      data.endDate   != null ? data.endDate.toString()   : null);
             body.put("bidCount",     bidCount);
@@ -328,14 +384,17 @@ public class SellerApiServlet extends ApiBase {
             badRequest(resp, "auctionName, auctionDetails, endDate, and itemCondition are required."); return;
         }
 
-        float startPrice = 0;
-        if (startPriceStr != null && !startPriceStr.isBlank()) {
-            try {
-                startPrice = Float.parseFloat(startPriceStr);
-                if (startPrice <= 0) throw new NumberFormatException();
-            } catch (NumberFormatException e) {
-                badRequest(resp, "Invalid start price."); return;
-            }
+        // A missing start price used to fall through as 0, which let an item be won for any
+        // amount at all. There is no such thing as a listing with no floor, so it is required.
+        if (startPriceStr == null || startPriceStr.isBlank()) {
+            badRequest(resp, "Starting price is required and must be greater than 0."); return;
+        }
+        float startPrice;
+        try {
+            startPrice = Float.parseFloat(startPriceStr);
+            if (startPrice <= 0) throw new NumberFormatException();
+        } catch (NumberFormatException e) {
+            badRequest(resp, "Invalid start price."); return;
         }
 
         BigDecimal maxPrice = null;
@@ -370,9 +429,9 @@ public class SellerApiServlet extends ApiBase {
         if (quantityStr != null && !quantityStr.isBlank()) {
             try {
                 quantity = Integer.parseInt(quantityStr);
-                if (quantity < 1) throw new NumberFormatException();
+                if (quantity < 1 || quantity > MAX_QUANTITY) throw new NumberFormatException();
             } catch (NumberFormatException e) {
-                badRequest(resp, "Quantity must be a whole number of at least 1."); return;
+                badRequest(resp, "Quantity must be a whole number between 1 and " + MAX_QUANTITY + "."); return;
             }
         }
 
@@ -418,6 +477,13 @@ public class SellerApiServlet extends ApiBase {
             } catch (NumberFormatException e) {
                 badRequest(resp, "Invalid Buy It Now price."); return;
             }
+            // Buy It Now below the starting bid is an instant-loss trap: the first buyer to
+            // notice buys the item for less than anyone is allowed to bid. The legacy JSP path
+            // (CreateAuctionServlet) has always enforced this; this path had not, and a
+            // startPrice=100 / buyItNow=1 listing was reproduced live.
+            if (buyItNow.compareTo(BigDecimal.valueOf(startPrice)) <= 0) {
+                badRequest(resp, "Buy It Now price must be above the starting price."); return;
+            }
         }
 
         ItemCondition itemCondition;
@@ -439,7 +505,13 @@ public class SellerApiServlet extends ApiBase {
                 ? Arrays.stream(imageUrlsArr).filter(u -> u != null && !u.isBlank()).collect(Collectors.toList())
                 : Collections.emptyList();
 
+        // The form marks category required, but nothing enforced it server-side and an omitted
+        // one was stored as "". An empty category still shows up in SELECT DISTINCT category on
+        // the browse filters, where it matches nothing and can never be selected.
         String category = param(req, "category");
+        if (category == null) {
+            badRequest(resp, "Category is required."); return;
+        }
 
         Auction auction = new Auction(sellerId, auctionName, auctionDetails,
                 startDate, endDate, startPrice, auctionType, itemCondition, tagIds);
@@ -448,7 +520,7 @@ public class SellerApiServlet extends ApiBase {
         auction.setCostPrice(costPrice);
         auction.setDutchFloorPrice(dutchFloor);
         auction.setBuyItNowPrice(buyItNow);
-        auction.setCategory(category != null ? category : "");
+        auction.setCategory(category);
 
         try {
             long auctionId = mainDAO.createAuction(auction, imageUrls);
@@ -476,23 +548,61 @@ public class SellerApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
-        String reason = param(req, "reason");
-        if (reason != null) reason = reason.trim();
+        // A reason is now required. Requirement Seller (d) is phrased "cancel entire auction
+        // (due to lack of bids)", and until the UI started sending one, cancel_reason was NULL
+        // on every cancelled auction in the database — so there was no evidence anywhere that
+        // the requirement's own example case was ever supported.
+        String reason = validCancelReason(resp, param(req, "reason"));
+        if (reason == null) return;
 
         try {
             boolean cancelled = auctionDAO.cancelAuction(auctionId, sellerId, reason);
             if (!cancelled) {
                 error(resp, 400, "Could not cancel auction. It may not exist, you may not own it, or it is already finished/cancelled.");
             } else {
-                okMsg(resp, "Auction cancelled successfully.");
+                // Anyone who bid has money committed to a listing that no longer exists.
+                NotificationService.notifyAuctionCancelled(auctionId, reason);
+                okMsg(resp, "Auction cancelled successfully. Bidders have been notified.");
             }
         } catch (Exception e) {
             serverError(resp, "Could not cancel auction.");
         }
     }
 
-    // ── POST: remove one unit from a multi-quantity listing ──────────────────
+    private static final int CANCEL_REASON_MAX = 300;
 
+    /**
+     * Validates and normalises a cancellation reason, writing the 400 itself and returning
+     * null when it is unusable. Shared by cancellation and last-unit removal, which both end
+     * a listing and therefore both owe the bidders an explanation.
+     */
+    private String validCancelReason(HttpServletResponse resp, String raw) throws IOException {
+        if (raw == null) {
+            badRequest(resp, "A reason is required so bidders can be told why.");
+            return null;
+        }
+        String reason = raw.trim();
+        if (reason.isEmpty()) {
+            badRequest(resp, "A reason is required so bidders can be told why.");
+            return null;
+        }
+        if (reason.length() > CANCEL_REASON_MAX) {
+            badRequest(resp, "Reason must be " + CANCEL_REASON_MAX + " characters or fewer.");
+            return null;
+        }
+        return com.auction.util.SecurityUtil.sanitize(reason);
+    }
+
+    // ── POST: remove a unit from a listing (including the last one) ───────────
+
+    /**
+     * POST /api/seller/reduce-quantity  auctionId [reason]
+     *
+     * <p>Removing a unit while others remain is a plain decrement. Removing the last unit ends
+     * the listing, so it needs a reason and notifies the bidders exactly as a cancellation
+     * does — the seller is doing the same thing to those bidders either way. The endpoint name
+     * is unchanged so nothing that already calls it breaks.</p>
+     */
     private void handleReduceQuantity(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -505,11 +615,26 @@ public class SellerApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
+        // Only needed if this turns out to be the last unit, but it has to be validated before
+        // the write: discovering afterwards that the listing just ended without a reason would
+        // leave exactly the NULL cancel_reason this change exists to eliminate.
+        String rawReason = param(req, "reason");
+        String reason = rawReason == null
+                ? null
+                : validCancelReason(resp, rawReason);
+        if (rawReason != null && reason == null) return;
+
         try {
-            SellerAuctionDAO.ReduceQtyResult result = auctionDAO.reduceQuantity(auctionId, sellerId);
+            SellerAuctionDAO.ReduceQtyResult result = auctionDAO.removeUnit(auctionId, sellerId,
+                    reason != null ? reason : "Last item removed from the listing by the seller");
             switch (result) {
                 case SUCCESS:
                     okMsg(resp, "One unit removed from this listing.");
+                    break;
+                case LISTING_ENDED:
+                    NotificationService.notifyAuctionCancelled(auctionId,
+                            reason != null ? reason : "The seller removed the last item from this listing");
+                    okMsg(resp, "That was the last item, so the listing has been cancelled. Bidders have been notified.");
                     break;
                 case NOT_FOUND:
                     error(resp, 404, "Auction not found.");
@@ -517,16 +642,17 @@ public class SellerApiServlet extends ApiBase {
                 case NOT_OWNER:
                     forbidden(resp);
                     break;
-                case LAST_UNIT:
-                    error(resp, 400, "Only one unit remains. Cancel the auction to remove it entirely.");
+                case ALREADY_EMPTY:
+                    error(resp, 400, "This listing has no items left to remove.");
                     break;
                 case NOT_ACTIVE:
-                    error(resp, 400, "Only active auctions can have units removed.");
+                    error(resp, 400, "Only active or scheduled auctions can have units removed.");
                     break;
                 default:
                     serverError(resp, "Could not update quantity.");
             }
         } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Remove unit failed for auction " + auctionId, e);
             serverError(resp, "Could not update quantity.");
         }
     }
@@ -576,7 +702,37 @@ public class SellerApiServlet extends ApiBase {
         String category       = param(req, "category");
         String conditionStr   = param(req, "itemCondition");
         String endDateStr     = param(req, "endDate");
+        String quantityStr    = param(req, "quantity");
+        String costPriceStr   = param(req, "costPrice");
         if (title == null || title.isBlank()) { badRequest(resp, "title is required."); return; }
+        // param() turns a blank string into null, so a seller who cleared the Description box
+        // used to reach a NOT NULL column and get a 500 with a red "Could not update auction."
+        // banner. It is a validation failure, and it says which field.
+        if (description == null) { badRequest(resp, "Description is required."); return; }
+
+        Integer quantity = null;
+        if (quantityStr != null) {
+            try {
+                quantity = Integer.parseInt(quantityStr);
+                // The floor is 1 rather than 0 because emptying a listing ends it, which is
+                // reduce-quantity's job — it confirms the consequence first and tells the
+                // bidders afterwards. A silent 0 typed into an edit form would do neither.
+                if (quantity < 1 || quantity > MAX_QUANTITY) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Quantity must be a whole number between 1 and " + MAX_QUANTITY
+                        + ". To remove the last item, use Remove item on My listings."); return;
+            }
+        }
+
+        BigDecimal costPrice = null;
+        if (costPriceStr != null) {
+            try {
+                costPrice = new BigDecimal(costPriceStr);
+                if (costPrice.compareTo(BigDecimal.ZERO) < 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid cost price."); return;
+            }
+        }
 
         Integer itemConditionId = null;
         if (conditionStr != null && !conditionStr.isBlank()) {
@@ -612,11 +768,12 @@ public class SellerApiServlet extends ApiBase {
 
         try {
             auctionDAO.editAuction(auctionId, sellerId, title, description,
-                    category, itemConditionId, newEndDate, deleteIds, newUrls);
+                    category, itemConditionId, quantity, costPrice, newEndDate, deleteIds, newUrls);
             okMsg(resp, "Auction updated successfully.");
         } catch (IllegalStateException e) {
             error(resp, 400, e.getMessage());
         } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Edit auction failed for auction " + auctionId, e);
             serverError(resp, "Could not update auction.");
         }
     }
