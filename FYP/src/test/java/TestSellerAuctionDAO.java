@@ -783,6 +783,133 @@ public class TestSellerAuctionDAO {
         }
     }
 
+    // ------------------------------------------------------------------ omitted NOT NULL fields
+
+    /**
+     * updateDetails writes three NOT NULL columns that the caller is allowed to omit. Binding
+     * a plain null into any of them is a constraint violation the seller sees as an HTTP 500,
+     * so each is applied through COALESCE and an omitted field means "leave it as it is" — the
+     * contract the nine-argument editAuction overload already documented and that quantity,
+     * cost price and listing kind already honoured.
+     */
+    @Nested
+    @DisplayName("editAuction – an omitted field leaves its NOT NULL column alone")
+    class OmittedNotNullFields {
+
+        /** Zero bids, so the descriptive tier is reached, and one row updated. */
+        private void editable(MockedStatic<DBUtil> db) throws Exception {
+            db.when(DBUtil::connectDB).thenReturn(mockConn);
+            when(mockRs.next()).thenReturn(true, true);
+            when(mockRs.getInt(1)).thenReturn(0);
+            when(mockPs.executeUpdate()).thenReturn(1);
+        }
+
+        /**
+         * The reported defect: POST /api/seller/edit without itemCondition bound SQL NULL into
+         * item_condition_id, which is NOT NULL, so the statement threw and the endpoint answered
+         * 500 instead of doing the edit.
+         */
+        @Test
+        @DisplayName("an absent condition is a no-op, not a NOT NULL violation")
+        void nullConditionKeepsStoredValue() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "t", "d", "c", "PRODUCT", null,
+                        null, null, null, null, null);
+
+                assertTrue(anySqlContains("item_condition_id = COALESCE(?, item_condition_id)"),
+                        "an omitted condition must fall back to the stored one in SQL");
+                verify(mockPs).setNull(5, java.sql.Types.INTEGER);
+                verify(mockPs, never()).setInt(eq(5), anyInt());
+            }
+        }
+
+        @Test
+        @DisplayName("a supplied condition is still written")
+        void suppliedConditionIsWritten() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "t", "d", "c", "PRODUCT", 3,
+                        null, null, null, null, null);
+
+                verify(mockPs).setInt(5, 3);
+                verify(mockPs, never()).setNull(eq(5), anyInt());
+            }
+        }
+
+        /**
+         * category never threw, which is why it went unnoticed: null was coerced to the empty
+         * string, so an edit that said nothing about the category quietly blanked a NOT NULL
+         * column and took the listing out of category browsing.
+         */
+        @Test
+        @DisplayName("an absent category is left alone rather than blanked to an empty string")
+        void nullCategoryIsNotBlanked() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "t", "d", null, "PRODUCT", 1,
+                        null, null, null, null, null);
+
+                assertTrue(anySqlContains("category = COALESCE(?, category)"),
+                        "an omitted category must fall back to the stored one in SQL");
+                verify(mockPs).setNull(3, java.sql.Types.VARCHAR);
+                verify(mockPs, never()).setString(3, "");
+            }
+        }
+
+        @Test
+        @DisplayName("a supplied category is still written")
+        void suppliedCategoryIsWritten() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "t", "d", "Electronics", "PRODUCT", 1,
+                        null, null, null, null, null);
+
+                verify(mockPs).setString(3, "Electronics");
+            }
+        }
+
+        /**
+         * The legacy overload passes category, listing kind and condition as null in one call.
+         * Before the fix this combination was the whole of EditAuctionServlet's edit path, and
+         * every one of its submissions ended in a 500 on the condition column.
+         */
+        @Test
+        @DisplayName("the legacy overload omits all three at once and still updates cleanly")
+        void legacyOverloadOmitsAllThree() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "t", "d", null, null, null, null, null);
+
+                verify(mockPs).setNull(3, java.sql.Types.VARCHAR);
+                verify(mockPs).setNull(4, java.sql.Types.VARCHAR);
+                verify(mockPs).setNull(5, java.sql.Types.INTEGER);
+                verify(mockPs, atLeastOnce()).executeUpdate();
+            }
+        }
+
+        /** Title and description are validated non-blank by both callers, so they stay direct. */
+        @Test
+        @DisplayName("title and description are written directly, not through COALESCE")
+        void titleAndDescriptionStayDirect() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                editable(db);
+
+                dao.editAuction(10L, 42, "A title", "A description", "c", "PRODUCT", 1,
+                        null, null, null, null, null);
+
+                assertTrue(anySqlContains("SET title = ?, description = ?, "));
+                verify(mockPs).setString(1, "A title");
+                verify(mockPs).setString(2, "A description");
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ stock follows sales
 
     @Nested

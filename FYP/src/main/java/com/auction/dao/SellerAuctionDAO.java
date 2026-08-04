@@ -230,7 +230,9 @@ public class SellerAuctionDAO {
     /**
      * Text-and-images-only edit, for the legacy JSP form which has no stock, cost or
      * product/service fields. Passing null for those leaves {@code quantity},
-     * {@code cost_price} and {@code listing_kind} untouched.
+     * {@code cost_price}, {@code listing_kind}, {@code category} and
+     * {@code item_condition_id} untouched — this caller passes null for the category and
+     * the condition too, so those two had to honour the same contract as the rest.
      */
     public void editAuction(long auctionId, int sellerId,
                             String title, String description,
@@ -687,23 +689,43 @@ public class SellerAuctionDAO {
     /**
      * Writes the descriptive fields.
      *
-     * <p>{@code listingKind} is normalised and applied with {@code COALESCE(?, listing_kind)}
-     * rather than written unconditionally, because null here means "the caller has no opinion"
-     * — the legacy JSP form has no such field, and its edits must not reset a service back to
-     * a product. The column is NOT NULL, so the COALESCE can only ever resolve to one of the
-     * two values the CHECK constraint accepts.</p>
+     * <p>Every optional column here is applied with {@code COALESCE(?, column)} rather than
+     * written unconditionally, because null in this method means "the caller has no opinion",
+     * not "set it to NULL" — the same contract {@link #updateStockAndCost} keeps for quantity
+     * and cost price, and the one the nine-argument {@link #editAuction} overload documents.
+     * All three columns are NOT NULL, so a plain bind of null is a constraint violation and an
+     * HTTP 500 rather than a no-op:</p>
+     * <ul>
+     *   <li>{@code listing_kind} — the legacy form has no such field, and its edits must not
+     *       reset a service back to a product.</li>
+     *   <li>{@code item_condition_id} — an omitted condition used to bind SQL NULL straight
+     *       into the NOT NULL column, so {@code POST /api/seller/edit} without
+     *       {@code itemCondition} returned 500. The React form always sends it, but
+     *       {@code EditAuctionServlet} passes null, and a client that leaves it out is asking
+     *       for the stored condition to stand, not for the edit to fail.</li>
+     *   <li>{@code category} — this one did not throw, which made it worse. Null was coerced
+     *       to the empty string, so an edit that said nothing about the category silently
+     *       blanked it, dropping the listing out of category browsing and out of the
+     *       recommender's SAME_CATEGORY arm with no error anywhere.</li>
+     * </ul>
+     *
+     * <p>Title and description are still written unconditionally and are the two fields both
+     * callers validate as non-blank before reaching here, so they cannot arrive as null.</p>
      */
     private void updateDetails(Connection conn, long auctionId,
                                String title, String description,
                                String category, String listingKind,
                                Integer itemConditionId) throws Exception {
-        String sql = "UPDATE auction_details SET title = ?, description = ?, category = ?, "
-                   + "listing_kind = COALESCE(?, listing_kind), item_condition_id = ? WHERE id = ?";
+        String sql = "UPDATE auction_details SET title = ?, description = ?, "
+                   + "category = COALESCE(?, category), "
+                   + "listing_kind = COALESCE(?, listing_kind), "
+                   + "item_condition_id = COALESCE(?, item_condition_id) WHERE id = ?";
         ListingKind kind = ListingKind.parse(listingKind);
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, title);
             ps.setString(2, description);
-            ps.setString(3, category != null ? category : "");
+            if (category != null) ps.setString(3, category);
+            else ps.setNull(3, java.sql.Types.VARCHAR);
             if (kind != null) ps.setString(4, kind.name());
             else ps.setNull(4, java.sql.Types.VARCHAR);
             if (itemConditionId != null) ps.setInt(5, itemConditionId);
