@@ -1,6 +1,7 @@
 -- Buyer watchlist (SCRUM-XX). Run after auction_db.sql.
 -- One entry per buyer per auction; UNIQUE is enforced at both DB and DAO layer.
-CREATE TABLE watchlist (
+-- Safe to re-run: the table is created only when absent.
+CREATE TABLE IF NOT EXISTS watchlist (
   id          BIGSERIAL   PRIMARY KEY,
   user_id     BIGINT      NOT NULL,
   auction_id  BIGINT      NOT NULL,

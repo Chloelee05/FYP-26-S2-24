@@ -2,7 +2,9 @@
 -- Usage (from project root):
 --   psql -U postgres -h localhost -p 5432 -d auction_db -f FYP/src/main/resources/db/migrate_all.sql
 --
--- Safe to re-run: individual scripts use IF NOT EXISTS / ON CONFLICT DO NOTHING.
+-- Safe to re-run: individual scripts use IF NOT EXISTS / ON CONFLICT DO NOTHING, and
+-- constraints are added from a DO block that checks pg_constraint first. Verified by
+-- applying auction_db.sql then this file twice under psql -v ON_ERROR_STOP=1.
 
 \echo '== lookup seed + seller columns =='
 \ir migration_lookup_seed_data.sql

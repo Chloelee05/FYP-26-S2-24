@@ -1,6 +1,8 @@
 -- Seller reports (SCRUM-52 buyer-report feature). Run after auction_db.sql.
 -- One report per buyer per auction; seller identity is stored from DB, never from request.
-CREATE TABLE seller_reports (
+-- Safe to re-run: the table is created only when absent, and the two column additions
+-- below are already guarded.
+CREATE TABLE IF NOT EXISTS seller_reports (
   id                BIGSERIAL   PRIMARY KEY,
   reporter_user_id  BIGINT      NOT NULL,
   reported_user_id  BIGINT      NOT NULL,
