@@ -2,6 +2,7 @@ package com.auction.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.auction.model.AuctionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -69,5 +70,24 @@ class DutchClockTest {
         Instant mid = Instant.parse("2026-01-01T05:00:00Z");
         BigDecimal result = DutchClock.currentPrice(high, new BigDecimal("5000"), start, end, mid);
         assertEquals(new BigDecimal("1000.00"), result);
+    }
+
+    @Test
+    @DisplayName("listedPrice re-prices a Dutch card off the clock, not the stored figure")
+    void listedPriceFollowsTheClock() {
+        Instant mid = Instant.parse("2026-01-01T05:00:00Z");
+        assertEquals(new BigDecimal("600.00"),
+                DutchClock.listedPrice(AuctionType.DUTCH_AUCTION.getId(), high, high, floor, start, end, mid));
+    }
+
+    @Test
+    @DisplayName("listedPrice leaves ascending and sealed cards on the stored figure")
+    void listedPriceLeavesOtherTypesAlone() {
+        Instant mid = Instant.parse("2026-01-01T05:00:00Z");
+        BigDecimal stored = new BigDecimal("450");
+        assertEquals(stored,
+                DutchClock.listedPrice(AuctionType.PRICE_UP.getId(), stored, high, floor, start, end, mid));
+        assertEquals(stored,
+                DutchClock.listedPrice(AuctionType.BLIND.getId(), stored, high, floor, start, end, mid));
     }
 }

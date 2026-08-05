@@ -14,6 +14,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
 /**
@@ -33,6 +35,26 @@ public final class NotificationService {
     private static final Logger LOG = Logger.getLogger(NotificationService.class.getName());
     private static final NotificationDAO notificationDAO = new NotificationDAO();
     private static final UserDAO userDAO = new UserDAO();
+
+    /**
+     * Notification email is handed to this thread rather than sent on the caller's.
+     *
+     * <p>{@code Transport.send} is a full SMTP conversation — connect, TLS, auth, deliver —
+     * and the caller is almost always a request thread, so a bid held its own HTTP response
+     * open for the length of the send, twice over once the seller and the displaced bidder
+     * were both being told. Nothing in the response depends on the mail having left, so it
+     * does not belong in front of it.</p>
+     *
+     * <p>One daemon thread, for the same reason {@link com.auction.listener.TelegramOutboxListener}
+     * uses one: the instance is small and shares a ten-connection pool, and mail this system
+     * sends is measured in messages per minute. Delivery stays best-effort — a send that fails
+     * after the response has gone is logged and dropped, exactly as it was before.</p>
+     */
+    private static final ExecutorService MAIL_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "notification-mail");
+        t.setDaemon(true);
+        return t;
+    });
 
     private NotificationService() { }
 
@@ -648,14 +670,16 @@ public final class NotificationService {
         if (!allowedByPreference(userId, type)) return;
         notificationDAO.create(userId, type, message, link);
         if (MailConfig.isSmtpConfigured()) {
-            try {
-                User u = userDAO.getUserById(userId);
-                if (u != null && u.getEmail() != null && !u.getEmail().isBlank()) {
-                    OtpMailer.sendNotification(u.getEmail(), emailSubject, emailBody);
+            MAIL_EXECUTOR.execute(() -> {
+                try {
+                    User u = userDAO.getUserById(userId);
+                    if (u != null && u.getEmail() != null && !u.getEmail().isBlank()) {
+                        OtpMailer.sendNotification(u.getEmail(), emailSubject, emailBody);
+                    }
+                } catch (Exception e) {
+                    LOG.fine("Notification email skipped: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.fine("Notification email skipped: " + e.getMessage());
-            }
+            });
         }
         TelegramNotifier.enqueue(userId, telegram);
     }

@@ -5,6 +5,7 @@ import com.auction.model.SearchFilter;
 import com.auction.model.SearchResultItem;
 import com.auction.model.SearchSort;
 import com.auction.util.DBUtil;
+import com.auction.util.DutchClock;
 
 import java.math.BigDecimal;
 import java.sql.*;
@@ -162,6 +163,15 @@ public class SearchDAO {
           + "                   d.starting_price) END AS current_price, ";
 
     /**
+     * The inputs {@link DutchClock#listedPrice} needs to re-price a descending listing in
+     * {@link #mapRow}. {@code current_price} above is the figure the bids table knows about,
+     * which for a Dutch auction is the price its clock started at rather than the price on
+     * offer now.
+     */
+    private static final String DUTCH_CLOCK_COLUMNS =
+            "d.starting_price, d.dutch_floor_price, a.date_created, ";
+
+    /**
      * Builds the inner part of the FROM + WHERE clause (shared by search and count).
      * Appends all inner-query parameter values to {@code params} in the correct order.
      */
@@ -220,6 +230,7 @@ public class SearchDAO {
         params.add(offset);
         return "SELECT a.auction_id, d.title, d.category, a.auction_type, "
                 + SEALED_SAFE_PRICE
+                + DUTCH_CLOCK_COLUMNS
                 + "a.date_end, u.username AS seller_username, "
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url "
@@ -237,8 +248,9 @@ public class SearchDAO {
                                                       List<Object> params,
                                                       int pageSize, int offset) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
-        String inner = "SELECT a.auction_id, d.title, d.category, a.date_created, a.auction_type, "
+        String inner = "SELECT a.auction_id, d.title, d.category, a.auction_type, "
                 + SEALED_SAFE_PRICE
+                + DUTCH_CLOCK_COLUMNS
                 + "a.date_end, u.username AS seller_username, "
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url "
@@ -315,8 +327,15 @@ public class SearchDAO {
 
     private static SearchResultItem mapRow(ResultSet rs) throws SQLException {
         Timestamp endTs = rs.getTimestamp("date_end");
+        Timestamp startTs = rs.getTimestamp("date_created");
+        int typeId = rs.getInt("auction_type");
         BigDecimal price = rs.getBigDecimal("current_price");
         if (price == null) price = BigDecimal.ZERO;
+        price = DutchClock.listedPrice(typeId, price,
+                rs.getBigDecimal("starting_price"), rs.getBigDecimal("dutch_floor_price"),
+                startTs != null ? startTs.toInstant() : null,
+                endTs != null ? endTs.toInstant() : null,
+                Instant.now());
         return new SearchResultItem(
                 rs.getLong("auction_id"),
                 rs.getString("title"),
@@ -325,6 +344,6 @@ public class SearchDAO {
                 endTs != null ? endTs.toInstant() : null,
                 rs.getString("seller_username"),
                 rs.getString("thumbnail_url"),
-                rs.getInt("auction_type"));
+                typeId);
     }
 }

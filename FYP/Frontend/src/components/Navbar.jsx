@@ -28,6 +28,12 @@ export default function Navbar() {
   // from running on mount, where it would otherwise wipe the q of a /search URL
   // the user arrived on (a shared link, a category tile) before they touched the box.
   const hasTyped = useRef(false);
+  // The term the effect below has already acted on. It watches the location so it can
+  // tell "showing these results" from "somewhere else", which also means it re-runs on
+  // every navigation — including the ones it did not cause. Without this it treated a
+  // click through to a listing, or a category the sidebar had just added to the query
+  // string, as a fresh search and steered straight back to /search?q=…
+  const navigatedFor = useRef(null);
 
   // Close the account dropdown when clicking anywhere outside it.
   useEffect(() => {
@@ -55,6 +61,8 @@ export default function Navbar() {
   useEffect(() => {
     if (!hasTyped.current) return;
     const term = settledSearch.trim();
+    if (term === navigatedFor.current) return;
+    navigatedFor.current = term;
     const onSearchPage = pathname === '/search';
     // Clearing the box only means anything to someone already looking at results.
     if (!term && !onSearchPage) return;

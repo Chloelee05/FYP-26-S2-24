@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
+import com.auction.util.DutchClock;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -51,6 +52,7 @@ public class FeaturedListingDAO {
           // open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + "  d.starting_price, d.dutch_floor_price, a.date_created, "
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM auction a "
@@ -67,9 +69,15 @@ public class FeaturedListingDAO {
             try (ResultSet rs = ps.executeQuery()) {
                 List<SearchResultItem> out = new ArrayList<>();
                 while (rs.next()) {
-                    BigDecimal price = rs.getBigDecimal("current_price");
                     Timestamp end = rs.getTimestamp("date_end");
+                    Timestamp start = rs.getTimestamp("date_created");
                     Instant endInstant = end != null ? end.toInstant() : null;
+                    int typeId = rs.getInt("auction_type");
+                    BigDecimal price = DutchClock.listedPrice(typeId,
+                            rs.getBigDecimal("current_price"),
+                            rs.getBigDecimal("starting_price"), rs.getBigDecimal("dutch_floor_price"),
+                            start != null ? start.toInstant() : null,
+                            endInstant, Instant.now());
                     out.add(new SearchResultItem(
                             rs.getLong("auction_id"),
                             rs.getString("title"),
@@ -78,7 +86,7 @@ public class FeaturedListingDAO {
                             endInstant,
                             rs.getString("username"),
                             rs.getString("thumb"),
-                            rs.getInt("auction_type")));
+                            typeId));
                 }
                 return out;
             }

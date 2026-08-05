@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn, Wrench } from 'lucide-react';
+import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn, Wrench, Loader2 } from 'lucide-react';
 import CountdownTimer from '../components/CountdownTimer';
 import ReportModal from '../components/ReportModal';
 import { getAuctionDetail, getAuctionBids, getAuctionQuestions, placeBid, acceptDutchPrice, buyItNow, setAutoBid, cancelAutoBid, addToWatchlist, removeFromWatchlist, checkWatching, askQuestion, getSellerProfile, getSimilarAuctions } from '../api/auction';
@@ -45,6 +45,7 @@ export default function AuctionDetail() {
   const [questions, setQuestions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(0);
   const [bidAmount, setBidAmount] = useState('');
+  const [bidPending, setBidPending] = useState(false);
   const [bidCooldownUntil, setBidCooldownUntil] = useState(0);
   const [autoBidMax, setAutoBidMax] = useState('');
   const [autoBidIncrement, setAutoBidIncrement] = useState('50');
@@ -201,11 +202,17 @@ export default function AuctionDetail() {
   const sealedMinBid = auction.startingPrice || 0;
   const reserveMet = auction.currentBid >= auction.reservePrice;
 
+  // A 400 from the bid endpoints is a rejection written for the bidder ("Your bid must be
+  // higher than the current bid."), so it is shown verbatim. A 500 is not: it answers with
+  // whatever the servlet could say about its own failure — "Check server logs or run DB
+  // migrations" — which is a note to the team, not something a buyer can act on.
   const apiError = (err, fallback) => {
-    const data = err.response?.data;
+    if (!err.response) return 'Cannot reach the server. Check your connection and try again.';
+    const { status, data } = err.response;
+    if (status === 401) return 'Please log in to continue.';
+    if (status === 403) return 'Access denied for this action.';
+    if (status >= 500) return fallback;
     if (typeof data === 'object' && data) return data.error || data.message || fallback;
-    if (err.response?.status === 403) return 'Access denied for this action.';
-    if (err.response?.status === 401) return 'Please log in to continue.';
     return fallback;
   };
 
@@ -219,20 +226,23 @@ export default function AuctionDetail() {
   const handlePlaceBid = async () => {
     if (!user) { setError('Please log in to place a bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot place bids.'); return; }
-    if (bidCooldownRemaining > 0) return;
+    if (bidPending || bidCooldownRemaining > 0) return;
     const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
     if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
     if (amount <= bidFloor) { setError(`Your bid must be higher than ${formatCurrency(bidFloor)}.`); return; }
     setError(''); setMessage('');
+    setBidPending(true);
     try {
       await placeBid(id, amount);
-      setMessage('Bid placed successfully!');
+      setMessage(`Bid of ${formatCurrency(amount)} placed.`);
       setBidAmount('');
       setBidCooldownUntil(Date.now() + BID_COOLDOWN_MS);
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
       getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     } catch (err) {
-      setError(apiError(err, 'Failed to place bid.'));
+      setError(apiError(err, 'Could not place your bid. Please try again.'));
+    } finally {
+      setBidPending(false);
     }
   };
 
@@ -266,29 +276,37 @@ export default function AuctionDetail() {
   const handleAcceptDutch = async () => {
     if (!user) { setError('Please log in to accept this price.'); return; }
     if (!canBuy) { setError('Admin accounts cannot accept a Dutch price.'); return; }
+    if (bidPending) return;
     setError(''); setMessage('');
+    setBidPending(true);
     try {
       await acceptDutchPrice(id);
-      setMessage('You accepted the current price and won this auction!');
+      setMessage('You accepted the current price and won this auction.');
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
       getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     } catch (err) {
-      setError(apiError(err, 'Could not accept the current price.'));
+      setError(apiError(err, 'Could not accept the current price. Please try again.'));
+    } finally {
+      setBidPending(false);
     }
   };
 
   const handleBuyItNow = async () => {
     if (!user) { setError('Please log in to Buy It Now.'); return; }
     if (!canBuy) { setError('Admin accounts cannot use Buy It Now.'); return; }
+    if (bidPending) return;
     if (!window.confirm(`Buy this item now for ${formatCurrency(auction.buyItNowPrice)}?`)) return;
     setError(''); setMessage('');
+    setBidPending(true);
     try {
       await buyItNow(id);
-      setMessage('Buy It Now successful — you won this auction!');
+      setMessage('Bought — you won this auction.');
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
       getAuctionBids(id).then(r => setBids(r.data.bids ?? [])).catch(() => {});
     } catch (err) {
-      setError(apiError(err, 'Could not complete Buy It Now.'));
+      setError(apiError(err, 'Could not complete Buy It Now. Please try again.'));
+    } finally {
+      setBidPending(false);
     }
   };
 
@@ -309,17 +327,21 @@ export default function AuctionDetail() {
   const handleSealedBid = async () => {
     if (!user) { setError('Please log in to submit a sealed bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot submit a sealed bid.'); return; }
+    if (bidPending) return;
     const amount = Number(String(bidAmount).replace(/[^0-9.]/g, ''));
     if (!amount || amount <= 0) { setError('Enter a valid bid amount.'); return; }
     if (amount < sealedMinBid) { setError(`Your sealed bid must be at least ${formatCurrency(sealedMinBid)}.`); return; }
     setError(''); setMessage('');
+    setBidPending(true);
     try {
       await placeBid(id, amount);
-      setMessage('Your sealed bid was submitted. The winner is revealed when the auction ends.');
+      setMessage('Sealed bid submitted. The winner is revealed when the auction ends.');
       setBidAmount('');
       getAuctionDetail(id).then(r => setAuction(r.data)).catch(() => {});
     } catch (err) {
-      setError(apiError(err, 'Failed to submit sealed bid.'));
+      setError(apiError(err, 'Could not submit your sealed bid. Please try again.'));
+    } finally {
+      setBidPending(false);
     }
   };
 
@@ -769,11 +791,13 @@ export default function AuctionDetail() {
                   <Feedback message={message} error={error} />
                   <button
                     onClick={handlePlaceBid}
-                    disabled={bidCooldownRemaining > 0}
+                    disabled={bidPending || bidCooldownRemaining > 0}
                     className="btn-primary btn-block btn-lg disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Gavel size={16} />
-                    {bidCooldownRemaining > 0 ? `Wait ${bidCooldownRemaining}s…` : 'Place Bid'}
+                    {bidPending ? <Loader2 size={16} className="animate-spin" /> : <Gavel size={16} />}
+                    {bidPending ? 'Placing bid…'
+                      : bidCooldownRemaining > 0 ? `Wait ${bidCooldownRemaining}s…`
+                      : 'Place Bid'}
                   </button>
                 </div>
 
@@ -783,8 +807,13 @@ export default function AuctionDetail() {
                     <p className="text-3xl font-bold text-emerald-600 mb-2 tabular-nums">{formatCurrency(auction.buyItNowPrice)}</p>
                     <p className="text-xs text-ink-500 mb-4">Purchase immediately at this price and win the auction.</p>
                     <Feedback message={message} error={error} />
-                    <button onClick={handleBuyItNow} className="btn-success btn-block btn-lg">
-                      Buy It Now
+                    <button
+                      onClick={handleBuyItNow}
+                      disabled={bidPending}
+                      className="btn-success btn-block btn-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {bidPending && <Loader2 size={16} className="animate-spin" />}
+                      {bidPending ? 'Processing…' : 'Buy It Now'}
                     </button>
                   </div>
                 )}
@@ -882,9 +911,11 @@ export default function AuctionDetail() {
                 <Feedback message={message} error={error} />
                 <button
                   onClick={handleAcceptDutch}
-                  className="btn btn-block btn-lg bg-accent-500 text-white hover:bg-accent-600 shadow-sm"
+                  disabled={bidPending}
+                  className="btn btn-block btn-lg bg-accent-500 text-white hover:bg-accent-600 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Accept {formatCurrency(displayPrice)}
+                  {bidPending && <Loader2 size={16} className="animate-spin" />}
+                  {bidPending ? 'Accepting…' : `Accept ${formatCurrency(displayPrice)}`}
                 </button>
               </div>
             ) : auction.mySealedBid ? (
@@ -925,9 +956,11 @@ export default function AuctionDetail() {
                 <Feedback message={message} error={error} />
                 <button
                   onClick={handleSealedBid}
-                  className="btn btn-block btn-lg bg-purple-600 text-white hover:bg-purple-700 shadow-sm"
+                  disabled={bidPending}
+                  className="btn btn-block btn-lg bg-purple-600 text-white hover:bg-purple-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Lock size={16} /> Submit Sealed Bid
+                  {bidPending ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />}
+                  {bidPending ? 'Submitting…' : 'Submit Sealed Bid'}
                 </button>
               </div>
             )}

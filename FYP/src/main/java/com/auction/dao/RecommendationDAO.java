@@ -5,6 +5,7 @@ import com.auction.model.RecommendationProvenance.Component;
 import com.auction.model.RecommendationProvenance.Reason;
 import com.auction.model.SearchResultItem;
 import com.auction.util.DBUtil;
+import com.auction.util.DutchClock;
 import com.auction.util.SecurityUtil;
 import com.auction.util.UserBasedCollaborativeFilter;
 
@@ -99,6 +100,18 @@ public class RecommendationDAO {
      * broad without turning four bounded queries into four unbounded ones.</p>
      */
     private static final int CANDIDATE_MULTIPLIER = 2;
+
+    /**
+     * The extra columns {@link DutchClock#listedPrice} needs to re-price a descending listing
+     * when a row is mapped. Every query below computes {@code current_price} from the bids
+     * table, which for a Dutch auction is the price its clock started at rather than the one
+     * on offer now — see {@link SearchDAO} for the same pair of column lists.
+     *
+     * <p>Selected, never filtered or ordered on: candidate selection and ordering are
+     * unchanged by their presence.</p>
+     */
+    private static final String DUTCH_CLOCK_COLUMNS =
+            "  d.starting_price, d.dutch_floor_price, a.date_created, ";
 
     /**
      * Divisor behind the per-category cap, {@code ceil(limit / divisor)}.
@@ -447,6 +460,7 @@ public class RecommendationDAO {
           // all still open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + DUTCH_CLOCK_COLUMNS
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM cand c "
@@ -1490,6 +1504,7 @@ public class RecommendationDAO {
           // all still open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + DUTCH_CLOCK_COLUMNS
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM auction a "
@@ -1508,9 +1523,15 @@ public class RecommendationDAO {
                 Map<Long, SearchResultItem> byId = new HashMap<>();
                 while (rs.next()) {
                     long aid = rs.getLong("auction_id");
-                    BigDecimal price = rs.getBigDecimal("current_price");
                     Timestamp end = rs.getTimestamp("date_end");
+                    Timestamp start = rs.getTimestamp("date_created");
                     Instant endInstant = end != null ? end.toInstant() : null;
+                    int typeId = rs.getInt("auction_type");
+                    BigDecimal price = DutchClock.listedPrice(typeId,
+                            rs.getBigDecimal("current_price"),
+                            rs.getBigDecimal("starting_price"), rs.getBigDecimal("dutch_floor_price"),
+                            start != null ? start.toInstant() : null,
+                            endInstant, Instant.now());
                     byId.put(aid, new SearchResultItem(
                             aid,
                             rs.getString("title"),
@@ -1519,7 +1540,7 @@ public class RecommendationDAO {
                             endInstant,
                             rs.getString("username"),
                             rs.getString("thumb"),
-                            rs.getInt("auction_type")));
+                            typeId));
                 }
                 List<SearchResultItem> ordered = new ArrayList<>();
                 for (Long id : auctionIds) {
@@ -1563,6 +1584,7 @@ public class RecommendationDAO {
           // all still open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + DUTCH_CLOCK_COLUMNS
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb "
           + "FROM cand c "
@@ -1625,6 +1647,7 @@ public class RecommendationDAO {
           // all still open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + DUTCH_CLOCK_COLUMNS
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
           // Which arm of the OR below matched, so the reason can be worded honestly.
@@ -1710,6 +1733,7 @@ public class RecommendationDAO {
           // all still open, so their leading sealed bid must not reach the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
+          + DUTCH_CLOCK_COLUMNS
           + "  a.date_end, u.username, "
           + "  (SELECT image_url FROM auction_images i WHERE i.auction_id = a.auction_id ORDER BY id LIMIT 1) AS thumb, "
           + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id "
@@ -1758,14 +1782,20 @@ public class RecommendationDAO {
 
     private SearchResultItem mapRow(ResultSet rs) throws Exception {
         Timestamp end = rs.getTimestamp("date_end");
+        Timestamp start = rs.getTimestamp("date_created");
+        Instant endInstant = end != null ? end.toInstant() : null;
+        int typeId = rs.getInt("auction_type");
         return new SearchResultItem(
                 rs.getLong("auction_id"),
                 rs.getString("title"),
                 rs.getString("category"),
-                rs.getBigDecimal("current_price"),
-                end != null ? end.toInstant() : null,
+                DutchClock.listedPrice(typeId, rs.getBigDecimal("current_price"),
+                        rs.getBigDecimal("starting_price"), rs.getBigDecimal("dutch_floor_price"),
+                        start != null ? start.toInstant() : null,
+                        endInstant, Instant.now()),
+                endInstant,
                 rs.getString("username"),
                 rs.getString("thumb"),
-                rs.getInt("auction_type"));
+                typeId);
     }
 }

@@ -38,6 +38,7 @@ export default function MyPurchases() {
   const [message, setMessage] = useState('');
 
   const [payingOrder, setPayingOrder] = useState(null);
+  const [paying, setPaying] = useState(false);
   const [payMethodId, setPayMethodId] = useState(null);
   const [trackOrder, setTrackOrder] = useState(null);
   const [contactOrder, setContactOrder] = useState(null);
@@ -56,8 +57,9 @@ export default function MyPurchases() {
           const first = PURCHASE_TABS.find(t => mine.some(o => inTab(o, t)));
           if (first) setTab(first.key);
         }
+        return mine;
       })
-      .catch(() => {})
+      .catch(() => [])
       .finally(() => setLoading(false));
 
   useEffect(() => {
@@ -98,15 +100,25 @@ export default function MyPurchases() {
 
   const handlePayOrder = async () => {
     if (!payingOrder) return;
+    const paidId = payingOrder.id;
     setMessage('');
+    setPaying(true);
     try {
-      await payOrder(payingOrder.id, payMethodId);
-      setMessage('Payment successful.');
-      loadOrders();
+      await payOrder(paidId, payMethodId);
+      setPayingOrder(null);
+      setMessage('Payment successful. The seller has been notified and a receipt is on its way.');
+      // Paying moves the order out of To Pay, so follow it to the tab it landed in.
+      // Reloading alone emptied the tab the buyer was still looking at, which read as
+      // nothing having happened until they refreshed the page by hand.
+      const fresh = await loadOrders();
+      const paid = fresh.find(o => o.id === paidId);
+      const landedIn = paid && PURCHASE_TABS.find(t => inTab(paid, t));
+      if (landedIn) setTab(landedIn.key);
     } catch (err) {
+      setPayingOrder(null);
       setMessage(apiErrorMessage(err, 'Payment failed. Add a payment method first.'));
     } finally {
-      setPayingOrder(null);
+      setPaying(false);
     }
   };
 
@@ -223,10 +235,16 @@ export default function MyPurchases() {
               ))}
             </div>
             <div className="flex gap-3">
-              <button onClick={handlePayOrder} disabled={!payMethodId} className="btn-primary flex-1">
-                Pay {formatCurrency(payingOrder.amount)}
+              <button
+                onClick={handlePayOrder}
+                disabled={!payMethodId || paying}
+                className="btn-primary flex-1 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {paying ? 'Processing payment…' : `Pay ${formatCurrency(payingOrder.amount)}`}
               </button>
-              <button onClick={() => setPayingOrder(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => setPayingOrder(null)} disabled={paying} className="btn-secondary flex-1">
+                Cancel
+              </button>
             </div>
           </div>
         </Modal>

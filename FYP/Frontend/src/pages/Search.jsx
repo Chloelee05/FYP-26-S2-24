@@ -75,7 +75,6 @@ export default function Search() {
   const [sidebar, setSidebar] = useState(EMPTY_SIDEBAR);
   const [categories, setCategories] = useState([]);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
   // Price and location are typed, so they settle before searching — otherwise every
@@ -94,8 +93,13 @@ export default function Search() {
 
   // `forQuery` records which query the results belong to, so "still loading" is derived
   // rather than tracked as its own flag that has to be set and unset in the right order.
-  const [data, setData] = useState({ forQuery: null, results: [], totalPages: 1, error: '' });
-  const { results, totalPages, error } = data;
+  //
+  // `page` counts the pages *these* results cover, so it lives in here with them. Held
+  // separately it could outlive the search it belonged to: a "load more" that landed after
+  // the filters had moved on left the counter on page 2 over a fresh page 1, and the button
+  // that would have fetched the rest disappeared because page was no longer below totalPages.
+  const [data, setData] = useState({ forQuery: null, results: [], page: 1, totalPages: 1, error: '' });
+  const { results, page, totalPages, error } = data;
   const loading = data.forQuery !== query;
 
   useEffect(() => {
@@ -108,20 +112,20 @@ export default function Search() {
     const controller = new AbortController();
     searchAuctions({ ...toRequest(query), page: 1, size: PAGE_SIZE }, { signal: controller.signal })
       .then(r => {
-        setPage(1);
         setData({
           forQuery: query,
           results: r.data.results ?? r.data,
+          page: 1,
           totalPages: r.data.totalPages ?? 1,
           error: '',
         });
       })
       .catch(err => {
         if (controller.signal.aborted) return;
-        setPage(1);
         setData({
           forQuery: query,
           results: [],
+          page: 1,
           totalPages: 1,
           error: apiErrorMessage(err, 'Search failed. Please try again.'),
         });
@@ -134,11 +138,11 @@ export default function Search() {
     setLoadingMore(true);
     searchAuctions({ ...toRequest(query), page: nextPage, size: PAGE_SIZE })
       .then(r => {
-        setPage(nextPage);
         // Only append if the filters have not moved on while this was in flight.
         setData(prev => prev.forQuery !== query ? prev : {
           ...prev,
           results: [...prev.results, ...(r.data.results ?? r.data)],
+          page: nextPage,
           totalPages: r.data.totalPages ?? prev.totalPages,
           error: '',
         });
