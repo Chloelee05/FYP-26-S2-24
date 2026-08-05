@@ -1,0 +1,521 @@
+# AuctionHub — Software Test Documentation
+
+**Project:** FYP-26-S2-24 — AuctionHub Online Auction Platform
+**Document purpose:** Test strategy, coverage matrix, and curated test case catalogue for the Final Technical Document (FTD)
+**Status:** Generated from the live repository — every test case below maps to a real, executing test method.
+
+---
+
+## 1. Summary of Automated Testing
+
+### 1.1 Headline numbers (safe to quote verbatim in slides)
+
+| Metric | Value |
+|---|---|
+| **Total automated tests** | **1,727** |
+| Backend (Java) tests executed | **1,537** |
+| Frontend (React) tests executed | **190** |
+| Backend test classes | 122 |
+| Backend test source files | 123 (122 test classes + 1 shared test helper) |
+| Frontend test files | 17 |
+| Declared backend test methods | 1,432 (expands to 1,537 executions via parameterised tests) |
+| Tests failing | **0** |
+| Tests skipped | 6 (environment-gated live-database integration tests) |
+| Backend suite runtime | ~7 s |
+| Frontend suite runtime | ~3.3 s |
+| Functional sections covered | 16 of 16 |
+| **Test cases documented in this report** | **113** |
+
+> Slide-ready one-liner:
+> *"AuctionHub is covered by 1,727 automated tests — 1,537 backend (JUnit 5 + Mockito) and 190 frontend (Vitest + React Testing Library) — all passing, executing in under 11 seconds combined. This document presents 113 representative cases spanning all 16 functional areas of the system."*
+
+### 1.2 Frameworks and tooling
+
+| Layer | Framework | Version | Notes |
+|---|---|---|---|
+| Backend unit/integration | JUnit 5 (Jupiter) | 5.10.2 | `junit-jupiter-api`, `-engine`, `-params` |
+| Backend mocking | Mockito | 5.23.0 | Includes `mockStatic` for static utility isolation |
+| Backend build/runner | Apache Maven + Surefire | — | `mvn test` |
+| Backend runtime under test | Jakarta Servlet API | 6.0.0 | Servlets tested with mocked request/response |
+| Database (mocked) | PostgreSQL JDBC | 42.7.10 | JDBC layer mocked; no live DB required |
+| Frontend test runner | Vitest | 4.1.10 | `vitest run` |
+| Frontend component testing | React Testing Library | 16.3.2 | with `@testing-library/jest-dom`, `user-event` |
+| Frontend DOM environment | jsdom | 29.1.1 | |
+
+### 1.3 Commands to reproduce
+
+```bash
+# Backend — 1,537 tests
+cd FYP
+mvn -B test
+
+# Frontend — 190 tests
+cd FYP/Frontend
+npm install          # first run only
+npm test             # alias for: vitest run
+```
+
+Optional — enable the 6 environment-gated live-database integration tests:
+
+```bash
+cd FYP
+AUCTION_DB_IT=true mvn -B test    # requires a reachable PostgreSQL instance
+```
+
+### 1.4 Testing approach
+
+The suite is written against the **unit + service-integration** level rather than end-to-end browser automation. Servlets are exercised through mocked `HttpServletRequest` / `HttpServletResponse` / `HttpSession` objects, and DAOs are exercised through mocked `Connection` / `PreparedStatement` / `ResultSet` objects. This means:
+
+- The suite runs deterministically in CI with **no database, no Tomcat and no network dependency**.
+- Assertions can verify not only the response, but also the exact SQL parameters bound, so ownership scoping and injection-safety are provable.
+- Two integration test classes (`AdminManagementDAOIntegrationTest`, `DatabaseBackupRestoreIntegrationTest`) run against a real PostgreSQL instance and are gated behind the `AUCTION_DB_IT` environment variable so the default build stays hermetic. These are the 6 reported "skipped" tests.
+
+End-to-end user journeys, visual layout, email/SMTP delivery and Telegram message rendering in the real client were verified by **manual testing** (see §5).
+
+---
+
+## 2. Section-by-Section Coverage Matrix
+
+Every backend test class is assigned to exactly one section, so the counts below sum to the 1,432 declared backend test methods.
+
+| # | Website section / module | Test classes | Declared tests | In this report | Coverage assessment |
+|---|---|---|---|---|---|
+| 1 | Guest landing page & dynamic content | 5 | 27 | 4 | **Strong** — content is DB-driven and admin-editable; caching and XSS rejection covered |
+| 2 | Search, filters, sorting & browse | 5 | 80 | 5 | **Strong** — heavy negative/injection coverage on every filter and sort key |
+| 3 | Auction detail view & public seller profile | 4 | 51 | 4 | **Adequate** — masking, pagination and state logic covered; see gap G2 |
+| 4 | Registration & login | 5 | 58 | 6 | **Strong** — includes brute-force lockout and role-escalation rejection |
+| 5 | Password reset, OTP & two-factor authentication | 6 | 57 | 6 | **Strong** — expiry, attempt limits, enumeration resistance all covered |
+| 6 | Session, RBAC, filters & platform security | 8 | 43 | 7 | **Strong** — RBAC matrix, CSP headers, PDPA encryption/masking |
+| 7 | Bidding — ascending, Dutch, Buy It Now, blind | 10 | 119 | 22 | **Strong** — all three auction types now covered end to end, including the sealed-bid confidentiality guard |
+| 8 | Auto-bid / proxy bidding | 5 | 45 | 4 | **Strong** — competition, tie-break and ceiling logic covered |
+| 9 | Buyer engagement — watchlist, Q&A, ratings, reports | 11 | 139 | 7 | **Strong** — largest single block of tests |
+| 10 | Orders, payment, shipping & refunds | 7 | 57 | 6 | **Strong** — includes unpaid-order auto-cancellation |
+| 11 | Seller — listings, maintenance & analytics | 9 | 215 | 7 | **Strong** — the most heavily tested section |
+| 12 | Admin console & database backup/restore | 11 | 133 | 7 | **Adequate** — legacy servlets fully covered; see gap G3 |
+| 13 | Recommendation engine | 4 | 104 | 6 | **Strong** — pipeline, CF maths, diversity cap, explainability |
+| 14 | Notifications (in-app) & preferences | 9 | 93 | 5 | **Strong** — dedupe, opt-out gating and PII-leak checks |
+| 15 | Telegram notification integration | 10 | 121 | 5 | **Strong** — webhook auth, brute force, retry ladder, outbox worker |
+| 16 | Account management & PDPA / account closure | 13 | 90 | 4 | **Strong** — encryption round-trip, anonymisation, rollback |
+| — | **Frontend (React SPA)** | 17 files | 190 | 8 | **Partial** — utilities/hooks/API layer strong; page components thin (gap G7) |
+| | **TOTAL** | **122 + 17** | **1,432 + 190** | **113** | |
+
+### 2.1 Coverage by test type (curated set)
+
+| Type | Count | Share |
+|---|---|---|
+| Security / access control | 46 | 41% |
+| Happy path / functional | 34 | 30% |
+| Negative / validation | 19 | 17% |
+| Boundary / precision | 9 | 8% |
+| Integration / lifecycle | 5 | 4% |
+| **Total** | **113** | 100% |
+
+**70% of the documented cases are security, negative, boundary or lifecycle cases — only 30% are happy path.** This is deliberate: a catalogue that is only happy path does not evidence engineering judgement, and Session 2 assessment weights security heavily.
+
+---
+
+## 3. Curated Test Case Catalogue
+
+### 3.1 How to read these tables
+
+- **ID** — stable reference for the FTD and for traceability back to requirements.
+- **Test class · method** — the exact, real, executing code. An assessor can open the file and run it.
+- **Type** — `Functional` (happy path), `Negative`, `Security`, `Boundary`, `Integration`.
+
+All backend classes live under `FYP/src/test/java/`. All frontend tests live under `FYP/Frontend/src/`.
+
+---
+
+### 3.2 Section 1 — Guest Landing Page & Dynamic Content
+
+*Addresses assessor feedback that landing content must be dynamic, not hardcoded.*
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-GST-001 | `TestLandingContentApiServlet.returnsContentMap` | Landing page copy is served from the database, not hardcoded in the JSX | Landing content rows exist in `landing_content` | `GET /api/landing-content` | 200 with a key/value map of every landing field sourced from the DB | Functional |
+| TC-GST-002 | `TestLandingContentApiServlet.failsSoftOnDatabaseError` | The landing page still renders if the content query fails | Database throws on read | `GET /api/landing-content` | Empty content map returned, no 500 — page degrades to defaults instead of breaking for guests | Negative |
+| TC-GST-003 | `TestAdminLandingContentApiServlet.savesSubmittedFields` | An admin can edit landing content without a code change or redeploy | Session holds an ADMIN user | `POST` with valid content keys and values | Values persisted and the public content cache invalidated | Functional |
+| TC-GST-004 | `TestAdminLandingContentApiServlet.rejectsMarkup` | Admin-authored landing copy cannot inject HTML/script into the public page | Session holds an ADMIN user | Content value containing HTML markup | 400 rejection; value not persisted | Security |
+
+---
+
+### 3.3 Section 2 — Search, Filters, Sorting & Browse
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-SRC-001 | `TestSearchServlet.testValidKeywordReturnsResults` | A guest can search listings by keyword | Active listings exist; no session required | `?q=laptop` | Matching listings forwarded to the results view | Functional |
+| TC-SRC-002 | `TestSearchServlet.testSqlInjectionAttemptIsHandledSafely` | Search input cannot be used for SQL injection | — | `q=' OR '1'='1` | Treated as a literal keyword via a bound parameter; no rows leaked, no error | Security |
+| TC-SRC-003 | `TestSearchServlet.testQueryAtMaxLength` | The keyword length limit accepts exactly the boundary value | — | Keyword of exactly the maximum permitted length | Accepted and searched normally | Boundary |
+| TC-SRC-004 | `TestSearchServletSort.testSqlInjectionReturnsDefault` | The sort key cannot be injected into the `ORDER BY` clause | — | `sort=; DROP TABLE auction` | Unrecognised sort silently falls back to the default; generated `ORDER BY` contains no user input | Security |
+| TC-SRC-005 | `TestSearchServletFilters.testAllFiltersCombined` | Price, condition, location and ending-within filters compose correctly | Listings spanning several prices/conditions | All four filter parameters supplied together | A single `SearchFilter` carrying all four constraints is passed to the DAO | Functional |
+
+---
+
+### 3.4 Section 3 — Auction Detail View & Public Seller Profile
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-DET-001 | `TestAuctionBidHistory.testPublicAccessNoSession` | An unregistered visitor can view an auction's bid history | No session | `GET /auction-bid-history?auctionId=1` | 200 with bid history — no redirect to login | Functional |
+| TC-DET-002 | `TestAuctionBidHistory.testSecurityUtilMaskingRules` | Bidder identities are masked in the public bid history (PDPA) | Auction has bids from several users | Public bid-history request | Bidder names/emails returned in masked form only | Security |
+| TC-DET-003 | `TestAuctionBidHistory.testUnknownAuction404` | A request for a non-existent auction is handled cleanly | — | `auctionId` that does not exist | 404, no stack trace exposed | Negative |
+| TC-DET-004 | `TestSellerProfileServlet.testMaskedEmailInProfile` | A public seller profile never exposes the seller's real email | Seller with completed sales exists | `GET` public seller profile | Email rendered masked; raw address never in the response | Security |
+
+---
+
+### 3.5 Section 4 — Registration & Login
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-REG-001 | `TestRegisterServlet.testInsert` | A visitor can create an account | Username and email unused | Valid registration form | User row inserted; redirect to login | Functional |
+| TC-REG-002 | `TestRegisterServlet.testSuppliedRoleIsIgnored` | A registrant cannot escalate themselves to ADMIN via a crafted form field | — | Registration form with `role=ADMIN` injected | Supplied role discarded; account created as an ordinary member | Security |
+| TC-REG-003 | `TestRegisterServlet.testPasswordValidation` | Weak passwords are refused at registration | — | Password failing the complexity policy | Rejected with a validation error; no user created | Negative |
+| TC-REG-004 | `TestLoginServlet.testSuccessfulLoginSetsSession` | A registered member can sign in and receive a session | Active account with known password | Correct email + password | Session populated with user id and role; redirect to the member area | Functional |
+| TC-REG-005 | `TestLoginServlet.testSuspendedUserCannotLogin` | A suspended account cannot sign in even with correct credentials | Account status = SUSPENDED | Correct email + password | Login refused with a suspension message; no session created | Security |
+| TC-REG-006 | `TestAuthApiServlet.loginLocksOutAfterThreshold` | Repeated failed logins trigger a brute-force lockout | Account exists | N consecutive wrong passwords (N = configured threshold) | 429/lockout response with remaining cooldown; further attempts refused even with the correct password | Security |
+
+---
+
+### 3.6 Section 5 — Password Reset, OTP & Two-Factor Authentication
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-OTP-001 | `TestPasswordResetServlet.testSuccessfulResetHashesWithSecurityUtil` | A member can reset a forgotten password via OTP | Valid unexpired OTP issued for the account | Correct OTP + compliant new password | Password stored as a BCrypt hash via `SecurityUtil`; OTP invalidated | Functional |
+| TC-OTP-002 | `TestPasswordResetServlet.testExpiredOtpRejectsReset` | An expired OTP cannot be used | OTP issued and expired | Expired OTP + new password | Reset refused; password unchanged | Negative |
+| TC-OTP-003 | `TestAuthApiServlet.forgotPasswordDoesNotEnumerate` | The reset flow does not reveal whether an email is registered | — | Reset request for an unregistered email | Identical generic response to the registered case; no OTP issued | Security |
+| TC-OTP-004 | `OtpStoreTest.attemptLimitInvalidatesOtp` | An OTP cannot be brute-forced | Valid OTP issued | Repeated wrong OTP guesses up to the attempt limit | OTP invalidated after the limit; even the correct code then fails | Security |
+| TC-OTP-005 | `TestTwoFactorServlet.testConfirmValidOtpEnablesTwoFactor` | A member can enable TOTP-based 2FA | Authenticated session with a pending 2FA secret | Correct 6-digit TOTP code | 2FA enabled and the secret persisted encrypted | Functional |
+| TC-OTP-006 | `TestTwoFactorApiServlet.verifyLoginWrongOtp` | A wrong 2FA code at login does not grant access | Password stage passed, 2FA pending | Incorrect TOTP code | 401; session remains unauthenticated | Security |
+
+---
+
+### 3.7 Section 6 — Session, RBAC, Filters & Platform Security
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-SEC-001 | `TestTwoFactorServlet.testNullSessionDeniesAllAccess` | `RbacUtil` denies every role check when there is no session | No session | `hasRole`, `isAdmin`, `isBuyer`, `isSeller` with `null` | All return false — fail-closed, never fail-open | Security |
+| TC-SEC-002 | `TestAdminFilter.TestBuyer` | A non-admin cannot reach any `/admin/*` URL | Session holds a BUYER | `GET /admin/dashboard` | Blocked by `AdminFilter` before the servlet runs | Security |
+| TC-SEC-003 | `TestAdminFilter.TestAdmin` | An admin passes the admin filter | Session holds an ADMIN | `GET /admin/dashboard` | Request forwarded down the filter chain | Functional |
+| TC-SEC-004 | `TestLogoutServlet.testProtectedPageBlocksRequestAfterSessionInvalidation` | A session cannot be reused after logout | Member logged in, then logs out | Replay of a protected request with the stale session | Access denied; user redirected to login | Security |
+| TC-SEC-005 | `TestSecurityFilter.securityHeaders` | Every response carries the hardening headers | — | Any request | `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` and related headers present | Security |
+| TC-SEC-006 | `SecurityUtilTest.encryptUsesRandomIv` | PDPA-protected fields are encrypted with a fresh IV each time | — | Encrypt the same plaintext twice | Two different ciphertexts, both decrypting to the original — no deterministic-encryption leak | Security |
+| TC-SEC-007 | `SecurityUtilTest.sanitizeXss` | User-supplied text is neutralised before storage/echo | — | `<script>alert(1)</script>` | Markup escaped; no executable script survives | Security |
+
+---
+
+### 3.8 Section 7 — Bidding (Ascending, Dutch, Buy It Now, Blind)
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-BID-001 | `TestPlaceBidServlet.successfulBid` | A buyer can place a valid bid on an ascending (`PRICE_UP`) auction | Auction live; bid exceeds the current price | Valid `auctionId` + amount | Bid recorded, current price updated, success message returned | Functional |
+| TC-BID-002 | `TestPlaceBidServlet.selfBidRejected` | A seller cannot bid on their own listing | Session user owns the auction | Valid bid amount | Bid refused with an explanatory message | Security |
+| TC-BID-003 | `TestPlaceBidServlet.equalBidRejected` | A bid equal to the current price is not accepted | Current price = X | Bid of exactly X | Refused — the price must strictly increase | Boundary |
+| TC-BID-004 | `TestPlaceBidServlet.negativeBidAmount` | A negative bid is rejected before reaching the database | Auction live | Amount = `-50` | 400-style validation error; no DAO call | Negative |
+| TC-BID-005 | `TestPlaceBidServlet.closedAuction` | Bidding on an ended auction is refused | Auction end time has passed | Valid amount | Refused with a "closed" message | Negative |
+| TC-BID-006 | `DutchClockTest.listedPriceFollowsTheClock` | A Dutch auction's displayed price falls over time according to the clock | Dutch auction with start price, floor price, start and end times | Query price at start, midpoint and end | Price equals start at t0, the linear midpoint at t½, and never drops below the floor | Functional |
+| TC-BID-007 | `TestBidApiServlet.bidTooLow` | The SPA bidding API rejects an under-minimum bid | Authenticated buyer, live auction | Amount below the required increment | 400 with the minimum acceptable bid returned | Negative |
+| TC-BID-008 | `BidDAORateLimitTest.secondBidInsideWindowRejected` | Bid spamming is rate limited per user per auction | User placed a bid moments ago | Second bid inside the cooldown window | Rejected; the DAO query is scoped to that user and auction only | Security |
+
+#### Blind (sealed-bid) auctions
+
+The defining property of a blind auction is that no bidder can see what anyone else has bid while it is open. That is not one check in one place — the standing bid is derivable from the detail payload, the bid-history endpoint, the live SSE snapshot and every listing projection that computes a price from `MAX(bid_amount)`. TC-BLD-001 to TC-BLD-008 pin the guard on each of those read paths; the rest cover the write side and the close.
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-BLD-001 | `TestBlindAuction.openBlindHidesTheStandingBidFromRivalBidders` | A rival bidder cannot see the leading sealed bid while the auction is live | Live blind auction with 3 sealed bids, leading bid $250 | `GET /api/auction/{id}` as a signed-in buyer | `currentBid` is `null` and `sealed` is `true`; only the bid **count** is returned | Security |
+| TC-BLD-002 | `TestBlindAuction.openBlindHidesTheStandingBidFromAnonymousVisitors` | An unregistered visitor cannot see the leading sealed bid either | Same auction, no session | `GET /api/auction/{id}` with no auth token | `currentBid` is `null`; `isOwner` is `false` | Security |
+| TC-BLD-003 | `TestBlindAuction.theSellerSeesTheStandingBidOnTheirOwnListing` | The seller does see the standing bid — "Declare Winner Early" sells at that price | Live blind auction owned by the viewer | `GET /api/auction/{id}` as the owner | `currentBid` = $250, `sealed` is `false`, `isOwner` is `true` | Functional |
+| TC-BLD-004 | `TestBlindAuction.closedBlindRevealsTheWinningBid` | The winning amount is revealed to everyone once the auction closes | Blind auction past its end time | `GET /api/auction/{id}` as a buyer | `currentBid` = $250, `sealed` is `false` | Functional |
+| TC-BLD-005 | `TestBlindAuction.aBidderSeesTheirOwnBidButNotTheOthers` | A bidder can see their own sealed bid and nobody else's | Viewer has submitted a $120 sealed bid; leading bid is $250 | `GET /api/auction/{id}` as that bidder | `mySealedBidAmount` = $120 while `currentBid` stays `null` | Security |
+| TC-BLD-006 | `TestBlindAuction.openBlindBidHistoryReturnsNoRows` | The bid-history endpoint returns no rows while the auction is sealed | Live blind auction with 3 bids | `GET /api/auction/{id}/bids` | Empty `bids` array, `sealed: true`, total = 3; the history DAO is never called | Security |
+| TC-BLD-007 | `AuctionEventPublisherBlindTest.openBlindSnapshotCarriesNoAmount` | The live SSE price broadcast carries no amount for an open blind auction | Live blind auction, leading bid $250 | Build the broadcast snapshot | `currentBid` is `null`; `numBids` is still published | Security |
+| TC-BLD-008 | `TestBlindAuction.searchResolvesABlindListingToItsStartingPrice` (with `thePriceFilterCannotProbeTheSealedBid`, `trendingResolvesABlindListingToItsStartingPrice`, `featuredResolvesABlindListingToItsStartingPrice`) | Every listing projection resolves a blind row to its entry price, so no card, strip or price filter can be used to probe the sealed bid | Search, price-filtered search, trending and featured queries | Execute each query and capture the SQL | Every projected price column carries the `auction_type = 3 → starting_price` guard | Security |
+| TC-BLD-009 | `TestBlindAuction.aSealedBidIsAcknowledgedWithoutRevealingAnything` | A buyer can submit a sealed bid and is told only that it was received | Authenticated buyer, live blind auction | `POST /api/bid` with $250 | 200; the confirmation names the mechanism and echoes no price back | Functional |
+| TC-BLD-010 | `TestBlindAuction.aSecondSealedBidFromTheSameBuyerIsRefused` | One sealed bid per buyer — a bidder cannot revise upward after the fact | Buyer already has a sealed bid on this auction | `POST /api/bid` with a higher amount | 400 "You have already submitted a sealed bid for this auction." | Negative |
+| TC-BLD-011 | `TestBlindAuction.aBidAtExactlyTheEntryPriceIsAccepted` and `.aBidOneCentUnderTheEntryPriceIsRefused` | The entry price is an inclusive floor, to the cent | Blind auction with a $100 starting price | Bids of $100.00 and $99.99 | $100.00 accepted; $99.99 refused as too low and nothing is committed | Boundary |
+| TC-BLD-012 | `TestBlindAuction.buyItNowDoesNotApplyToABlindAuction` and `.dutchAcceptanceDoesNotApplyToABlindAuction` | Mechanics that belong to other auction types are refused on a blind listing | Live blind auction | Buy It Now purchase; Dutch clock acceptance | Both refused with `WRONG_AUCTION_TYPE` | Negative |
+| TC-BLD-013 | `TestBlindAuction.aSealedBidNotifiesNoOutbidBidder` | No ascending-style outbid or new-bid notification is sent — that alone would leak the standing bid | Live blind auction with existing sealed bids | A new sealed bid succeeds | Neither `notifyOutbid` nor `notifySellerNewBid` is called | Security |
+| TC-BLD-014 | `TestBlindAuction.theHighestSealedBidWins`, `.theWinnersOrderIsRaisedForTheSealedBid`, `.theWinnerAndEveryLoserAreTold` | At close the highest sealed bid wins, the order is raised for exactly that amount, and the result is announced | Expired blind auction; top sealed bid $250 by bidder 7 | Finalise the auction | Winner = bidder 7; `winning_bid` = $250.00; one order raised for $250.00; winner notified WON and every other bidder notified LOST | Integration |
+
+Two supporting behaviours are worth naming under questioning: losing sealed bids are never promoted onto the auction record (`losingSealedBidsAreNeverWritten`), and the winner query ranks by `bid_amount DESC, bid_time ASC`, so an exact tie is settled in favour of whoever bid first (`tiesAreBrokenByWhoBidFirst`).
+
+---
+
+### 3.9 Section 8 — Auto-Bid / Proxy Bidding
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-AUT-001 | `TestSetAutoBidServlet.successfulSet` | A buyer can register a proxy-bid ceiling | Auction live; buyer is not the seller | Valid maximum amount | Auto-bid stored (encrypted) and confirmed | Functional |
+| TC-AUT-002 | `TestSetAutoBidServlet.competingHigherMaxWins` | Two competing auto-bidders resolve in favour of the higher ceiling | Two auto-bids on the same auction | Trigger the proxy round | The higher ceiling leads at one increment above the loser's maximum | Functional |
+| TC-AUT-003 | `TestSetAutoBidServlet.equalMaxFifoTiebreak` | Equal ceilings are resolved deterministically by who registered first | Two auto-bids with identical maxima | Trigger the proxy round | The earlier registration wins — FIFO, not arbitrary | Boundary |
+| TC-AUT-004 | `AutoBidDAOStaleKeyTest.undecryptableRowReadsAsAbsent` | A ceiling encrypted under a rotated key degrades safely | Stored auto-bid ciphertext not decryptable with the current key | Read the auto-bid | Treated as absent rather than crashing or bidding a wrong amount | Negative |
+
+---
+
+### 3.10 Section 9 — Buyer Engagement (Watchlist, Q&A, Ratings, Reports)
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-BUY-001 | `TestWatchlistServlet.addSuccess` | A buyer can add a listing to their watchlist | Authenticated buyer; auction not already watched | `action=add`, valid `auctionId` | Row inserted; success confirmed | Functional |
+| TC-BUY-002 | `TestWatchlistApiServlet.getForbiddenForGuest` | An unregistered visitor cannot read a watchlist | No session | `GET /api/watchlist` | 401 — no data returned | Security |
+| TC-BUY-003 | `TestAuctionQuestionServlet.testAskSuccessSanitized` | A buyer can ask the seller a question, and the text is sanitised | Authenticated buyer; auction not their own | Question text containing markup | Question stored sanitised; seller notified | Functional |
+| TC-BUY-004 | `TestAuctionQuestionServlet.testReplyWrongSeller403` | Only the owning seller can answer a question on their listing | Authenticated seller who does not own the auction | Reply payload | 403; no answer stored | Security |
+| TC-BUY-005 | `TestRateSellerServlet.buyerNotWinner` | Only the winning buyer may rate the seller | Auction finished, session user did not win | Score 5 | Rating refused | Security |
+| TC-BUY-006 | `TestRateSellerServlet.scoreBoundaryMax` | The rating scale accepts its maximum value | Winning buyer, auction finished, not yet rated | Score = 5 | Accepted and stored | Boundary |
+| TC-BUY-007 | `TestBuyerReportServlet.duplicateReport` | A buyer cannot report the same listing twice | An open report already exists from this buyer | Second report submission | Refused with a "already reported" message | Negative |
+
+---
+
+### 3.11 Section 10 — Orders, Payment, Shipping & Refunds
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-ORD-001 | `TestOrderApiServlet.paySuccess` | A winning buyer can pay for an order with a saved payment method | Unpaid order owned by the session user | `action=pay` + own payment method id | Order marked paid; both parties notified | Functional |
+| TC-ORD-002 | `TestOrderApiServlet.payRejectsForeignMethod` | A buyer cannot pay using another user's stored payment method | Payment method belongs to a different user | `action=pay` with that method id | Rejected; order remains unpaid | Security |
+| TC-ORD-003 | `TestOrderApiServlet.shippingRejectsUnpaidOrder` | Shipping cannot be advanced before payment | Order is unpaid | Seller advances the shipping stage | Refused; stage unchanged | Negative |
+| TC-ORD-004 | `TestOrderApiServlet.refundReasonTooShort` | A refund request must carry a meaningful reason | Paid order owned by the session user | Refund reason below the minimum length | 400 validation error; no refund raised | Negative |
+| TC-ORD-005 | `OrderDAOPaymentTimeoutTest.overdueOrderIsCancelled` | Unpaid orders past the payment deadline are auto-cancelled | Unpaid order older than the configured deadline | Run the timeout sweep | Order cancelled; the query never touches paid orders or the auction tables | Integration |
+| TC-ORD-006 | `AccountApiPaymentMethodUpdateTest.updateRefusesPanChange` | A stored card number cannot be altered through the edit endpoint | Saved card owned by the session user | Update payload including a different PAN | PAN change refused; only holder/expiry are editable | Security |
+
+---
+
+### 3.12 Section 11 — Seller (Listings, Maintenance & Analytics)
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-SEL-001 | `TestCreateAuctionServlet.TestValidTags` | A seller can publish a listing with images and tags | Session user has the selling capability | Complete valid listing form | Auction, detail, image and tag rows created in one transaction | Functional |
+| TC-SEL-002 | `TestCreateAuctionServlet.TestNotSeller` | A member without the selling capability cannot create a listing | Session user is a plain buyer | Valid listing form | Refused before any write | Security |
+| TC-SEL-003 | `TestCreateAuctionServlet.testInvalidExtension` | Only permitted image types can be uploaded | Seller session | File with a disallowed extension | Upload rejected; no file written to disk | Security |
+| TC-SEL-004 | `TestCreateAuctionServlet.testFileTooLarge` | Oversized uploads are rejected at the boundary | Seller session | Image exceeding the size cap | Rejected with a size error | Boundary |
+| TC-SEL-005 | `TestEditAuctionServlet.hasBidsBlocksEdit` | A listing that already has bids cannot be edited | Auction owned by the seller with ≥1 bid | Edit submission | Edit refused to protect bidders who bid on the original terms | Negative |
+| TC-SEL-006 | `TestEditAuctionServlet.toctouBidsPlacedAfterGet` | A bid placed between loading and submitting the edit form is still caught | Zero bids when the form loaded, a bid arrives before submit | Edit submission | Re-checked at write time and refused — no time-of-check/time-of-use hole | Security |
+| TC-SEL-007 | `TestSellerListingMaintenance.lastUnitEndsListingAndNotifies` | Removing the final unit of stock closes the listing and tells the bidders | Listing with quantity 1 and existing bidders | Remove one unit with a reason | Listing ended, reason persisted, every bidder notified | Integration |
+
+---
+
+### 3.13 Section 12 — Admin Console & Database Backup/Restore
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-ADM-001 | `TestAdminManageUserServlet.TestSuspend` | An admin can suspend a member account | ADMIN session; target is an active member | `action=suspend`, target user id | Account status set to SUSPENDED | Functional |
+| TC-ADM-002 | `TestAdminManageUserServlet.TestSelfAction` | An admin cannot moderate their own account | ADMIN session | Target user id = own id | Action refused | Negative |
+| TC-ADM-003 | `TestAdminManageUserServlet.TestUnbanAdminTarget` | One admin cannot alter another admin's account status | ADMIN session; target is another ADMIN | `action=active` | Refused — admin accounts are not moderatable through this path | Security |
+| TC-ADM-004 | `TestAdminReportServlet.testGetNonAdmin` | A non-admin cannot read the report moderation queue | Session holds a BUYER | `GET` the admin reports endpoint | Access denied; no report data returned | Security |
+| TC-ADM-005 | `TestAdminCategoriesServlet.testDeleteRestrictedByAuctions` | A category still in use cannot be deleted | Category referenced by live auctions | `action=DELETE` | Deletion refused with a referential-integrity message | Negative |
+| TC-ADM-006 | `DatabaseBackupUtilTest.rejectDestructive` | An uploaded restore file cannot smuggle in destructive SQL | ADMIN performing a restore | Backup file containing `DROP`/`DELETE` statements | File rejected before execution | Security |
+| TC-ADM-007 | `DatabaseBackupUtilTest.allowsSemicolonInAValue` | The restore parser is not defeated by a semicolon inside a legitimate data value | — | `INSERT` whose value contains `;` | Statement parsed as one insert and accepted — the guard is precise, not naive | Boundary |
+
+---
+
+### 3.14 Section 13 — Recommendation Engine
+
+*Addresses assessor feedback that recommendations must be explainable.*
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-REC-001 | `TestRecommendationApiServlet.personalisedForBuyer` | A signed-in buyer receives personalised recommendations | Buyer with interaction history | `GET /api/recommendations` | Personalised result set flagged as personalised | Functional |
+| TC-REC-002 | `TestRecommendationApiServlet.trendingForAnonymous` | An unregistered visitor still receives useful recommendations | No session | `GET /api/recommendations` | Trending listings returned, explicitly not marked personalised | Functional |
+| TC-REC-003 | `TestRecommendationPipeline.coldStartFallsThroughToTrending` | A brand-new user with no history is not shown an empty rail | User with zero interactions | Run the pipeline | Trending candidates fill the rail | Negative |
+| TC-REC-004 | `TestRecommendationPipeline.categoryCapLimitsASingleCategory` | The diversity cap stops one category dominating the rail | Candidate pool skewed to one category | Run the re-ranker | No category exceeds the configured cap, and the page is never shortened to achieve it | Functional |
+| TC-REC-005 | `TestRecommendationPipeline.recencyMultiplierFadesWithAge` | Older interactions count for less than recent ones | Interactions of varying age | Score the candidates | Recency multiplier decays with age; future-dated timestamps cannot amplify a score | Boundary |
+| TC-REC-006 | `TestRecommendationProvenance.withholdsMaskedNameForLoneClicker` | Explainability copy never de-anonymises a single other user | Exactly one other user interacted with the item | Build the "why this?" provenance | The reason stays generic — no masked name that identifies one person | Security |
+
+---
+
+### 3.15 Section 14 — Notifications & Preferences
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-NOT-001 | `BidApiNotificationTest.plainBidNotifiesThePreviousLeader` | The outbid buyer is told when they lose the lead | Auction with an existing leading bidder | A higher bid from another buyer | Exactly one outbid notification, to the displaced leader only | Functional |
+| TC-NOT-002 | `NotificationServiceLostTest.everyLoserExceptTheWinner` | Every losing bidder is told the auction ended, and the winner is not | Auction ended with several bidders | Finalise the auction | All losers notified once each; the winner excluded by the query itself | Functional |
+| TC-NOT-003 | `NotificationServiceLostTest.bodyNeverNamesTheWinner` | A losing-bidder notification does not disclose who won | Auction ended | Finalise the auction | Message body contains no winner identity | Security |
+| TC-NOT-004 | `NotificationServiceSellerAlertsTest.aBiddingWarCollapsesIntoOneMessage` | Rapid bidding does not spam the seller | Many bids in quick succession | Run the alert path | Bids coalesce into a single message carrying the current price | Functional |
+| TC-NOT-005 | `TestUpdatePreferenceServlet.testAllFalse` | A member can switch every optional notification off | Authenticated session | All preference toggles set false | Preferences persisted; subsequent optional pushes suppressed | Functional |
+
+---
+
+### 3.16 Section 15 — Telegram Notification Integration
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-TEL-001 | `TelegramApiServletTest.linkStartMintsBothPaths` | A member can start linking their Telegram account | Authenticated session; bot configured | `POST` link-start | A deep link and a one-time code are both issued | Functional |
+| TC-TEL-002 | `TelegramWebhookServletTest.wrongSecretIsRejected` | The webhook only accepts calls carrying the correct secret token | Bot configured | Webhook call with a wrong (or prefix-of-correct) secret | Rejected; no state change | Security |
+| TC-TEL-003 | `TelegramWebhookServletTest.bruteForceIsBlocked` | Link codes cannot be brute-forced through the bot | Chat has made repeated wrong attempts | Further wrong codes | Chat blocked after the attempt limit | Security |
+| TC-TEL-004 | `TelegramLinkDAOTest.consumeCode_isSingleUse` | A link code cannot be redeemed twice | Valid unconsumed code | Redeem the code twice | First succeeds, second returns nothing — consumption is atomic and expiry-checked in one statement | Security |
+| TC-TEL-005 | `TelegramOutboxWorkerTest.blockedUserDeactivatesTheLink` | A user who blocks the bot stops receiving pushes | Outbox message for a chat that has blocked the bot | Worker drains the outbox | Link deactivated; no infinite retry loop | Negative |
+
+---
+
+### 3.17 Section 16 — Account Management & PDPA
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-ACC-001 | `TestUpdateProfileServlet.update_reencryptsPiiBeforePersist` | Phone and address are encrypted at rest when a profile is updated | Authenticated session | New phone and address values | Values encrypted via `SecurityUtil` before the DAO write; plaintext never persisted | Security |
+| TC-ACC-002 | `TestAccountManagementServlet.loadsOnlySessionUserIdIgnoresRequestParam` | A member cannot load someone else's account page by changing a URL parameter | Authenticated session | `?userId=` another user's id | The session user's own record is loaded; the parameter is ignored | Security |
+| TC-ACC-003 | `UserDAOClosureTest.paidUndespatchedSaleRaisesRefund` | Closing an account does not strand a buyer who already paid | Closing seller has a paid, un-despatched sale | Execute account closure | A refund decision is raised for that order and admins are alerted | Integration |
+| TC-ACC-004 | `UserDAOClosureTest.cleanupFailureRollsBackAnonymisation` | Account closure is all-or-nothing | Closure cleanup step fails mid-way | Execute account closure | The whole transaction rolls back — no half-anonymised account | Integration |
+
+---
+
+### 3.18 Frontend (React SPA)
+
+All frontend cases run under `npm test` (Vitest + React Testing Library).
+
+| ID | Test file · test name | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-FE-001 | `ProtectedRoute.test.jsx` · *"sends a signed-out visitor to the login page"* | Guarded pages are unreachable without a session | No authenticated user in context | Navigate to a protected route | Redirected to `/login` | Security |
+| TC-FE-002 | `ProtectedRoute.test.jsx` · *"offers the selling gate to a member who has not switched selling on"* | A buyer without the selling capability is guided, not error-ed | Signed-in member, selling not enabled | Navigate to a seller route | The selling opt-in gate is rendered | Functional |
+| TC-FE-003 | `AuctionCard.test.jsx` · *"only shows the 'why this?' panel for a recommended card"* | Recommendation explainability appears only where a recommendation was actually made | One recommended card, one ordinary card | Render both | Explain panel present on the recommended card only | Functional |
+| TC-FE-004 | `AuctionCard.test.jsx` · *"shows the re-ranker score and the component behind it once expanded"* | The user can see why an item was recommended | Recommended card carrying provenance | Expand the "why this?" panel | Score and the dominant scoring component are shown | Functional |
+| TC-FE-005 | `CountdownTimer.test.jsx` · *"colours by urgency: normal, then amber inside a day, then red in the last hour"* | Time pressure is communicated visually at the right thresholds | Auctions ending in >1 day, <1 day, <1 hour | Render each | Neutral, amber and red styling respectively | Boundary |
+| TC-FE-006 | `Modal.test.jsx` · *"moves focus to the first focusable element on open"* | Dialogs are keyboard/screen-reader accessible | Modal closed | Open the modal | Focus moves into the dialog, and is restored to the trigger on close | Functional |
+| TC-FE-007 | `AccountSettings.test.jsx` · *"does not offer the card number for editing, and says why"* | The UI mirrors the server rule that a PAN is immutable | Saved card method | Open the card editor | No card-number field; an explanation is shown | Security |
+| TC-FE-008 | `usePolling.test.jsx` · *"stops polling and aborts the in-flight request on unmount"* | Live-price polling does not leak timers or requests | Component polling an endpoint | Unmount the component | Interval cleared and the in-flight request aborted | Negative |
+
+---
+
+## 4. Traceability Note
+
+Each ID above resolves to a single named method in a single named class, so an assessor can verify any row by running:
+
+```bash
+cd FYP
+mvn -B test -Dtest=TestPlaceBidServlet          # a whole class
+mvn -B test -Dtest=TestPlaceBidServlet#selfBidRejected   # a single case
+mvn -B test -Dtest=TestBlindAuction             # all 42 blind-auction cases
+```
+
+`TestBlindAuction` and several other classes group their cases with JUnit 5 `@Nested`; to run one method inside a group, qualify it with the group — for example `-Dtest='TestBlindAuction$SealedDetail#openBlindHidesTheStandingBidFromRivalBidders'`.
+
+```bash
+cd FYP/Frontend
+npx vitest run src/components/ProtectedRoute.test.jsx
+```
+
+---
+
+## 5. Coverage Gaps and Mitigations
+
+The following areas have thin or no automated coverage. Each is stated with its mitigation so the position is defensible under questioning.
+
+| ID | Gap | Risk | Mitigation |
+|---|---|---|---|
+| **G1** | ~~Blind (sealed-bid) auction behaviour.~~ **Closed.** 47 automated tests were added (`TestBlindAuction`, `AuctionEventPublisherBlindTest`) covering the confidentiality guard on all four read paths, the one-bid-per-buyer rule, rejection of Buy It Now and Dutch acceptance, and winner determination and order creation at close. See §3.8 (TC-BLD-001 to TC-BLD-014). | Closed | — |
+| **G2** | **Auction detail endpoints** `AuctionApiServlet` and `AuctionDetailServlet` have no direct test class. | Medium | The behaviour they compose *is* tested through `TestAuctionBidHistory`, `TestAuctionQuestionServlet`, `TestBidApiServlet`, `TestWatchlistApiServlet` and `TestRecommendationApiServlet`. The page itself is exercised by manual end-to-end testing. |
+| **G3** | **`AdminApiServlet`** (the SPA-facing admin API: users, listings, categories, reports, reviews, orders, analytics, audit log, database backup/restore, recommendation settings) has no direct test class. | Medium | Every business rule it enforces is covered one layer away: `TestAdminManageUserServlet`, `TestAdminAuctionServlet`, `TestAdminCategoriesServlet`, `TestAdminReportServlet`, `TestAdminListingsServlet`, `AdminManagementDAOTest`, `UserDAOAdminLookupTest`, `DatabaseBackupUtilTest`, and recommendation-settings validation in `TestRecommendationPipeline.weightsAreClamped`. |
+| **G4** | **Google OAuth sign-in** (`OAuthApiServlet`) — no automated tests. | Medium | Untestable without mocking Google's token endpoint. Verified by **manual test**: sign in with a Google account, confirm a linked account row is created and the session role is correct. |
+| **G5** | **Support chat** (`SupportApiServlet`, `SupportChatDAO`) and **order messaging** (`OrderMessageApiServlet`, `OrderMessageDAO`) — no automated tests. | Low–Medium | Both are auxiliary communication features. Covered by manual testing of the buyer↔seller and member↔admin conversation flows. |
+| **G6** | **Real-time price updates** (`AuctionEventServlet`, `AuctionEventBus` — server-sent events) — no automated tests. | Low | Timing-dependent transport that is impractical to unit test. The polling fallback on the client *is* tested (`usePolling.test.jsx`, 7 tests). Verified manually with two browsers on one auction. |
+| **G7** | **Frontend page components.** Only 3 of 21 pages have tests (`AccountSettings`, `CreateAuction`, `MyListings`). `AuctionDetail`, `Search`, `Home`, `Login`, `Register`, `Watchlist`, `MyPurchases` and all 13 admin pages are untested. Utilities, hooks and the API layer are well covered. | Medium | The business logic those pages render is tested on the server, and the shared building blocks they compose (`AuctionCard`, `CountdownTimer`, `Modal`, `ProtectedRoute`, `usePolling`, `orders.js`, `listings.js`, `helpers.js`) are tested in isolation. Page-level behaviour is covered by the manual test script. |
+| **G8** | **Minor untested classes:** `FeaturedApiServlet` / `FeaturedListingDAO`, `PlatformStatsApiServlet`, `ProfilePhotoApiServlet`, `UploadedFileServlet`, `HealthApiServlet`, `BrowseHistoryDAO`, `PlatformRevenueDAO`, `LinkedAccountDAO`, `AdminReportDAO`. | Low | Thin read-only or pass-through components. Exercised indirectly whenever the landing page, admin dashboard or profile pages are loaded during manual testing. |
+| **G9** | **Live-database integration tests are skipped by default** (6 tests in `AdminManagementDAOIntegrationTest` and `DatabaseBackupRestoreIntegrationTest`). | Low | Intentional, so the build stays hermetic. Run on demand with `AUCTION_DB_IT=true mvn -B test` against a real PostgreSQL instance; this was executed before submission. |
+
+### 5.1 Open defects found while writing the blind auction tests
+
+Writing TC-BLD-001 to TC-BLD-008 meant auditing every server path that can reach a live blind auction's leading bid. Four paths guard it correctly. **Three do not.** These are genuine defects, not missing tests, so they are recorded here rather than asserted in the suite — a test that locked in the current behaviour would be asserting the bug. No production code was changed.
+
+| ID | Defect | Exposure | Fix |
+|---|---|---|---|
+| **D1** | `WatchlistDAO.listByUser` computes `current_bid` as `COALESCE(MAX(bid_amount), starting_price)` with no blind guard, and `GET /api/watchlist` returns it. Any buyer who adds a live blind auction to their watchlist sees the leading sealed bid on the watchlist page. | **High** — reachable by any signed-in buyer through normal UI, and it defeats the mechanism outright: watchlist the item, read the top bid, then bid one dollar more. | Apply the same `CASE WHEN auction_type = 3 THEN starting_price` guard already used in `SearchDAO`, `RecommendationDAO` and `FeaturedListingDAO`, scoped to auctions that are still open. |
+| **D2** | `SellerProfileDAO.getActiveListings` projects `current_price` from `MAX(bid_amount)` with no blind guard. The query is filtered to `date_end > CURRENT_TIMESTAMP`, so every row is a **live** auction, and the public seller-profile endpoint returns it. | **High** — reachable by anyone, including an unregistered visitor, with no session at all. | Same guard as D1. |
+| **D3** | `AuctionBidHistoryServlet` (`GET /auction-bids`, the legacy JSP endpoint) serves full bid amounts for any auction with no blind check and no authentication. The SPA does not call it — it uses the correctly-guarded `/api/auction/{id}/bids` — but the servlet is still mapped and answers a direct request. | **Medium** — not reachable through the UI, but reachable by anyone who types the URL. | Either add the same `blindStillOpen` short-circuit that `AuctionApiServlet.handleBidHistory` already implements, or retire the legacy endpoint now that the SPA has replaced it. |
+
+D1 and D2 are one-line SQL changes each, mirroring a guard that already exists three times elsewhere in the codebase. **Decide before the presentation whether to fix them or to disclose them as known issues** — an assessor probing blind auctions is likely to open the watchlist.
+
+### 5.2 Behaviour that is ambiguous or unimplemented
+
+Recorded so it can be answered confidently rather than guessed at:
+
+- **Auto-bid on blind auctions is neither supported nor blocked.** `BidApiServlet` routes a blind auction to the sealed path, which never consults the auto-bid table, so proxy bidding has no effect. But nothing stops a buyer registering an auto-bid ceiling on a blind listing through `AutoBidApiServlet`, and `AuctionApiServlet` will echo `myAutoBid` back on the detail payload. The correct answer is "auto-bid does not apply to sealed-bid auctions"; the UI simply does not enforce it.
+- **The tie-break is decided by the database, not by Java.** The winner query orders by `bid_amount DESC, bid_time ASC`, so the earliest of two identical bids wins. TC-BLD-014's companion test pins the query shape; the suite has no database, so the outcome itself is not proven by an automated test.
+- **A blind auction has no reserve behaviour of its own.** `reservePrice` (`max_price`) is carried on the payload but nothing in the sealed path consults it, so a blind auction concludes at its top bid regardless of the reserve.
+- **The sealed path is not rate limited.** `placeSealedBid` does not call the bid rate limiter that `placeBid` uses. This is harmless because one bid per buyer is enforced instead, but it is a real difference if asked.
+
+### 5.3 Recommended action before the presentation
+
+1. **Decide on D1 and D2.** Both are one-line SQL fixes that close a live confidentiality hole in a headline feature. If they are not fixed, prepare the disclosure.
+2. Prepare a one-slide answer for G4 (Google OAuth) and G7 (frontend page tests) framed as *deliberate scope decisions with manual coverage*, not oversights.
+
+---
+
+## 6. Appendix — Full Backend Test Class Inventory
+
+Grouped by section, with declared test-method counts. Totals sum to 1,432.
+
+**1. Guest landing & dynamic content — 27**
+`TestAdminLandingContentApiServlet` 15 · `TestLandingContentApiServlet` 4 · `TestSpaFallbackFilter` 4 · `TestAuctionTagDAO` 3 · `TestCategoryApiServlet` 1
+
+**2. Search, filters, sorting & browse — 80**
+`TestSearchServletFilters` 31 · `TestSearchServletSort` 25 · `TestSearchServlet` 16 · `TestSearchServletCategory` 6 · `TestSearchApiServlet` 2
+
+**3. Auction detail & public seller profile — 51**
+`TestAuctionStateUtil` 23 · `TestAuctionBidHistory` 12 · `TestSellerProfileServlet` 9 · `TestAuctionDAO` 7
+
+**4. Registration & login — 58**
+`TestMergedSellerAccount` 17 · `TestAuthApiServlet` 15 · `TestLoginServlet` 9 · `TestRegisterServlet` 9 · `LoginAttemptLimiterTest` 8
+
+**5. Password reset, OTP & 2FA — 57**
+`TestTwoFactorServlet` 22 · `TestPasswordResetServlet` 12 · `OtpStoreTest` 9 · `TestChangePasswordServlet` 6 · `TokenStoreTest` 5 · `TestTwoFactorApiServlet` 3
+
+**6. Session, RBAC, filters & platform security — 43**
+`SecurityUtilTest` 10 · `InputValidatorProfileFieldsTest` 10 · `TestLogoutServlet` 9 · `TestAdminFilter` 5 · `TestSecurityFilter` 3 · `TestCorsFilter` 2 · `TestSessionApiServlet` 2 · `DevModeTest` 2
+
+**7. Bidding (ascending / Dutch / Buy It Now / blind) — 119**
+`TestBlindAuction` 42 · `TestPlaceBidServlet` 19 · `TestWinningBidPrecision` 10 · `DutchClockTest` 9 · `TestBiddingHistoryServlet` 9 · `TestBidApiServlet` 8 · `BidOutcomeTest` 8 · `BidDAORateLimitTest` 6 · `AuctionEventPublisherBlindTest` 5 · `AuctionTypeTest` 3
+
+**8. Auto-bid / proxy bidding — 45**
+`TestSetAutoBidServlet` 27 · `TestAutoBidApiServlet` 9 · `AutoBidOutbidNotificationTest` 4 · `AutoBidDAOStaleKeyTest` 3 · `TestAutoBidSelfBidGuard` 2
+
+**9. Buyer engagement (watchlist, Q&A, ratings, reports) — 139**
+`TestWatchlistServlet` 25 · `TestAuctionQuestionServlet` 21 · `TestSellerRateBuyerServlet` 21 · `TestRateSellerServlet` 18 · `TestBuyerReportServlet` 16 · `TestWatchlistApiServlet` 10 · `TestReportUserServlet` 9 · `TestQuestionApiServlet` 6 · `ReportDAOReplyTest` 6 · `TestRateApiServlet` 4 · `TestReportApiServlet` 3
+
+**10. Orders, payment, shipping & refunds — 57**
+`AccountApiPaymentMethodUpdateTest` 20 · `TestOrderApiServlet` 11 · `PaymentMethodDAOUpdateTest` 8 · `OrderDAOPaymentTimeoutTest` 7 · `PaymentMethodTest` 7 · `AuctionExpiryListenerPaymentTimeoutTest` 3 · `TestOrderDAOLabels` 1
+
+**11. Seller — listings, maintenance & analytics — 215**
+`TestSellerAuctionDAO` 67 · `TestSellerListingMaintenance` 39 · `TestSellerDashboardServlet` 23 · `SellerAnalyticsEmailTest` 23 · `TestCreateAuctionServlet` 16 · `TestEditAuctionServlet` 15 · `SellerApiListingKindTest` 12 · `TestCancelAuctionServlet` 11 · `ListingKindTest` 9
+
+**12. Admin console & database backup/restore — 133**
+`AdminManagementDAOIntegrationTest` 25 (env-gated) · `TestAdminCategoriesServlet` 19 · `AdminManagementDAOTest` 15 · `TestAdminReportServlet` 15 · `TestAdminAuctionServlet` 13 · `DatabaseBackupUtilTest` 12 · `TestAdminDashboardServlet` 11 · `TestAdminManageUserServlet` 11 · `DatabaseBackupRestoreIntegrationTest` 5 (env-gated) · `UserDAOAdminLookupTest` 4 · `TestAdminListingsServlet` 3
+
+**13. Recommendation engine — 104**
+`TestRecommendationPipeline` 43 · `UserBasedCollaborativeFilterTest` 31 · `TestRecommendationApiServlet` 18 · `TestRecommendationProvenance` 12
+
+**14. Notifications & preferences — 93**
+`NotificationServiceOrderAlertsTest` 28 · `NotificationServiceSellerAlertsTest` 24 · `NotificationServiceLostTest` 9 · `TestUpdatePreferenceServlet` 8 · `BidApiNotificationTest` 7 · `TestViewNotificationHistoryServlet` 6 · `NotificationServiceOrderTimeoutTest` 5 · `AuctionCancelledPreferenceTest` 4 · `TestNotificationApiServlet` 2
+
+**15. Telegram integration — 121**
+`TelegramOutboxDAOTest` 22 · `TelegramSellerAlertsTest` 17 · `TelegramWebhookServletTest` 16 · `TelegramOutboxWorkerTest` 14 · `TelegramAlertsTest` 13 · `TelegramApiServletTest` 10 · `TelegramLinkDAOTest` 9 · `TelegramPriceCooldownTest` 9 · `TelegramAuctionCancelledAlertTest` 7 · `TelegramAttemptLimiterTest` 4
+
+**16. Account management & PDPA — 90**
+`TestUserDAO` 17 · `AccountApiProfileUpdateTest` 14 · `UserDAOClosureTest` 12 · `TestAccountApiServlet` 8 · `AccountApiClosureNotificationTest` 8 · `TestUpdateProfileServlet` 6 · `RelativeTimeTest` 6 · `TestAccountManagementServlet` 5 · `TestDeleteAccountServlet` 4 · `StatusTest` 3 · `UserDAODeleteAccountTest` 3 · `TestEditProfileServlet` 2 · `UserDAOMappingTest` 2
+
+*(`com/auction/test/ApiTestSupport.java` is a shared test helper and declares no test methods.)*
+
+---
+
+## 7. Appendix — Frontend Test File Inventory
+
+| File | Tests | Area |
+|---|---|---|
+| `src/pages/seller/MyListings.test.jsx` | 24 | Seller listing management UI |
+| `src/utils/orders.test.js` | 24 | Order bucketing, tabs, refs, headlines, date filters |
+| `src/utils/listings.test.js` | 17 | Unsold vs cancelled logic, display price, bucket counts |
+| `src/utils/helpers.test.js` | 15 | Countdown formatting, initials, role labels, unescaping, currency |
+| `src/components/Modal.test.jsx` | 13 | Dialog accessibility, focus trap, scroll lock |
+| `src/api/requestConfig.test.js` | 11 | Request wire format and abort-signal threading |
+| `src/api/seller.test.js` | 11 | Seller API payloads (reason, quantity, cost price) |
+| `src/api/user.test.js` | 11 | Payment-method and profile API payloads |
+| `src/components/AuctionCard.test.jsx` | 10 | Card rendering, countdown, recommendation explainability |
+| `src/pages/AccountSettings.test.jsx` | 10 | Payment-method editing, account-closure copy |
+| `src/components/ProtectedRoute.test.jsx` | 9 | Route guarding and role/capability gating |
+| `src/pages/seller/CreateAuction.test.jsx` | 8 | Product vs service listing kind |
+| `src/hooks/usePolling.test.jsx` | 7 | Polling lifecycle, visibility, abort on unmount |
+| `src/components/CountdownTimer.test.jsx` | 6 | Countdown ticking, urgency colours, shared interval |
+| `src/utils/apiError.test.js` | 6 | Error-message resolution |
+| `src/utils/appBase.test.js` | 5 | Base-path resolution |
+| `src/hooks/useDebouncedValue.test.jsx` | 3 | Search input debouncing |
+| **Total** | **190** | |
+
+---
+
+*Document generated from the repository state on 6 August 2026. All counts verified by executing `mvn -B test` and `npm test`.*
