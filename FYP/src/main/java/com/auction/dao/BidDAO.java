@@ -191,13 +191,14 @@ public class BidDAO {
             // SCRUM-265: lock the auction row to serialize concurrent bids
             String lockSql =
                     "SELECT a.auction_id, a.status_id, a.date_end, "
-                    + "a.moderation_state, a.seller_id, "
+                    + "a.moderation_state, a.seller_id, a.auction_type, "
                     + "d.starting_price, d.max_price "
                     + "FROM auction a "
                     + "JOIN auction_details d ON d.id = a.auction_id "
                     + "WHERE a.auction_id = ? "
                     + "FOR UPDATE";
 
+            int typeId;
             int statusId;
             Instant dateEnd;
             String moderationState;
@@ -216,10 +217,23 @@ public class BidDAO {
                     dateEnd = rs.getTimestamp("date_end").toInstant();
                     moderationState = rs.getString("moderation_state");
                     sellerId = rs.getInt("seller_id");
+                    typeId = rs.getInt("auction_type");
                     startingPrice = rs.getBigDecimal("starting_price");
                     if (startingPrice == null) startingPrice = BigDecimal.ZERO;
                     maxPrice = rs.getBigDecimal("max_price"); // null = no cap
                 }
+            }
+
+            // An ascending bid has no meaning on a sealed auction, and running one anyway
+            // reveals the thing the mechanism exists to hide: the floor below is
+            // MAX(bid_amount), so BID_TOO_LOW answers "is the top sealed bid above X?" for
+            // any X the caller cares to try — a few probes and the leading bid is known.
+            // BidApiServlet routes BLIND to placeSealedBid, but the legacy /protected/bid
+            // servlet calls this method for every auction type, so the guard belongs here
+            // with the ones acceptDutchBid, buyItNow and placeSealedBid already carry.
+            if (typeId == AuctionType.BLIND.getId()) {
+                conn.rollback();
+                return BidOutcome.of(BidResult.WRONG_AUCTION_TYPE);
             }
 
             // SCRUM-263: auction must be ACTIVE and not expired
@@ -764,6 +778,22 @@ public class BidDAO {
     // -------------------------------------------------------------------------
 
     /**
+     * Excludes every row of a blind auction that is still running.
+     *
+     * <p>{@link com.auction.servlet.api.AuctionApiServlet} short-circuits the sealed case
+     * before it ever reaches this DAO, but it is not the only caller: the legacy JSP
+     * endpoints {@code /auction-bids} and {@code /auction/{id}} read the same history with
+     * no such check, and served the full list of sealed amounts to anyone who asked. The
+     * guard therefore lives here, where it covers every caller including the next one
+     * somebody writes. A concluded blind auction is public and is not filtered.</p>
+     */
+    private static final String HIDE_LIVE_SEALED_BIDS =
+            "AND NOT EXISTS (SELECT 1 FROM auction a WHERE a.auction_id = b.auction_id "
+          + "                AND a.auction_type = " + AuctionType.BLIND.getId()
+          + "                AND a.status_id = " + AuctionStatus.ACTIVE.getId()
+          + "                AND a.date_end > CURRENT_TIMESTAMP) ";
+
+    /**
      * Returns a paginated page of bids for an auction, newest first.
      *
      * <p><b>Masking (SCRUM-361):</b> The current highest bidder's username is partially
@@ -785,6 +815,7 @@ public class BidDAO {
                 + "FROM bids b "
                 + "JOIN users u ON u.id = b.user_id "
                 + "WHERE b.auction_id = ? "
+                + HIDE_LIVE_SEALED_BIDS
                 + "ORDER BY b.bid_time DESC "
                 + "LIMIT ? OFFSET ?";
 
@@ -838,6 +869,7 @@ public class BidDAO {
                 + "FROM bids b "
                 + "JOIN users u ON u.id = b.user_id "
                 + "WHERE b.auction_id = ? "
+                + HIDE_LIVE_SEALED_BIDS
                 + "ORDER BY b.bid_amount DESC, b.bid_time DESC "
                 + "LIMIT ? OFFSET ?";
 

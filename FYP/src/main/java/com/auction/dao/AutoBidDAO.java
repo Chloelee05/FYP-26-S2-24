@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionType;
 import com.auction.util.DBUtil;
 import com.auction.util.SecurityUtil;
 
@@ -382,6 +383,30 @@ public class AutoBidDAO {
     public boolean isOwnAuction(long auctionId, int userId) {
         try (Connection conn = DBUtil.connectDB()) {
             return fetchSellerId(conn, auctionId) == userId;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Whether this listing is a blind (sealed-bid) auction, which proxy bidding does not
+     * apply to.
+     *
+     * <p>Proxy bidding works by counter-bidding one increment above whoever is leading,
+     * which needs a leader that is visible and a price that moves — a sealed auction has
+     * neither, and takes one hidden bid per buyer instead. {@code processAutoBids} is
+     * consequently never reached on this auction type, so a row stored against one would
+     * sit there doing nothing while its owner believed they were still in the running.
+     * {@code AutoBidApiServlet} refuses to create one rather than let that happen.</p>
+     */
+    public boolean isBlindAuction(long auctionId) {
+        String sql = "SELECT auction_type FROM auction WHERE auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("auction_type") == AuctionType.BLIND.getId();
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

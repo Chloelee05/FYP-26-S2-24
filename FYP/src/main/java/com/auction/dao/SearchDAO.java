@@ -274,10 +274,12 @@ public class SearchDAO {
     private static String buildPriceWrappedCountSql(String keyword, String categoryName,
                                                      SearchFilter filter, List<Object> params) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
-        String inner = "SELECT "
-                + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
-                + "         d.starting_price) AS current_price "
-                + fromWhere;
+        // The same sealed-safe column the result page is built from. This query returns only
+        // a count, so nothing leaves directly — but the price filter runs on this column, so
+        // computing it from the true sealed bid made the result count answer "is the top bid
+        // between X and Y?" for any range the caller tried. It also made the count disagree
+        // with the page it counts, since that one already resolved blind rows to entry price.
+        String inner = "SELECT " + SEALED_SAFE_PRICE + "a.auction_id " + fromWhere;
         StringBuilder outer = new StringBuilder("SELECT COUNT(*)::int FROM (")
                 .append(inner).append(") AS base WHERE 1=1 ");
         appendPriceConditions(filter, outer, params);

@@ -1,5 +1,7 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionStatus;
+import com.auction.model.AuctionType;
 import com.auction.model.Notification;
 import com.auction.model.profile.WatchlistRow;
 import com.auction.util.DBUtil;
@@ -153,7 +155,16 @@ public class WatchlistDAO {
     public List<WatchlistRow> listByUser(int userId) {
         String sql =
                 "SELECT a.auction_id, ad.title, a.status_id, w.added_at, a.date_end, "
-                + "COALESCE(MAX(b.bid_amount), ad.starting_price) AS current_bid, "
+                // A blind auction that is still running resolves to its entry price, the same
+                // guard SearchDAO, RecommendationDAO and FeaturedListingDAO apply. Watchlisting
+                // a sealed listing is otherwise a way to read its leading bid: watch it, read
+                // the top bid off this page, then outbid it by a dollar. Unlike those three
+                // projections this query also returns concluded auctions, where the winning bid
+                // is public, so the guard is conditional on the listing still being open.
+                + "CASE WHEN a.auction_type = " + AuctionType.BLIND.getId()
+                + "       AND a.status_id = " + AuctionStatus.ACTIVE.getId()
+                + "       AND a.date_end > CURRENT_TIMESTAMP THEN ad.starting_price "
+                + "     ELSE COALESCE(MAX(b.bid_amount), ad.starting_price) END AS current_bid, "
                 + "COUNT(b.bid_id) AS bid_count, "
                 + "(SELECT i.image_url FROM auction_images i WHERE i.auction_id = a.auction_id "
                 + " ORDER BY i.id LIMIT 1) AS thumbnail_url "
@@ -162,7 +173,8 @@ public class WatchlistDAO {
                 + "JOIN auction_details ad ON ad.id = a.auction_id "
                 + "LEFT JOIN bids b ON b.auction_id = a.auction_id "
                 + "WHERE w.user_id = ? "
-                + "GROUP BY a.auction_id, ad.title, a.status_id, w.added_at, a.date_end, ad.starting_price "
+                + "GROUP BY a.auction_id, a.auction_type, ad.title, a.status_id, w.added_at, "
+                + "         a.date_end, ad.starting_price "
                 + "ORDER BY w.added_at DESC";
         List<WatchlistRow> rows = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();

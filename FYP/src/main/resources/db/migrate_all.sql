@@ -147,4 +147,7 @@
 \echo '== admin demo data (approval queue, service listings, open moderation cases) =='
 \ir migration_admin_demo_data.sql
 
+\echo '== blind auctions: clear auto-bids that could never fire =='
+\ir migration_blind_auction_no_auto_bid.sql
+
 \echo 'All migrations applied.'

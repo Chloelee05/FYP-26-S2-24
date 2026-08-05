@@ -7,6 +7,8 @@ import com.auction.dao.OrderDAO;
 import com.auction.dao.QuestionDAO;
 import com.auction.dao.RecommendationDAO;
 import com.auction.dao.SearchDAO;
+import com.auction.dao.SellerProfileDAO;
+import com.auction.dao.WatchlistDAO;
 import com.auction.dao.AuctionTagsDAO;
 import com.auction.model.AuctionDetail;
 import com.auction.model.AuctionStatus;
@@ -17,6 +19,7 @@ import com.auction.model.SearchSort;
 import com.auction.notification.NotificationService;
 import com.auction.realtime.AuctionEventPublisher;
 import com.auction.servlet.api.AuctionApiServlet;
+import com.auction.servlet.api.AutoBidApiServlet;
 import com.auction.servlet.api.BidApiServlet;
 import com.auction.test.ApiTestSupport;
 import com.auction.util.AuctionFinalizer;
@@ -59,12 +62,16 @@ import static org.mockito.Mockito.*;
  * buyer, no ascending-style outbid notifications — and the close, where the highest sealed
  * bid becomes the winner and the amount is finally revealed.</p>
  *
- * <p><b>What these tests do not cover.</b> Three further read paths reach a live blind
- * auction's leading bid without this guard; they are recorded as defects in
- * {@code docs/AuctionHub_TestCases_Report.md} rather than asserted here, because a test that
- * locked in the current behaviour would be asserting the bug. The tie-break at close is
- * decided by an {@code ORDER BY} the database evaluates, so it is pinned as a query shape
- * rather than as an outcome — the suite has no database.</p>
+ * <p>A sweep of every read path that projects a price turned up five that reached a live
+ * blind auction's leading bid without the guard, including two that could be read with no
+ * session at all and one that gave the amount away through an error message rather than a
+ * payload. All five are fixed; {@code ConfidentialityRegressions} below pins each one, and
+ * {@code AutoBidDoesNotApply} covers the related case of proxy bidding, which cannot work on
+ * a sealed auction and is now refused rather than silently stored.</p>
+ *
+ * <p><b>What these tests do not cover.</b> The tie-break at close is decided by an
+ * {@code ORDER BY} the database evaluates, so it is pinned as a query shape rather than as
+ * an outcome — the suite has no database.</p>
  */
 @DisplayName("Blind (sealed-bid) auctions")
 class TestBlindAuction {
@@ -171,6 +178,24 @@ class TestBlindAuction {
                     "the leading sealed bid must not reach a rival bidder");
             assertTrue(body.get("sealed").asBoolean(), "the page must know to render a sealed state");
             assertEquals(3, body.get("numBids").asInt(), "the count is public; the amounts are not");
+        }
+
+        @Test
+        @DisplayName("No auto-bid is echoed back, even where a row predating the guard survives")
+        void openBlindDoesNotEchoAnAutoBid() throws Exception {
+            AutoBidDAO autoBidDAO = mock(AutoBidDAO.class);
+            inject("autoBidDAO", autoBidDAO);
+            when(autoBidDAO.getAutoBidForUser(AUCTION_ID, BIDDER)).thenReturn(
+                    new AutoBidDAO.AutoBidRow(BIDDER, new BigDecimal("900.00"), Instant.now()));
+            when(bidDAO.findByIdForDisplay(AUCTION_ID))
+                    .thenReturn(detail(AuctionType.BLIND, true, "250.00", 3));
+            viewer(BIDDER);
+
+            JsonNode body = get();
+
+            assertNull(body.get("myAutoBid"),
+                    "proxy bidding never runs on a sealed auction, so showing an active "
+                            + "auto-bid would promise the buyer a defence they do not have");
         }
 
         @Test
@@ -896,6 +921,250 @@ class TestBlindAuction {
                 notifications.verify(
                         () -> NotificationService.notifyAuctionWonIfAbsent(anyLong(), anyInt()), never());
             }
+        }
+    }
+
+    // =========================================================================
+    // Regressions for the five leaks the confidentiality audit found
+    // =========================================================================
+
+    /**
+     * The read paths that reached a live blind auction's leading bid without a guard.
+     *
+     * <p>Each of these failed against the code as it stood before the audit. They are kept
+     * separate from the tests above because they exist to stop a specific defect coming
+     * back, not to describe the mechanism.</p>
+     */
+    @Nested
+    @DisplayName("Confidentiality regressions")
+    class ConfidentialityRegressions {
+
+        private Connection conn;
+        private PreparedStatement ps;
+        private ResultSet rs;
+
+        @BeforeEach
+        void setUp() throws Exception {
+            conn = mock(Connection.class);
+            ps   = mock(PreparedStatement.class);
+            rs   = mock(ResultSet.class);
+            when(conn.prepareStatement(anyString())).thenReturn(ps);
+            when(ps.executeQuery()).thenReturn(rs);
+            when(rs.next()).thenReturn(false);
+        }
+
+        private List<String> preparedSql() throws Exception {
+            ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+            verify(conn, atLeastOnce()).prepareStatement(sql.capture());
+            return sql.getAllValues();
+        }
+
+        /** Every query that computes a price from the bids table must except a live blind row. */
+        private void assertEveryComputedPriceGuardsBlind() throws Exception {
+            List<String> computed = preparedSql().stream()
+                    .filter(s -> s.contains("MAX(b.bid_amount)"))
+                    .collect(Collectors.toList());
+
+            assertFalse(computed.isEmpty(), "expected a query computing a price from the bids table");
+            for (String sql : computed) {
+                assertTrue(sql.contains("a.auction_type = " + AuctionType.BLIND.getId()),
+                        "this price is computed straight off the bids table, so a live blind "
+                                + "auction's leading bid goes out with it: " + sql);
+            }
+        }
+
+        @Test
+        @DisplayName("D1 — the watchlist does not hand a watcher the leading sealed bid")
+        void watchlistDoesNotLeakTheSealedBid() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                new WatchlistDAO().listByUser(BIDDER);
+            }
+            assertEveryComputedPriceGuardsBlind();
+        }
+
+        @Test
+        @DisplayName("D2 — the public seller profile does not expose it to visitors with no session")
+        void sellerProfileDoesNotLeakTheSealedBid() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                new SellerProfileDAO().getActiveListings(SELLER, 48);
+            }
+            assertEveryComputedPriceGuardsBlind();
+        }
+
+        @Test
+        @DisplayName("D3 — the bid history DAO returns no rows for a live blind auction, whoever asks")
+        void bidHistoryHidesLiveSealedBidsForEveryCaller() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                // Both overloads: the legacy JSP servlets take the three-argument one, which
+                // had no guard of its own and no servlet in front of it that supplied one.
+                new BidDAO().getBidHistory(AUCTION_ID, 1, 10);
+                new BidDAO().getBidHistory(AUCTION_ID, 1, 10, BIDDER);
+            }
+
+            List<String> historyQueries = preparedSql().stream()
+                    .filter(s -> s.contains("FROM bids b"))
+                    .collect(Collectors.toList());
+
+            assertEquals(2, historyQueries.size(), "expected both bid-history overloads to run");
+            for (String sql : historyQueries) {
+                assertTrue(sql.contains("a.auction_type = " + AuctionType.BLIND.getId())
+                                && sql.contains("NOT EXISTS"),
+                        "a live blind auction's bids are served in full by: " + sql);
+            }
+        }
+
+        @Test
+        @DisplayName("D4 — an ascending bid on a blind auction is refused, not answered with a price hint")
+        void ascendingBidOnABlindAuctionIsRefused() throws Exception {
+            // The legacy /protected/bid servlet calls placeBid for every auction type. Left
+            // unguarded it compared the bid against MAX(bid_amount), so BID_TOO_LOW answered
+            // "is the sealed top bid above this?" for any amount the caller cared to try.
+            when(rs.next()).thenReturn(true);
+            when(rs.getInt("status_id")).thenReturn(AuctionStatus.ACTIVE.getId());
+            when(rs.getTimestamp("date_end"))
+                    .thenReturn(Timestamp.from(Instant.now().plusSeconds(3600)));
+            when(rs.getString("moderation_state")).thenReturn("active");
+            when(rs.getInt("seller_id")).thenReturn(SELLER);
+            when(rs.getInt("auction_type")).thenReturn(AuctionType.BLIND.getId());
+            when(rs.getBigDecimal("starting_price")).thenReturn(new BigDecimal("100.00"));
+
+            BidDAO.BidOutcome outcome;
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                outcome = new BidDAO().placeBid(AUCTION_ID, BIDDER, new BigDecimal("250.00"));
+            }
+
+            assertEquals(BidDAO.BidResult.WRONG_AUCTION_TYPE, outcome.result);
+            assertFalse(outcome.isSuccess());
+            verify(conn).rollback();
+            verify(conn, never()).commit();
+            assertFalse(preparedSql().stream().anyMatch(s -> s.startsWith("INSERT INTO bids")),
+                        "no bid may be written to a sealed auction by the ascending path");
+        }
+
+        @Test
+        @DisplayName("D5 — the price filter's result count cannot be used to probe the sealed bid")
+        void thePriceFilteredCountCannotProbeTheSealedBid() throws Exception {
+            // The result page already resolved a blind row to its entry price, but the count
+            // behind it did not, so narrowing minPrice/maxPrice and watching the total move
+            // located the sealed bid without it ever appearing on screen.
+            SearchFilter filter = SearchFilter.builder()
+                    .minPrice(new BigDecimal("200"))
+                    .maxPrice(new BigDecimal("300"))
+                    .build();
+
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                new SearchDAO().count("guitar", null, filter);
+            }
+            assertEveryComputedPriceGuardsBlind();
+        }
+
+        @Test
+        @DisplayName("A concluded blind auction is not hidden — the guard expires with the auction")
+        void aConcludedBlindAuctionIsNotHidden() throws Exception {
+            try (MockedStatic<DBUtil> db = mockStatic(DBUtil.class)) {
+                db.when(DBUtil::connectDB).thenReturn(conn);
+                new WatchlistDAO().listByUser(BIDDER);
+                new BidDAO().getBidHistory(AUCTION_ID, 1, 10);
+            }
+
+            for (String sql : preparedSql()) {
+                if (sql.contains("a.auction_type = " + AuctionType.BLIND.getId())) {
+                    assertTrue(sql.contains("a.date_end > CURRENT_TIMESTAMP"),
+                            "hiding must be conditional on the auction still running, otherwise a "
+                                    + "concluded sealed auction never reveals its winning bid: " + sql);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // Auto-bid does not apply to a sealed auction
+    // =========================================================================
+
+    @Nested
+    @DisplayName("Auto-bid does not apply to a blind auction")
+    class AutoBidDoesNotApply {
+
+        private AutoBidDAO autoBidDAO;
+        private Wrapper servlet;
+        private HttpServletRequest req;
+        private HttpServletResponse resp;
+
+        private class Wrapper extends AutoBidApiServlet {
+            @Override public void doPost(HttpServletRequest r, HttpServletResponse s)
+                    throws java.io.IOException { super.doPost(r, s); }
+            @Override public void doGet(HttpServletRequest r, HttpServletResponse s)
+                    throws java.io.IOException { super.doGet(r, s); }
+        }
+
+        @BeforeEach
+        void setUp() {
+            autoBidDAO = mock(AutoBidDAO.class);
+            servlet = new Wrapper();
+            servlet.setAutoBidDAO(autoBidDAO);
+            req  = mock(HttpServletRequest.class);
+            resp = mock(HttpServletResponse.class);
+
+            ApiTestSupport.withBearer(req, ApiTestSupport.newBuyerSession(BIDDER));
+            when(req.getParameter("auctionId")).thenReturn(String.valueOf(AUCTION_ID));
+            when(autoBidDAO.isBlindAuction(AUCTION_ID)).thenReturn(true);
+        }
+
+        @Test
+        @DisplayName("Setting an auto-bid on one is refused with an explanation, not stored")
+        void settingAnAutoBidIsRefused() throws Exception {
+            when(req.getParameter("action")).thenReturn("SET");
+            when(req.getParameter("maxAmount")).thenReturn("500");
+
+            StringWriter sw = ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(400);
+            verify(autoBidDAO, never()).upsert(anyLong(), anyInt(), any(), any(), any());
+            String error = ApiTestSupport.parse(sw).get("error").asText();
+            assertTrue(error.contains("sealed-bid"), "the message should say why, not just refuse");
+        }
+
+        @Test
+        @DisplayName("Cancelling one is still allowed, so a row predating the guard can be cleared")
+        void cancellingIsStillAllowed() throws Exception {
+            when(req.getParameter("action")).thenReturn("CANCEL");
+
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(200);
+            verify(autoBidDAO).delete(AUCTION_ID, BIDDER);
+        }
+
+        @Test
+        @DisplayName("Reading one back reports none, whatever is still stored against the auction")
+        void readingOneBackReportsNone() throws Exception {
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doGet(req, resp);
+
+            verify(resp).setStatus(404);
+            verify(autoBidDAO, never()).getAutoBidForUser(anyLong(), anyInt());
+        }
+
+        @Test
+        @DisplayName("An ascending auction still accepts an auto-bid — the guard is type-specific")
+        void anAscendingAuctionStillAcceptsOne() throws Exception {
+            when(autoBidDAO.isBlindAuction(AUCTION_ID)).thenReturn(false);
+            when(req.getParameter("action")).thenReturn("SET");
+            when(req.getParameter("maxAmount")).thenReturn("500");
+
+            ApiTestSupport.bindJsonWriter(resp);
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(200);
+            verify(autoBidDAO).upsert(eq(AUCTION_ID), eq(BIDDER), eq(new BigDecimal("500")),
+                    any(), any());
         }
     }
 }

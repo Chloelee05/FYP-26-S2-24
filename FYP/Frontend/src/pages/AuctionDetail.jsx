@@ -934,6 +934,7 @@ export default function AuctionDetail() {
                 </div>
                 <p className="text-xs text-ink-500 leading-relaxed">
                   One hidden bid per buyer. All bids stay secret until the auction closes, when the winner is revealed.
+                  Auto-bid isn’t available here — there’s no visible price for it to bid against.
                 </p>
               </div>
             ) : (
@@ -962,6 +963,10 @@ export default function AuctionDetail() {
                   {bidPending ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />}
                   {bidPending ? 'Submitting…' : 'Submit Sealed Bid'}
                 </button>
+                <p className="text-xs text-ink-500 mt-3 leading-relaxed">
+                  Auto-bid isn’t available on a sealed-bid auction — there’s no visible price for it to
+                  bid against. Choose the most you’re willing to pay and submit it once.
+                </p>
               </div>
             )}
           </div>

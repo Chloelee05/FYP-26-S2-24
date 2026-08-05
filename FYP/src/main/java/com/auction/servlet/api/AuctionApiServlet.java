@@ -192,7 +192,10 @@ public class AuctionApiServlet extends ApiBase {
 
         // Buyer-private: inject myAutoBid if the viewer is a BUYER with an active auto-bid.
         // Exposed only to the bidder themselves — never to the seller or anonymous users.
-        if (viewerId != null && !isOwner) {
+        // Blind auctions are excluded: proxy bidding never runs on one, so echoing a row
+        // stored before AutoBidApiServlet started refusing them would put an "Auto-Bid
+        // Active" panel on a page where nothing is bidding on the buyer's behalf.
+        if (viewerId != null && !isOwner && type != AuctionType.BLIND) {
             try {
                 AutoBidDAO.AutoBidRow myRow = autoBidDAO.getAutoBidForUser(auctionId, viewerId);
                 if (myRow != null) {

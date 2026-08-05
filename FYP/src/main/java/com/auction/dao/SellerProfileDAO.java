@@ -1,5 +1,7 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionStatus;
+import com.auction.model.AuctionType;
 import com.auction.model.SellerPublicProfile;
 import com.auction.model.profile.ProfileReviewRow;
 import com.auction.util.DBUtil;
@@ -199,8 +201,15 @@ public class SellerProfileDAO {
     public List<PublicListing> getActiveListings(long sellerId, int limit) {
         String sql =
                 "SELECT a.auction_id, d.title, d.category, a.date_end, "
-                + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
-                + "         d.starting_price) AS current_price, "
+                // Blind auctions resolve to the entry price: this profile is public — an
+                // unauthenticated visitor can open any seller's page — and the WHERE clause
+                // below restricts it to listings that are still taking bids, so every sealed
+                // row here is one whose leading bid must not leave the server.
+                + "CASE WHEN a.auction_type = " + AuctionType.BLIND.getId()
+                + "       AND a.status_id = " + AuctionStatus.ACTIVE.getId()
+                + "     THEN d.starting_price "
+                + "     ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), "
+                + "                   d.starting_price) END AS current_price, "
                 + "(SELECT ai.image_url FROM auction_images ai "
                 + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url, "
                 + "(SELECT COUNT(*)::int FROM watchlist w WHERE w.auction_id = a.auction_id) AS watch_count "

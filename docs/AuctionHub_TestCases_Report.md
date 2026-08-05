@@ -12,22 +12,22 @@
 
 | Metric | Value |
 |---|---|
-| **Total automated tests** | **1,727** |
-| Backend (Java) tests executed | **1,537** |
+| **Total automated tests** | **1,738** |
+| Backend (Java) tests executed | **1,548** |
 | Frontend (React) tests executed | **190** |
 | Backend test classes | 122 |
 | Backend test source files | 123 (122 test classes + 1 shared test helper) |
 | Frontend test files | 17 |
-| Declared backend test methods | 1,432 (expands to 1,537 executions via parameterised tests) |
+| Declared backend test methods | 1,443 (expands to 1,548 executions via parameterised tests) |
 | Tests failing | **0** |
 | Tests skipped | 6 (environment-gated live-database integration tests) |
 | Backend suite runtime | ~7 s |
-| Frontend suite runtime | ~3.3 s |
+| Frontend suite runtime | ~2.3 s |
 | Functional sections covered | 16 of 16 |
-| **Test cases documented in this report** | **113** |
+| **Test cases documented in this report** | **124** |
 
 > Slide-ready one-liner:
-> *"AuctionHub is covered by 1,727 automated tests — 1,537 backend (JUnit 5 + Mockito) and 190 frontend (Vitest + React Testing Library) — all passing, executing in under 11 seconds combined. This document presents 113 representative cases spanning all 16 functional areas of the system."*
+> *"AuctionHub is covered by 1,738 automated tests — 1,548 backend (JUnit 5 + Mockito) and 190 frontend (Vitest + React Testing Library) — all passing, executing in under 10 seconds combined. This document presents 124 representative cases spanning all 16 functional areas of the system."*
 
 ### 1.2 Frameworks and tooling
 
@@ -45,7 +45,7 @@
 ### 1.3 Commands to reproduce
 
 ```bash
-# Backend — 1,537 tests
+# Backend — 1,548 tests
 cd FYP
 mvn -B test
 
@@ -76,7 +76,7 @@ End-to-end user journeys, visual layout, email/SMTP delivery and Telegram messag
 
 ## 2. Section-by-Section Coverage Matrix
 
-Every backend test class is assigned to exactly one section, so the counts below sum to the 1,432 declared backend test methods.
+Every backend test class is assigned to exactly one section, so the counts below sum to the 1,443 declared backend test methods.
 
 | # | Website section / module | Test classes | Declared tests | In this report | Coverage assessment |
 |---|---|---|---|---|---|
@@ -86,7 +86,7 @@ Every backend test class is assigned to exactly one section, so the counts below
 | 4 | Registration & login | 5 | 58 | 6 | **Strong** — includes brute-force lockout and role-escalation rejection |
 | 5 | Password reset, OTP & two-factor authentication | 6 | 57 | 6 | **Strong** — expiry, attempt limits, enumeration resistance all covered |
 | 6 | Session, RBAC, filters & platform security | 8 | 43 | 7 | **Strong** — RBAC matrix, CSP headers, PDPA encryption/masking |
-| 7 | Bidding — ascending, Dutch, Buy It Now, blind | 10 | 119 | 22 | **Strong** — all three auction types now covered end to end, including the sealed-bid confidentiality guard |
+| 7 | Bidding — ascending, Dutch, Buy It Now, blind | 10 | 130 | 33 | **Strong** — all three auction types covered end to end, with a regression pinned on every read path that can reach a sealed bid |
 | 8 | Auto-bid / proxy bidding | 5 | 45 | 4 | **Strong** — competition, tie-break and ceiling logic covered |
 | 9 | Buyer engagement — watchlist, Q&A, ratings, reports | 11 | 139 | 7 | **Strong** — largest single block of tests |
 | 10 | Orders, payment, shipping & refunds | 7 | 57 | 6 | **Strong** — includes unpaid-order auto-cancellation |
@@ -97,20 +97,20 @@ Every backend test class is assigned to exactly one section, so the counts below
 | 15 | Telegram notification integration | 10 | 121 | 5 | **Strong** — webhook auth, brute force, retry ladder, outbox worker |
 | 16 | Account management & PDPA / account closure | 13 | 90 | 4 | **Strong** — encryption round-trip, anonymisation, rollback |
 | — | **Frontend (React SPA)** | 17 files | 190 | 8 | **Partial** — utilities/hooks/API layer strong; page components thin (gap G7) |
-| | **TOTAL** | **122 + 17** | **1,432 + 190** | **113** | |
+| | **TOTAL** | **122 + 17** | **1,443 + 190** | **124** | |
 
 ### 2.1 Coverage by test type (curated set)
 
 | Type | Count | Share |
 |---|---|---|
-| Security / access control | 46 | 41% |
-| Happy path / functional | 34 | 30% |
-| Negative / validation | 19 | 17% |
-| Boundary / precision | 9 | 8% |
+| Security / access control | 52 | 42% |
+| Happy path / functional | 36 | 29% |
+| Negative / validation | 21 | 17% |
+| Boundary / precision | 10 | 8% |
 | Integration / lifecycle | 5 | 4% |
-| **Total** | **113** | 100% |
+| **Total** | **124** | 100% |
 
-**70% of the documented cases are security, negative, boundary or lifecycle cases — only 30% are happy path.** This is deliberate: a catalogue that is only happy path does not evidence engineering judgement, and Session 2 assessment weights security heavily.
+**71% of the documented cases are security, negative, boundary or lifecycle cases — only 29% are happy path.** This is deliberate: a catalogue that is only happy path does not evidence engineering judgement, and Session 2 assessment weights security heavily.
 
 ---
 
@@ -238,6 +238,31 @@ The defining property of a blind auction is that no bidder can see what anyone e
 
 Two supporting behaviours are worth naming under questioning: losing sealed bids are never promoted onto the auction record (`losingSealedBidsAreNeverWritten`), and the winner query ranks by `bid_amount DESC, bid_time ASC`, so an exact tie is settled in favour of whoever bid first (`tiesAreBrokenByWhoBidFirst`).
 
+#### Blind auctions — confidentiality regressions
+
+The cases above pin the guard where it was already correct. Writing them prompted an exhaustive sweep of every server path that projects a price or a bid amount, which found **five** paths that could reach a live blind auction's leading bid (§5.1). All five are fixed, and the cases below exist specifically to stop them reopening: **each one was run against the pre-fix code and failed.** They are the strongest evidence in this document that the sealed-bid mechanism holds, because each is tied to a real defect rather than to an assumption.
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-BLD-015 | `TestBlindAuction.watchlistDoesNotLeakTheSealedBid` | Watchlisting a live blind auction does not reveal its leading bid (fixes D1) | Buyer with a live blind auction on their watchlist | `WatchlistDAO.listByUser`, capturing the SQL | Every price computed from `MAX(b.bid_amount)` carries the `auction_type = 3` guard | Security |
+| TC-BLD-016 | `TestBlindAuction.sellerProfileDoesNotLeakTheSealedBid` | A public seller profile does not reveal it to a visitor with no session (fixes D2) | Seller with a live blind listing | `SellerProfileDAO.getActiveListings`, capturing the SQL | Same guard present on the projected `current_price` | Security |
+| TC-BLD-017 | `TestBlindAuction.bidHistoryHidesLiveSealedBidsForEveryCaller` | The bid-history DAO returns nothing for a live blind auction whichever servlet asks (fixes D3) | Live blind auction with sealed bids | Both `BidDAO.getBidHistory` overloads — the legacy JSP servlets use the three-argument one | Both queries exclude rows belonging to a live blind auction | Security |
+| TC-BLD-018 | `TestBlindAuction.ascendingBidOnABlindAuctionIsRefused` | An ascending bid on a sealed auction is refused outright, so the rejection cannot be used as a price oracle (fixes D4) | Live blind auction, leading sealed bid unknown to the caller | `BidDAO.placeBid` with $250 — the path the legacy `/protected/bid` servlet takes | `WRONG_AUCTION_TYPE`; transaction rolled back, never committed, and no row inserted into `bids` | Security |
+| TC-BLD-019 | `TestBlindAuction.thePriceFilteredCountCannotProbeTheSealedBid` | The search result **count** cannot be used to binary-search the sealed bid (fixes D5) | Search with both a minimum and a maximum price | `SearchDAO.count` with a price filter | The count's inner query uses the same sealed-safe price column as the result page | Security |
+| TC-BLD-020 | `TestBlindAuction.aConcludedBlindAuctionIsNotHidden` | Hiding expires with the auction — a concluded blind auction still reveals its winning bid | Guarded watchlist and bid-history queries | Inspect each guard predicate | Every guard is conditional on `date_end > CURRENT_TIMESTAMP`, so it cannot outlive the auction | Boundary |
+
+#### Blind auctions — auto-bid does not apply
+
+Proxy bidding counter-bids one increment above the visible leader. A sealed auction has neither a visible leader nor a moving price, so auto-bid cannot work on one; it is now refused explicitly rather than accepted and silently ignored (§5.2).
+
+| ID | Test class · method | Objective | Precondition | Input | Expected result | Type |
+|---|---|---|---|---|---|---|
+| TC-BLD-021 | `TestBlindAuction.settingAnAutoBidIsRefused` | Setting an auto-bid on a blind auction is refused, with a reason the buyer can act on | Signed-in buyer, live blind auction | `POST /api/auto-bid` action `SET`, max $500 | 400; nothing stored; the message explains that a sealed auction takes one hidden bid instead | Negative |
+| TC-BLD-022 | `TestBlindAuction.cancellingIsStillAllowed` | Cancelling is still permitted, so a row created before the guard can be cleared | Blind auction carrying a legacy auto-bid row | `POST /api/auto-bid` action `CANCEL` | 200; the row is deleted | Functional |
+| TC-BLD-023 | `TestBlindAuction.readingOneBackReportsNone` | Reading an auto-bid back on a blind auction reports none, whatever is still stored | Blind auction with a surviving legacy row | `GET /api/auto-bid?auctionId=…` | 404 "No auto-bid set."; the stored row is not even read | Negative |
+| TC-BLD-024 | `TestBlindAuction.openBlindDoesNotEchoAnAutoBid` | The detail payload does not advertise an auto-bid that will never fire | Live blind auction; viewer has a legacy $900 auto-bid row | `GET /api/auction/{id}` as that buyer | No `myAutoBid` field, so no "Auto-Bid Active" panel promising a defence that does not exist | Security |
+| TC-BLD-025 | `TestBlindAuction.anAscendingAuctionStillAcceptsOne` | The restriction is type-specific and has not broken ordinary auto-bidding | Signed-in buyer, live **ascending** auction | `POST /api/auto-bid` action `SET`, max $500 | 200; the auto-bid is stored as before | Functional |
+
 ---
 
 ### 3.9 Section 8 — Auto-Bid / Proxy Bidding
@@ -248,6 +273,8 @@ Two supporting behaviours are worth naming under questioning: losing sealed bids
 | TC-AUT-002 | `TestSetAutoBidServlet.competingHigherMaxWins` | Two competing auto-bidders resolve in favour of the higher ceiling | Two auto-bids on the same auction | Trigger the proxy round | The higher ceiling leads at one increment above the loser's maximum | Functional |
 | TC-AUT-003 | `TestSetAutoBidServlet.equalMaxFifoTiebreak` | Equal ceilings are resolved deterministically by who registered first | Two auto-bids with identical maxima | Trigger the proxy round | The earlier registration wins — FIFO, not arbitrary | Boundary |
 | TC-AUT-004 | `AutoBidDAOStaleKeyTest.undecryptableRowReadsAsAbsent` | A ceiling encrypted under a rotated key degrades safely | Stored auto-bid ciphertext not decryptable with the current key | Read the auto-bid | Treated as absent rather than crashing or bidding a wrong amount | Negative |
+
+Auto-bid does not apply to blind auctions and is now refused on one; those cases live with the rest of the blind-auction suite as TC-BLD-021 to TC-BLD-025 in §3.8.
 
 ---
 
@@ -381,7 +408,7 @@ Each ID above resolves to a single named method in a single named class, so an a
 cd FYP
 mvn -B test -Dtest=TestPlaceBidServlet          # a whole class
 mvn -B test -Dtest=TestPlaceBidServlet#selfBidRejected   # a single case
-mvn -B test -Dtest=TestBlindAuction             # all 42 blind-auction cases
+mvn -B test -Dtest=TestBlindAuction             # all 53 blind-auction cases
 ```
 
 `TestBlindAuction` and several other classes group their cases with JUnit 5 `@Nested`; to run one method inside a group, qualify it with the group — for example `-Dtest='TestBlindAuction$SealedDetail#openBlindHidesTheStandingBidFromRivalBidders'`.
@@ -399,7 +426,7 @@ The following areas have thin or no automated coverage. Each is stated with its 
 
 | ID | Gap | Risk | Mitigation |
 |---|---|---|---|
-| **G1** | ~~Blind (sealed-bid) auction behaviour.~~ **Closed.** 47 automated tests were added (`TestBlindAuction`, `AuctionEventPublisherBlindTest`) covering the confidentiality guard on all four read paths, the one-bid-per-buyer rule, rejection of Buy It Now and Dutch acceptance, and winner determination and order creation at close. See §3.8 (TC-BLD-001 to TC-BLD-014). | Closed | — |
+| **G1** | ~~Blind (sealed-bid) auction behaviour.~~ **Closed.** 58 automated tests were added (`TestBlindAuction` 53, `AuctionEventPublisherBlindTest` 5) covering the confidentiality guard on every read path, the one-bid-per-buyer rule, rejection of Buy It Now, Dutch acceptance and auto-bid, and winner determination and order creation at close. Writing them uncovered five real confidentiality defects, all since fixed and pinned by regressions — see §3.8 (TC-BLD-001 to TC-BLD-025) and §5.1. | Closed | — |
 | **G2** | **Auction detail endpoints** `AuctionApiServlet` and `AuctionDetailServlet` have no direct test class. | Medium | The behaviour they compose *is* tested through `TestAuctionBidHistory`, `TestAuctionQuestionServlet`, `TestBidApiServlet`, `TestWatchlistApiServlet` and `TestRecommendationApiServlet`. The page itself is exercised by manual end-to-end testing. |
 | **G3** | **`AdminApiServlet`** (the SPA-facing admin API: users, listings, categories, reports, reviews, orders, analytics, audit log, database backup/restore, recommendation settings) has no direct test class. | Medium | Every business rule it enforces is covered one layer away: `TestAdminManageUserServlet`, `TestAdminAuctionServlet`, `TestAdminCategoriesServlet`, `TestAdminReportServlet`, `TestAdminListingsServlet`, `AdminManagementDAOTest`, `UserDAOAdminLookupTest`, `DatabaseBackupUtilTest`, and recommendation-settings validation in `TestRecommendationPipeline.weightsAreClamped`. |
 | **G4** | **Google OAuth sign-in** (`OAuthApiServlet`) — no automated tests. | Medium | Untestable without mocking Google's token endpoint. Verified by **manual test**: sign in with a Google account, confirm a linked account row is created and the session role is correct. |
@@ -409,37 +436,71 @@ The following areas have thin or no automated coverage. Each is stated with its 
 | **G8** | **Minor untested classes:** `FeaturedApiServlet` / `FeaturedListingDAO`, `PlatformStatsApiServlet`, `ProfilePhotoApiServlet`, `UploadedFileServlet`, `HealthApiServlet`, `BrowseHistoryDAO`, `PlatformRevenueDAO`, `LinkedAccountDAO`, `AdminReportDAO`. | Low | Thin read-only or pass-through components. Exercised indirectly whenever the landing page, admin dashboard or profile pages are loaded during manual testing. |
 | **G9** | **Live-database integration tests are skipped by default** (6 tests in `AdminManagementDAOIntegrationTest` and `DatabaseBackupRestoreIntegrationTest`). | Low | Intentional, so the build stays hermetic. Run on demand with `AUCTION_DB_IT=true mvn -B test` against a real PostgreSQL instance; this was executed before submission. |
 
-### 5.1 Open defects found while writing the blind auction tests
+### 5.1 Blind auction confidentiality defects — all fixed
 
-Writing TC-BLD-001 to TC-BLD-008 meant auditing every server path that can reach a live blind auction's leading bid. Four paths guard it correctly. **Three do not.** These are genuine defects, not missing tests, so they are recorded here rather than asserted in the suite — a test that locked in the current behaviour would be asserting the bug. No production code was changed.
+**Status: closed. Nothing in this section is outstanding.** An earlier draft listed three open defects (D1–D3) and asked for a decision before the presentation. That decision was taken: all three were fixed, a further sweep found two more of the same kind (D4, D5) which were fixed alongside them, and every one now has a regression test that was confirmed to fail against the pre-fix code. This section is safe to finalise as written.
 
-| ID | Defect | Exposure | Fix |
-|---|---|---|---|
-| **D1** | `WatchlistDAO.listByUser` computes `current_bid` as `COALESCE(MAX(bid_amount), starting_price)` with no blind guard, and `GET /api/watchlist` returns it. Any buyer who adds a live blind auction to their watchlist sees the leading sealed bid on the watchlist page. | **High** — reachable by any signed-in buyer through normal UI, and it defeats the mechanism outright: watchlist the item, read the top bid, then bid one dollar more. | Apply the same `CASE WHEN auction_type = 3 THEN starting_price` guard already used in `SearchDAO`, `RecommendationDAO` and `FeaturedListingDAO`, scoped to auctions that are still open. |
-| **D2** | `SellerProfileDAO.getActiveListings` projects `current_price` from `MAX(bid_amount)` with no blind guard. The query is filtered to `date_end > CURRENT_TIMESTAMP`, so every row is a **live** auction, and the public seller-profile endpoint returns it. | **High** — reachable by anyone, including an unregistered visitor, with no session at all. | Same guard as D1. |
-| **D3** | `AuctionBidHistoryServlet` (`GET /auction-bids`, the legacy JSP endpoint) serves full bid amounts for any auction with no blind check and no authentication. The SPA does not call it — it uses the correctly-guarded `/api/auction/{id}/bids` — but the servlet is still mapped and answers a direct request. | **Medium** — not reachable through the UI, but reachable by anyone who types the URL. | Either add the same `blindStillOpen` short-circuit that `AuctionApiServlet.handleBidHistory` already implements, or retire the legacy endpoint now that the SPA has replaced it. |
+Writing TC-BLD-001 to TC-BLD-008 meant auditing the read paths that can reach a live blind auction's leading bid. Finding the guard missing in two DAOs that the first pass had not examined prompted a second, exhaustive sweep of **every** DAO and servlet projecting a price or bid amount (§5.1.1). Five paths were defective:
 
-D1 and D2 are one-line SQL changes each, mirroring a guard that already exists three times elsewhere in the codebase. **Decide before the presentation whether to fix them or to disclose them as known issues** — an assessor probing blind auctions is likely to open the watchlist.
+| ID | Defect | Exposure | Fix applied | Regression |
+|---|---|---|---|---|
+| **D1** | `WatchlistDAO.listByUser` computed `current_bid` from `MAX(bid_amount)` with no blind guard, and `GET /api/watchlist` returned it — so watchlisting a sealed auction read out its leading bid. | **High** — any signed-in buyer, through normal UI. Defeated the mechanism outright: watchlist the item, read the top bid, bid one dollar more. | The `auction_type = 3 → starting_price` guard used in `SearchDAO`, `RecommendationDAO` and `FeaturedListingDAO`, conditional on the auction still running so a concluded one still reveals its winning bid. | TC-BLD-015 |
+| **D2** | `SellerProfileDAO.getActiveListings` projected `current_price` from `MAX(bid_amount)` with no blind guard, on a query already filtered to live auctions. | **High** — anyone, including an unregistered visitor with no session at all. | Same guard. | TC-BLD-016 |
+| **D3** | The legacy JSP endpoints served full bid amounts for a live blind auction on a direct request. Two servlets were affected, not one: `AuctionBidHistoryServlet` (`GET /auction-bids`) and `AuctionDetailServlet` (`GET /auction/{id}`). The SPA uses the correctly-guarded `/api/auction/{id}/bids` and was never affected. | **Medium** — not reachable through the SPA, but reachable by anyone who types the URL. | Guarded inside `BidDAO.getBidHistory` (both overloads) rather than in either servlet — see the note below. | TC-BLD-017 |
+| **D4** | `BidDAO.placeBid` had no auction-type guard, and the legacy `POST /protected/bid` servlet calls it for every type. On a sealed auction it compared the bid against `MAX(bid_amount)`, so the `BID_TOO_LOW` rejection answered *"is the top sealed bid above X?"* for any X — a handful of probes recovers the leading bid exactly. It also admitted extra bids past the one-per-buyer rule and fired outbid and new-bid notifications carrying the amount. | **High** — a price oracle, and the only defect here that leaks through an error message rather than a payload, which is why the first pass over the read paths missed it. | `placeBid` now rejects `BLIND` with `WRONG_AUCTION_TYPE` before any comparison, joining the guards `acceptDutchBid`, `buyItNow` and `placeSealedBid` already carried. | TC-BLD-018 |
+| **D5** | `SearchDAO` guarded the price column on the result page but **not** on the count query behind it, so narrowing `minPrice`/`maxPrice` and watching the result total move located a sealed bid that never appeared on screen. It also made the count disagree with the page it counted. | **Medium** — an inference oracle available to any visitor. | The count query now uses the same `SEALED_SAFE_PRICE` column as the result page. | TC-BLD-019 |
+
+**Why D3 was guarded in the DAO rather than by removing the route.** The brief offered a choice between suppressing the amounts and retiring the `/auction-bids` mapping. Neither servlet was retired: both still forward to JSP views that are part of the deployed application, and deleting a route days before the demo risks breaking a page for a defect that a `WHERE` clause closes. Placing the guard in `BidDAO.getBidHistory` also covers more than the brief asked — it fixed `AuctionDetailServlet`, a second unguarded caller found during the sweep, and it covers any future caller written by someone who does not know the rule. `AuctionApiServlet` keeps its own short-circuit, so the SPA path is now guarded twice.
+
+#### 5.1.1 The audit, in full
+
+Every DAO and servlet that projects a price or a bid amount, and why each is safe. This list is exhaustive — it is the complete set of matches for `bid_amount`, `current_price`, `current_bid` and `winning_bid` across `FYP/src/main/java`.
+
+| Read path | Verdict |
+|---|---|
+| `SearchDAO` — result page | Guarded (`SEALED_SAFE_PRICE`) |
+| `SearchDAO` — price-filtered count | **Was D5** — now guarded |
+| `RecommendationDAO` — 5 projections | Guarded |
+| `FeaturedListingDAO` | Guarded |
+| `WatchlistDAO.listByUser` | **Was D1** — now guarded |
+| `SellerProfileDAO.getActiveListings` | **Was D2** — now guarded |
+| `BidDAO.getBidHistory` (both overloads) | **Was D3** — now guarded |
+| `BidDAO.placeBid` | **Was D4** — now rejects blind |
+| `AuctionApiServlet` — detail and bid history | Guarded (seller and self-bid exceptions are deliberate) |
+| `AuctionEventPublisher.buildSnapshot` (SSE) | Guarded |
+| `BidDAO.getUserBidAmount` | Safe — returns the caller's own bid only |
+| `ProfileActivityDAO.getBidHistory` | Safe — reads the auction top bid but uses it only in Java to compute `won`, which additionally requires the auction to have ended; it is not carried on the row |
+| `ProfileActivityDAO` transaction volume | Safe — sums `winning_bid`, which exists only after close |
+| `SellerAuctionDAO` — listing rows, sorts, `getBidHistory` | Safe — every query is scoped to `seller_id`, and a seller may see bids on their own listing |
+| `SellerAnalyticsDAO` | Safe — scoped to `seller_id` |
+| `AuctionDAO.getAllAuctions` | Safe — admin-only moderation view |
+| `AuctionDAO` revenue sums, `AdminReportDAO` | Safe — admin-only, and `winning_bid` exists only after close |
+| `OrderDAO` (`declareWinner`, `ensureOrderForAuction`) | Safe — runs at or after close, when the amount is public |
+| `AuctionFinalizer` | Safe — runs at close |
+| `AutoBidDAO` top-bid reads | Safe — internal to the bidding transaction, and unreachable for blind now that `placeBid` rejects it |
+| `NotificationService` — `auctionSummary`, `sellerBidSnapshot` | Safe — the two callers that run while an auction is live (`notifyOutbid`, `notifySellerNewBid`) are on the ascending path only, which D4's fix confirms; the rest run at close |
+
+**No sixth leak was found.** The two paths that had been missed on the first pass were both listing projections in DAOs that the first sweep did not open at all, which is why the second sweep was driven by a text search across the whole source tree rather than by a list of endpoints.
 
 ### 5.2 Behaviour that is ambiguous or unimplemented
 
 Recorded so it can be answered confidently rather than guessed at:
 
-- **Auto-bid on blind auctions is neither supported nor blocked.** `BidApiServlet` routes a blind auction to the sealed path, which never consults the auto-bid table, so proxy bidding has no effect. But nothing stops a buyer registering an auto-bid ceiling on a blind listing through `AutoBidApiServlet`, and `AuctionApiServlet` will echo `myAutoBid` back on the detail payload. The correct answer is "auto-bid does not apply to sealed-bid auctions"; the UI simply does not enforce it.
+- **Auto-bid does not apply to blind auctions, and now says so.** *(Was listed here as ambiguous; resolved.)* `BidApiServlet` routes a blind auction to the sealed path, which never consults the auto-bid table, so proxy bidding never had any effect; but `AutoBidApiServlet` still accepted a ceiling for one and the detail payload echoed it back as `myAutoBid`, showing the buyer an "Auto-Bid Active" panel on an auction where nothing was bidding for them. `AutoBidApiServlet` now rejects it with a 400 explaining why, `GET` reports none, the detail payload omits `myAutoBid`, and the sealed-bid form on `AuctionDetail.jsx` says in one line why auto-bid is unavailable. Cancelling is still allowed so a pre-existing row can be cleared. Covered by TC-BLD-021 to TC-BLD-025. A cleanup migration (`migration_blind_auction_no_auto_bid.sql`, registered in `migrate_all.sql`) deletes the rows that had been stored against blind auctions: they can never fire, nothing reads them any more, and each holds an encrypted maximum the buyer can no longer see or withdraw. No database constraint accompanies it — the rule refers to another table, which a PostgreSQL `CHECK` cannot do.
 - **The tie-break is decided by the database, not by Java.** The winner query orders by `bid_amount DESC, bid_time ASC`, so the earliest of two identical bids wins. TC-BLD-014's companion test pins the query shape; the suite has no database, so the outcome itself is not proven by an automated test.
 - **A blind auction has no reserve behaviour of its own.** `reservePrice` (`max_price`) is carried on the payload but nothing in the sealed path consults it, so a blind auction concludes at its top bid regardless of the reserve.
 - **The sealed path is not rate limited.** `placeSealedBid` does not call the bid rate limiter that `placeBid` uses. This is harmless because one bid per buyer is enforced instead, but it is a real difference if asked.
 
 ### 5.3 Recommended action before the presentation
 
-1. **Decide on D1 and D2.** Both are one-line SQL fixes that close a live confidentiality hole in a headline feature. If they are not fixed, prepare the disclosure.
+1. **D1–D5 need no further action** — all fixed, all with regressions confirmed to fail against the pre-fix code. Worth rehearsing as a positive: the audit was prompted by writing tests, it found five real confidentiality defects in a headline feature, and each fix is pinned by a test that reproduces the original bug.
 2. Prepare a one-slide answer for G4 (Google OAuth) and G7 (frontend page tests) framed as *deliberate scope decisions with manual coverage*, not oversights.
 
 ---
 
 ## 6. Appendix — Full Backend Test Class Inventory
 
-Grouped by section, with declared test-method counts. Totals sum to 1,432.
+Grouped by section, with declared test-method counts. Totals sum to 1,443.
 
 **1. Guest landing & dynamic content — 27**
 `TestAdminLandingContentApiServlet` 15 · `TestLandingContentApiServlet` 4 · `TestSpaFallbackFilter` 4 · `TestAuctionTagDAO` 3 · `TestCategoryApiServlet` 1
@@ -460,7 +521,7 @@ Grouped by section, with declared test-method counts. Totals sum to 1,432.
 `SecurityUtilTest` 10 · `InputValidatorProfileFieldsTest` 10 · `TestLogoutServlet` 9 · `TestAdminFilter` 5 · `TestSecurityFilter` 3 · `TestCorsFilter` 2 · `TestSessionApiServlet` 2 · `DevModeTest` 2
 
 **7. Bidding (ascending / Dutch / Buy It Now / blind) — 119**
-`TestBlindAuction` 42 · `TestPlaceBidServlet` 19 · `TestWinningBidPrecision` 10 · `DutchClockTest` 9 · `TestBiddingHistoryServlet` 9 · `TestBidApiServlet` 8 · `BidOutcomeTest` 8 · `BidDAORateLimitTest` 6 · `AuctionEventPublisherBlindTest` 5 · `AuctionTypeTest` 3
+`TestBlindAuction` 53 · `TestPlaceBidServlet` 19 · `TestWinningBidPrecision` 10 · `DutchClockTest` 9 · `TestBiddingHistoryServlet` 9 · `TestBidApiServlet` 8 · `BidOutcomeTest` 8 · `BidDAORateLimitTest` 6 · `AuctionEventPublisherBlindTest` 5 · `AuctionTypeTest` 3
 
 **8. Auto-bid / proxy bidding — 45**
 `TestSetAutoBidServlet` 27 · `TestAutoBidApiServlet` 9 · `AutoBidOutbidNotificationTest` 4 · `AutoBidDAOStaleKeyTest` 3 · `TestAutoBidSelfBidGuard` 2

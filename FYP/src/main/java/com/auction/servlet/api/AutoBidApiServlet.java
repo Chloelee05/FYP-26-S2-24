@@ -49,6 +49,14 @@ public class AutoBidApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
+        // Proxy bidding does not apply to a sealed auction, so answer as though no auto-bid
+        // exists rather than handing back a row (possibly one predating this guard) that
+        // nothing will ever act on.
+        if (autoBidDAO.isBlindAuction(auctionId)) {
+            error(resp, 404, "No auto-bid set.");
+            return;
+        }
+
         AutoBidDAO.AutoBidRow row = autoBidDAO.getAutoBidForUser(auctionId, buyerId);
         if (row == null) {
             error(resp, 404, "No auto-bid set.");
@@ -87,6 +95,17 @@ public class AutoBidApiServlet extends ApiBase {
         if ("CANCEL".equalsIgnoreCase(action)) {
             autoBidDAO.delete(auctionId, buyerId);
             okMsg(resp, "Auto-bid cancelled.");
+            return;
+        }
+
+        // Proxy bidding counter-bids one increment above the visible leader, which a sealed
+        // auction has by definition neither of; placeSealedBid never invokes it. Rejected
+        // rather than accepted-and-ignored, so a buyer is never left believing an auto-bid
+        // is defending them when nothing is. Checked after CANCEL so a row created before
+        // this guard existed can still be cleared.
+        if (autoBidDAO.isBlindAuction(auctionId)) {
+            badRequest(resp, "Auto-bid does not apply to sealed-bid auctions. "
+                    + "Submit one hidden bid instead — it stands on its own until the auction closes.");
             return;
         }
 

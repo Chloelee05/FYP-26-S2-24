@@ -148,6 +148,7 @@ public class PlaceBidServlet extends HttpServlet {
             case BID_TOO_LOW:      return "Your bid must be higher than the current bid.";
             case BID_TOO_FAST:     return "You're bidding too fast — please wait a few seconds before bidding again.";
             case EXCEEDS_MAX_PRICE:return "Your bid exceeds the maximum allowed price for this auction.";
+            case WRONG_AUCTION_TYPE:return "That action is not valid for this auction type.";
             default:               return "Could not place bid. Please try again.";
         }
     }
