@@ -438,7 +438,7 @@ The following areas have thin or no automated coverage. Each is stated with its 
 
 ### 5.1 Blind auction confidentiality defects — all fixed
 
-**Status: closed. Nothing in this section is outstanding.** An earlier draft listed three open defects (D1–D3) and asked for a decision before the presentation. That decision was taken: all three were fixed, a further sweep found two more of the same kind (D4, D5) which were fixed alongside them, and every one now has a regression test that was confirmed to fail against the pre-fix code. This section is safe to finalise as written.
+**Status: closed. Nothing in this section is outstanding.** An earlier draft listed three open defects (D1–D3) and asked for a decision before the presentation. That decision was taken: all three were fixed, a further sweep found two more of the same kind (D4, D5) which were fixed alongside them, and every one now has a regression test that was confirmed to fail against the pre-fix code. Fixed in commit `2d3a234` ("Close every path that leaked a live sealed bid, and refuse auto-bid on one"). This section is safe to finalise as written.
 
 Writing TC-BLD-001 to TC-BLD-008 meant auditing the read paths that can reach a live blind auction's leading bid. Finding the guard missing in two DAOs that the first pass had not examined prompted a second, exhaustive sweep of **every** DAO and servlet projecting a price or bid amount (§5.1.1). Five paths were defective:
 
