@@ -354,6 +354,66 @@ class TestAuthApiServlet {
         return ApiTestSupport.bindJsonWriter(resp);
     }
 
+    // ── Change password ──────────────────────────────────────────────────────
+    //
+    // getUserById() intentionally omits the password column (see UserDAO), so
+    // handleChangePassword must re-look-up the account by email to actually get a
+    // hash to verify against — otherwise every attempt fails with a false
+    // "Current password is incorrect.", regardless of what was typed.
+
+    @Test
+    @DisplayName("change-password with correct current password succeeds")
+    void changePasswordSucceeds() throws Exception {
+        String email = "changer@email.com";
+        User byId = new User("changer", email, null, Role.BUYER);
+        byId.setId(3);
+        User byEmail = new User("changer", email,
+                SecurityUtil.hashPassword("Correct1!"), Role.BUYER);
+        byEmail.setId(3);
+        when(mockDAO.getUserById(3)).thenReturn(byId);
+        when(mockDAO.getUserByEmail(email)).thenReturn(byEmail);
+        when(mockDAO.updatePassword(eq(email), anyString())).thenReturn(true);
+
+        AuthSession session = ApiTestSupport.newBuyerSession(3);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/change-password");
+        when(req.getParameter("currentPassword")).thenReturn("Correct1!");
+        when(req.getParameter("newPassword")).thenReturn("NewPassword1!");
+        when(req.getParameter("confirmPassword")).thenReturn("NewPassword1!");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(mockDAO).updatePassword(eq(email), anyString());
+        verify(resp).setStatus(200);
+    }
+
+    @Test
+    @DisplayName("change-password with wrong current password → 401")
+    void changePasswordWrongCurrentPassword() throws Exception {
+        String email = "changer2@email.com";
+        User byId = new User("changer2", email, null, Role.BUYER);
+        byId.setId(4);
+        User byEmail = new User("changer2", email,
+                SecurityUtil.hashPassword("Correct1!"), Role.BUYER);
+        byEmail.setId(4);
+        when(mockDAO.getUserById(4)).thenReturn(byId);
+        when(mockDAO.getUserByEmail(email)).thenReturn(byEmail);
+
+        AuthSession session = ApiTestSupport.newBuyerSession(4);
+        ApiTestSupport.withBearer(req, session);
+        when(req.getPathInfo()).thenReturn("/change-password");
+        when(req.getParameter("currentPassword")).thenReturn("Wrong1!");
+        when(req.getParameter("newPassword")).thenReturn("NewPassword1!");
+        when(req.getParameter("confirmPassword")).thenReturn("NewPassword1!");
+
+        ApiTestSupport.bindJsonWriter(resp);
+        servlet.doPost(req, resp);
+
+        verify(mockDAO, never()).updatePassword(anyString(), anyString());
+        verify(resp).setStatus(401);
+    }
+
     @Test
     @DisplayName("register duplicate email → 409")
     void registerDuplicateEmail() throws Exception {

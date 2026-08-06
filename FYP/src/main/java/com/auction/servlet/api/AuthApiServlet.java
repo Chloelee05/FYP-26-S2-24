@@ -317,7 +317,11 @@ public class AuthApiServlet extends ApiBase {
         User user = userDAO.getUserById(userId);
         if (user == null) { serverError(resp, "User not found."); return; }
 
-        if (!SecurityUtil.verifyPassword(currentPassword, user.getPassword())) {
+        // getUserById intentionally omits the password column, so re-fetch by email
+        // (which does select it) to verify the current password.
+        User userWithPassword = userDAO.getUserByEmail(user.getEmail());
+        if (userWithPassword == null
+                || !SecurityUtil.verifyPassword(currentPassword, userWithPassword.getPassword())) {
             error(resp, 401, "Current password is incorrect."); return;
         }
         String pwErr = InputValidator.getPasswordPolicyViolation(newPassword);

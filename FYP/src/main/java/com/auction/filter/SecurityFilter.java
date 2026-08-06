@@ -20,10 +20,14 @@ public class SecurityFilter implements Filter{
         // fonts.googleapis.com and the font files themselves from fonts.gstatic.com, which is
         // why the two origins land in different directives. jsDelivr stays because the legacy
         // JSP pages (still mapped, e.g. POST /forgot-password) pull Bootstrap from it.
+        // img-src adds blob: because listing/profile photo pickers preview the chosen file via
+        // URL.createObjectURL before it has finished uploading; without it here, default-src's
+        // 'self' does not cover blob: and the browser silently refuses to paint the preview.
         resp.setHeader("Content-Security-Policy",
                 "default-src 'self'; "
                         + "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
                         + "script-src 'self' https://cdn.jsdelivr.net; "
+                        + "img-src 'self' blob: data:; "
                         + "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:");
 
         filterChain.doFilter(req, resp);

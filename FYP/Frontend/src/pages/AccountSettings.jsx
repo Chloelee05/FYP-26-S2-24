@@ -62,6 +62,23 @@ const PROFILE_FIELDS = [
 /** Fields the user can actually edit — drives both the dirty check and the payload. */
 const EDITABLE_FIELDS = PROFILE_FIELDS.filter(f => !f.locked);
 
+/** Digits with an optional leading + and spaces/hyphens/parentheses for readability. */
+const PHONE_PATTERN = /^\+?[0-9 ()-]+$/;
+const MIN_PHONE_DIGITS = 8;
+const MAX_PHONE_DIGITS = 15;
+
+/** {@code null} if valid; otherwise a short message for the profile form. */
+function phoneViolation(phone) {
+  const trimmed = phone.trim();
+  if (!trimmed) return null;
+  const digitCount = (trimmed.match(/[0-9]/g) || []).length;
+  if (!PHONE_PATTERN.test(trimmed) || digitCount < MIN_PHONE_DIGITS || digitCount > MAX_PHONE_DIGITS) {
+    return `Enter a valid phone number: digits, spaces, hyphens, parentheses and an optional `
+      + `leading +, with ${MIN_PHONE_DIGITS}–${MAX_PHONE_DIGITS} digits.`;
+  }
+  return null;
+}
+
 function ProfileSection() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
@@ -114,8 +131,15 @@ function ProfileSection() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); setMessage(''); setSaving(true);
+    setError(''); setMessage('');
 
+    const phoneError = phoneViolation(form.phone);
+    if (phoneError) {
+      setError(phoneError);
+      return;
+    }
+
+    setSaving(true);
     try {
       // Upload photo first if a new file was selected
       if (selectedFile) {

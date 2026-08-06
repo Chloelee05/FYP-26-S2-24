@@ -1,5 +1,6 @@
 package com.auction.dao;
 
+import com.auction.model.AuctionStatus;
 import com.auction.model.profile.BidHistoryRow;
 import com.auction.model.profile.ProfileReviewRow;
 import com.auction.model.profile.ProfileTransactionRow;
@@ -158,7 +159,7 @@ public class ProfileActivityDAO {
         // then compare in Java to avoid any SQL type/precision equality edge cases.
         String sql =
             "SELECT ub.auction_id, d.title, ub.my_max AS bid_amount, ub.last_bid AS bid_time, "
-          + "       a.date_end, top.max_bid AS auction_max_bid, "
+          + "       a.date_end, a.status_id, top.max_bid AS auction_max_bid, "
           + "       (SELECT i.image_url FROM auction_images i WHERE i.auction_id = ub.auction_id "
           + "        ORDER BY i.id LIMIT 1) AS thumbnail_url, "
           + "       EXISTS (SELECT 1 FROM user_reviews ur "
@@ -188,9 +189,13 @@ public class ProfileActivityDAO {
                             ? LocalDateTime.now()
                             : bidTs.toInstant().atZone(ZONE).toLocalDateTime();
                     Timestamp endTs = rs.getTimestamp("date_end");
-                    boolean ended = endTs != null && endTs.toInstant().isBefore(Instant.now());
+                    int statusId = rs.getInt("status_id");
+                    boolean cancelled = statusId == AuctionStatus.CANCELLED.getId();
+                    boolean ended = cancelled
+                            || statusId == AuctionStatus.FINISHED.getId()
+                            || (endTs != null && endTs.toInstant().isBefore(Instant.now()));
                     String status = ended ? "Ended" : "Live";
-                    boolean won = ended
+                    boolean won = ended && !cancelled
                             && amount != null && auctionMax != null
                             && amount.compareTo(auctionMax) >= 0;
                     list.add(new BidHistoryRow(auctionId, title, amount, bidTime, status, won,

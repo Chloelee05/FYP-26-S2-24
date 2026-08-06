@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.time.YearMonth;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * GET  /api/account            — current user's full profile + stats
@@ -40,6 +41,13 @@ public class AccountApiServlet extends ApiBase {
 
     /** Longest phone number accepted. E.164 allows 15 digits; this leaves room for formatting. */
     private static final int MAX_PHONE_LENGTH = 32;
+
+    /** Digits with an optional leading + and spaces/hyphens/parentheses for readability. */
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[0-9 ()\\-]+$");
+
+    /** E.164 allows up to 15 digits; below 8 is not a real phone number. */
+    private static final int MIN_PHONE_DIGITS = 8;
+    private static final int MAX_PHONE_DIGITS = 15;
 
     /** Matches the {@code users.username} column width. */
     private static final int MAX_USERNAME_LENGTH = 255;
@@ -443,6 +451,16 @@ public class AccountApiServlet extends ApiBase {
         if (rawPhone != null && rawPhone.trim().length() > MAX_PHONE_LENGTH) {
             badRequest(resp, "Phone number must be " + MAX_PHONE_LENGTH
                     + " characters or fewer."); return;
+        }
+        if (rawPhone != null && !rawPhone.isBlank()) {
+            String trimmedPhone = rawPhone.trim();
+            long digitCount = trimmedPhone.chars().filter(Character::isDigit).count();
+            if (!PHONE_PATTERN.matcher(trimmedPhone).matches()
+                    || digitCount < MIN_PHONE_DIGITS || digitCount > MAX_PHONE_DIGITS) {
+                badRequest(resp, "Phone number may only contain digits, spaces, hyphens, "
+                        + "parentheses and an optional leading +, with " + MIN_PHONE_DIGITS
+                        + "-" + MAX_PHONE_DIGITS + " digits."); return;
+            }
         }
         if (rawAddress != null && rawAddress.trim().length() > MAX_ADDRESS_LENGTH) {
             badRequest(resp, "Address must be " + MAX_ADDRESS_LENGTH

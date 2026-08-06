@@ -241,10 +241,30 @@ class AccountApiProfileUpdateTest {
         @Test
         @DisplayName("a phone number of a plausible length is accepted")
         void plausiblePhoneAccepted() throws Exception {
-            param("phone", "+65 9123 4567 ext 8899");
+            param("phone", "+65 9123 4567");
             servlet.doPost(req, resp);
 
             verify(resp).setStatus(200);
+        }
+
+        @Test
+        @DisplayName("a phone number containing letters is refused")
+        void phoneWithLettersRejected() throws Exception {
+            param("phone", "+65 9123 4567 ext 8899");
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(400);
+            verify(userDAO, never()).updateProfile(anyInt(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("a phone number with too few digits is refused")
+        void phoneTooShortRejected() throws Exception {
+            param("phone", "12345");
+            servlet.doPost(req, resp);
+
+            verify(resp).setStatus(400);
+            verify(userDAO, never()).updateProfile(anyInt(), any(), any(), any(), any(), any());
         }
 
         @Test

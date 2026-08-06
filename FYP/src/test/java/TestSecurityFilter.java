@@ -54,6 +54,16 @@ class TestSecurityFilter {
         assertTrue(directive(csp, "script-src").contains("https://cdn.jsdelivr.net"), csp);
     }
 
+    @Test
+    @DisplayName("CSP allows blob: previews for the listing/profile photo pickers")
+    void cspAllowsBlobImagePreviews() throws Exception {
+        String csp = capturedCsp();
+
+        // Photo pickers preview the chosen file via URL.createObjectURL before it has
+        // finished uploading; without this the browser silently refuses to paint it.
+        assertTrue(directive(csp, "img-src").contains("blob:"), csp);
+    }
+
     private static String capturedCsp() throws Exception {
         SecurityFilter filter = new SecurityFilter();
         HttpServletRequest req = mock(HttpServletRequest.class);
