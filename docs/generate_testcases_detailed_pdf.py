@@ -1,8 +1,14 @@
-"""Render docs/AuctionHub_TestCases_Report.md to docs/AuctionHub_TestCases_FTD.pdf.
+"""Render the detailed report to docs/AuctionHub_TestCases_Detailed.pdf.
 
-The PDF is the copy-and-paste source for the Final Technical Document, so the
-tables are built as real ReportLab tables with selectable text rather than as
-preformatted blocks or images.
+This is the long form of the test documentation: coverage matrix, curated
+cases in tabular form, the confidentiality defect writeups and the appendices.
+It is the reference version, kept for the supervisor and for the presentation.
+
+The cases that go into the Final Technical Document are formatted separately,
+one bordered block per case, by generate_testcases_ftd_pdf.py.
+
+The tables are built as real ReportLab tables with selectable text rather than
+as preformatted blocks or images.
 
 Two things are checked before anything is rendered, because a document that
 cites a test method that no longer exists is worse than no document:
@@ -45,7 +51,7 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCE = REPO / "docs" / "AuctionHub_TestCases_Report.md"
-OUTPUT = REPO / "docs" / "AuctionHub_TestCases_FTD.pdf"
+OUTPUT = REPO / "docs" / "AuctionHub_TestCases_Detailed.pdf"
 JAVA_TESTS = REPO / "FYP" / "src" / "test" / "java"
 FRONTEND_SRC = REPO / "FYP" / "Frontend" / "src"
 

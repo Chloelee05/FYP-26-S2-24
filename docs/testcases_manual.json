@@ -1,0 +1,1335 @@
+{
+  "_note": "Manual test case blocks for the Final Technical Document. Each entry is rendered as one bordered table by docs/generate_testcases_ftd_pdf.py. 'tc' and 'ref' carry traceability back to the automated test that proves the same behaviour. 'task_id' is assigned sequentially at render time.",
+  "groups": [
+    {
+      "name": "Guest: Landing Page and Dynamic Content",
+      "cases": [
+        {
+          "tc": "TC-GST-001",
+          "ref": "TestLandingContentApiServlet.returnsContentMap",
+          "scenario": "Verify that the landing page text is loaded from the database rather than fixed in the page code",
+          "prerequisites": ["Landing content has been saved by an admin", "Database can be accessed"],
+          "steps": ["Guest opens the site home page", "Guest compares the headline and description text against the values held in the landing content table"],
+          "data": ["The saved landing content records"],
+          "expected": "The home page displays the text stored in the database, and no heading or description is hardcoded in the page.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-GST-002",
+          "ref": "TestLandingContentApiServlet.failsSoftOnDatabaseError",
+          "scenario": "Verify that the landing page still renders when the content lookup fails",
+          "prerequisites": ["The landing content source is unavailable or returns an error"],
+          "steps": ["Guest opens the site home page while the content lookup is failing"],
+          "data": ["A failing landing content request"],
+          "expected": "The home page loads with its default text and no error page is shown to the guest.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-GST-003",
+          "ref": "TestAdminLandingContentApiServlet.savesSubmittedFields",
+          "scenario": "Verify that an admin can change the landing page text without a code change",
+          "prerequisites": ["Admin is logged in", "Database can be accessed"],
+          "steps": ["Admin opens the landing content editor", "Admin edits the headline and description fields", "Admin clicks Save", "Admin opens the public home page"],
+          "data": ["A new headline value", "A new description value"],
+          "expected": "The new values are saved and the public home page shows the updated text straight away.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-GST-004",
+          "ref": "TestAdminLandingContentApiServlet.rejectsMarkup",
+          "scenario": "Verify that landing page text containing HTML markup is rejected",
+          "prerequisites": ["Admin is logged in"],
+          "steps": ["Admin opens the landing content editor", "Admin enters a value that contains HTML markup", "Admin clicks Save"],
+          "data": ["A headline value containing an HTML script tag"],
+          "expected": "The save is refused with a validation message, the value is not stored, and the public page is unchanged.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Guest: Search, Filters and Browsing",
+      "cases": [
+        {
+          "tc": "TC-SRC-001",
+          "ref": "TestSearchServlet.testValidKeywordReturnsResults",
+          "scenario": "Verify that a guest can search listings by keyword without logging in",
+          "prerequisites": ["At least one active listing matches the keyword", "No user is logged in"],
+          "steps": ["Guest types a keyword into the search box", "Guest presses Enter"],
+          "data": ["The keyword laptop"],
+          "expected": "The results page lists the active listings that match the keyword.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-SRC-002",
+          "ref": "TestSearchServlet.testSqlInjectionAttemptIsHandledSafely",
+          "scenario": "Verify that a search keyword cannot be used to inject SQL",
+          "prerequisites": ["Database can be accessed"],
+          "steps": ["Guest types an SQL injection string into the search box", "Guest presses Enter"],
+          "data": ["The keyword ' OR '1'='1"],
+          "expected": "The string is treated as ordinary search text. No extra listings are returned and no database error is shown.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SRC-003",
+          "ref": "TestSearchServlet.testQueryAtMaxLength",
+          "scenario": "Verify that a search keyword of exactly the maximum permitted length is accepted",
+          "prerequisites": ["Database can be accessed"],
+          "steps": ["Guest types a keyword of exactly the maximum permitted length into the search box", "Guest presses Enter"],
+          "data": ["A keyword at the maximum permitted character length"],
+          "expected": "The search runs normally and the results page is displayed.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-SRC-004",
+          "ref": "TestSearchServletSort.testSqlInjectionReturnsDefault",
+          "scenario": "Verify that the sort option cannot be tampered with to inject SQL",
+          "prerequisites": ["A search results page is open"],
+          "steps": ["Guest edits the sort value in the page address to an SQL fragment", "Guest reloads the page"],
+          "data": ["The sort value ; DROP TABLE auction"],
+          "expected": "The unrecognised sort value is ignored, the results fall back to the default order, and no database error occurs.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SRC-005",
+          "ref": "TestSearchServletFilters.testAllFiltersCombined",
+          "scenario": "Verify that price, condition, location and ending time filters can be applied together",
+          "prerequisites": ["Listings exist across several prices, conditions and locations"],
+          "steps": ["Guest opens the search results page", "Guest sets a price range", "Guest selects an item condition", "Guest selects a location", "Guest selects an ending time window", "Guest applies the filters"],
+          "data": ["A minimum and maximum price", "An item condition", "A location", "An ending time window"],
+          "expected": "Only listings satisfying all four filters are listed, and every applied filter is shown on the page.",
+          "type": "Functional"
+        }
+      ]
+    },
+    {
+      "name": "Guest: Auction Detail and Seller Profile",
+      "cases": [
+        {
+          "tc": "TC-DET-001",
+          "ref": "TestAuctionBidHistory.testPublicAccessNoSession",
+          "scenario": "Verify that an unregistered visitor can view the bid history of an auction",
+          "prerequisites": ["An auction with at least one bid exists", "No user is logged in"],
+          "steps": ["Guest opens an auction detail page", "Guest opens the bid history panel"],
+          "data": ["An existing auction that has bids"],
+          "expected": "The bid history is displayed and the guest is not redirected to the login page.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-DET-002",
+          "ref": "TestAuctionBidHistory.testSecurityUtilMaskingRules",
+          "scenario": "Verify that bidder identities are masked in the public bid history",
+          "prerequisites": ["An auction has bids from several different users"],
+          "steps": ["Guest opens the auction detail page", "Guest opens the bid history panel"],
+          "data": ["An auction with bids from at least three users"],
+          "expected": "Every bidder name and email is shown in masked form, and no full name or full email address appears.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-DET-003",
+          "ref": "TestAuctionBidHistory.testUnknownAuction404",
+          "scenario": "Verify that requesting an auction that does not exist is handled cleanly",
+          "prerequisites": ["Database can be accessed"],
+          "steps": ["Guest edits the auction identifier in the page address to one that does not exist", "Guest loads the page"],
+          "data": ["An auction identifier that is not in the database"],
+          "expected": "A not found page is shown. No error trace or internal detail is displayed.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-DET-004",
+          "ref": "TestSellerProfileServlet.testMaskedEmailInProfile",
+          "scenario": "Verify that a public seller profile does not expose the seller's real email address",
+          "prerequisites": ["A seller with completed sales exists"],
+          "steps": ["Guest opens a listing by that seller", "Guest clicks the seller name to open the public profile"],
+          "data": ["A seller account with completed sales"],
+          "expected": "The profile shows a masked email address only, and the full address does not appear anywhere on the page.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Account: Registration and Login",
+      "cases": [
+        {
+          "tc": "TC-REG-001",
+          "ref": "TestRegisterServlet.testInsert",
+          "scenario": "Verify that a visitor can create an account",
+          "prerequisites": ["The chosen username and email are not already registered", "Database can be accessed"],
+          "steps": ["Guest opens the registration page", "Guest fills in every required field", "Guest clicks Register"],
+          "data": ["An unused username", "An unused email address", "A password meeting the complexity policy"],
+          "expected": "The account is created and the visitor is taken to the login page.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-REG-002",
+          "ref": "TestRegisterServlet.testSuppliedRoleIsIgnored",
+          "scenario": "Verify that a registrant cannot give themselves the admin role during registration",
+          "prerequisites": ["The chosen username and email are not already registered"],
+          "steps": ["Guest opens the registration page", "Guest adds a role field set to ADMIN to the submitted form", "Guest clicks Register", "Admin checks the new account in the user list"],
+          "data": ["A registration form carrying role set to ADMIN"],
+          "expected": "The account is created as an ordinary member. The submitted role is ignored and no admin rights are granted.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-REG-003",
+          "ref": "TestRegisterServlet.testPasswordValidation",
+          "scenario": "Verify that a password which fails the complexity policy is refused at registration",
+          "prerequisites": ["The chosen username and email are not already registered"],
+          "steps": ["Guest opens the registration page", "Guest enters a weak password", "Guest clicks Register"],
+          "data": ["A password that does not meet the complexity policy"],
+          "expected": "Registration is refused with a validation message and no account is created.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-REG-004",
+          "ref": "TestLoginServlet.testSuccessfulLoginSetsSession",
+          "scenario": "Verify that a registered member can log in",
+          "prerequisites": ["An active account exists with a known password"],
+          "steps": ["Member opens the login page", "Member enters their email and password", "Member clicks Login"],
+          "data": ["A registered email address", "The matching password"],
+          "expected": "The member is logged in and taken to the member area, with their name shown in the navigation bar.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-REG-005",
+          "ref": "TestLoginServlet.testSuspendedUserCannotLogin",
+          "scenario": "Verify that a suspended account cannot log in even with the correct password",
+          "prerequisites": ["An account exists whose status is SUSPENDED"],
+          "steps": ["Member opens the login page", "Member enters the correct email and password of the suspended account", "Member clicks Login"],
+          "data": ["The email and correct password of a suspended account"],
+          "expected": "Login is refused with a message explaining the account is suspended, and no session is created.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-REG-006",
+          "ref": "TestAuthApiServlet.loginLocksOutAfterThreshold",
+          "scenario": "Verify that repeated failed logins lock the account for a cooldown period",
+          "prerequisites": ["An active account exists with a known password"],
+          "steps": ["Member enters the correct email with a wrong password and clicks Login", "Member repeats this until the configured attempt limit is reached", "Member enters the correct password and clicks Login"],
+          "data": ["A registered email address", "Wrong passwords repeated up to the attempt limit", "The correct password"],
+          "expected": "After the limit is reached the account is locked and the remaining cooldown is shown. The correct password is also refused while the lock is in force.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Account: Password Reset, OTP and Two-Factor Authentication",
+      "cases": [
+        {
+          "tc": "TC-OTP-001",
+          "ref": "TestPasswordResetServlet.testSuccessfulResetHashesWithSecurityUtil",
+          "scenario": "Verify that a member can reset a forgotten password using a one-time code",
+          "prerequisites": ["An account exists", "A valid unexpired one-time code has been issued to that account", "Database can be accessed"],
+          "steps": ["Member opens the password reset page", "Member enters the one-time code", "Member enters a new password meeting the complexity policy", "Member clicks Reset Password", "Member logs in with the new password"],
+          "data": ["A valid unexpired one-time code", "A new password meeting the complexity policy"],
+          "expected": "The password is changed and the member can log in with it. The stored password is a hash, not readable text, and the one-time code no longer works.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-OTP-002",
+          "ref": "TestPasswordResetServlet.testExpiredOtpRejectsReset",
+          "scenario": "Verify that an expired one-time code cannot be used to reset a password",
+          "prerequisites": ["A one-time code was issued and has since expired"],
+          "steps": ["Member opens the password reset page", "Member enters the expired one-time code", "Member enters a new password", "Member clicks Reset Password"],
+          "data": ["An expired one-time code", "A new password"],
+          "expected": "The reset is refused with a message saying the code has expired, and the existing password still works.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-OTP-003",
+          "ref": "TestAuthApiServlet.forgotPasswordDoesNotEnumerate",
+          "scenario": "Verify that the password reset request does not reveal whether an email address is registered",
+          "prerequisites": ["One registered email address and one unregistered email address are available"],
+          "steps": ["Guest opens the forgot password page", "Guest submits the registered email address and notes the response", "Guest submits the unregistered email address and notes the response"],
+          "data": ["A registered email address", "An unregistered email address"],
+          "expected": "Both submissions return the same message. Nothing in the response indicates whether the address is registered, and no code is sent for the unregistered address.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-OTP-004",
+          "ref": "OtpStoreTest.attemptLimitInvalidatesOtp",
+          "scenario": "Verify that a one-time code cannot be guessed by repeated attempts",
+          "prerequisites": ["A valid one-time code has been issued to an account"],
+          "steps": ["Member enters a wrong one-time code and submits", "Member repeats this until the attempt limit is reached", "Member enters the correct one-time code and submits"],
+          "data": ["Wrong codes repeated up to the attempt limit", "The correct one-time code"],
+          "expected": "The code is invalidated once the attempt limit is reached, so even the correct code is refused and a new code must be requested.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-OTP-005",
+          "ref": "TestTwoFactorServlet.testConfirmValidOtpEnablesTwoFactor",
+          "scenario": "Verify that a member can turn on two-factor authentication",
+          "prerequisites": ["Member is logged in", "Member has scanned the setup code into an authenticator app"],
+          "steps": ["Member opens the security settings page", "Member starts two-factor setup", "Member enters the six digit code shown by the authenticator app", "Member clicks Confirm"],
+          "data": ["The current six digit code from the authenticator app"],
+          "expected": "Two-factor authentication is turned on for the account and the setting is shown as enabled.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-OTP-006",
+          "ref": "TestTwoFactorApiServlet.verifyLoginWrongOtp",
+          "scenario": "Verify that a wrong two-factor code at login does not grant access",
+          "prerequisites": ["An account has two-factor authentication enabled", "The correct password has already been entered"],
+          "steps": ["Member enters an incorrect six digit code at the two-factor prompt", "Member clicks Verify"],
+          "data": ["An incorrect six digit code"],
+          "expected": "Access is refused, the member stays on the two-factor prompt, and no logged in session is created.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Platform: Session, Access Control and Security",
+      "cases": [
+        {
+          "tc": "TC-SEC-001",
+          "ref": "TestTwoFactorServlet.testNullSessionDeniesAllAccess",
+          "scenario": "Verify that a visitor with no session is denied every role restricted page",
+          "prerequisites": ["No user is logged in"],
+          "steps": ["Guest enters the address of the admin dashboard and loads the page", "Guest enters the address of the seller dashboard and loads the page", "Guest enters the address of the watchlist page and loads the page"],
+          "data": ["The addresses of the admin, seller and watchlist pages"],
+          "expected": "Every page is refused and the guest is sent to the login page. No page grants access by default.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEC-002",
+          "ref": "TestAdminFilter.TestBuyer",
+          "scenario": "Verify that a buyer cannot reach any admin page",
+          "prerequisites": ["Buyer is logged in with an ordinary member account"],
+          "steps": ["Buyer enters the address of the admin dashboard", "Buyer loads the page"],
+          "data": ["The address of the admin dashboard"],
+          "expected": "Access is refused before the page loads, and no admin content is shown.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEC-003",
+          "ref": "TestAdminFilter.TestAdmin",
+          "scenario": "Verify that an admin can reach the admin dashboard",
+          "prerequisites": ["Admin is logged in"],
+          "steps": ["Admin opens the admin dashboard"],
+          "data": ["An account holding the admin role"],
+          "expected": "The admin dashboard loads and its content is displayed.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-SEC-004",
+          "ref": "TestLogoutServlet.testProtectedPageBlocksRequestAfterSessionInvalidation",
+          "scenario": "Verify that a session cannot be reused after logging out",
+          "prerequisites": ["Member is logged in and has a protected page open"],
+          "steps": ["Member clicks Logout", "Member presses the browser back button to return to the protected page", "Member refreshes the page"],
+          "data": ["A protected page opened before logout"],
+          "expected": "The page is no longer accessible and the member is sent to the login page.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEC-005",
+          "ref": "TestSecurityFilter.securityHeaders",
+          "scenario": "Verify that every response carries the browser security headers",
+          "prerequisites": ["The site is running"],
+          "steps": ["Tester opens any page with the browser developer tools open", "Tester inspects the response headers on the network tab"],
+          "data": ["Any page request"],
+          "expected": "The response carries the content security policy, content type options and frame options headers.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEC-006",
+          "ref": "SecurityUtilTest.encryptUsesRandomIv",
+          "scenario": "Verify that personal data is encrypted at rest and that identical values do not produce identical stored values",
+          "prerequisites": ["Two member accounts exist", "Database can be accessed"],
+          "steps": ["Member A saves a phone number on the profile page", "Member B saves the same phone number on their profile page", "Tester reads both stored phone values from the database"],
+          "data": ["One phone number saved on two different accounts"],
+          "expected": "Neither stored value is readable text, and the two stored values differ from each other even though the entered number was the same.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEC-007",
+          "ref": "SecurityUtilTest.sanitizeXss",
+          "scenario": "Verify that text entered by a user cannot run as script when it is displayed",
+          "prerequisites": ["Member is logged in"],
+          "steps": ["Member enters a script tag into a free text field such as a question or description", "Member saves the entry", "Member opens the page where that text is displayed"],
+          "data": ["The text <script>alert(1)</script>"],
+          "expected": "The text is shown as plain characters on the page and no script runs.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Buyer: Bidding on Ascending, Dutch and Buy It Now Auctions",
+      "cases": [
+        {
+          "tc": "TC-BID-001",
+          "ref": "TestPlaceBidServlet.successfulBid",
+          "scenario": "Verify that a buyer can place a valid bid on an ascending auction",
+          "prerequisites": ["Buyer is logged in", "A live ascending auction exists", "Buyer does not own the auction"],
+          "steps": ["Buyer opens the auction detail page", "Buyer enters an amount above the current price", "Buyer clicks Place Bid"],
+          "data": ["An amount higher than the current price"],
+          "expected": "The bid is accepted, the current price updates to the new amount, and a confirmation message is shown.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BID-002",
+          "ref": "TestPlaceBidServlet.selfBidRejected",
+          "scenario": "Verify that a seller cannot bid on their own listing",
+          "prerequisites": ["Seller is logged in", "The seller owns a live auction"],
+          "steps": ["Seller opens their own auction detail page", "Seller enters a valid bid amount", "Seller clicks Place Bid"],
+          "data": ["A valid bid amount on the seller's own auction"],
+          "expected": "The bid is refused with a message explaining a seller cannot bid on their own listing, and the price is unchanged.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BID-003",
+          "ref": "TestPlaceBidServlet.equalBidRejected",
+          "scenario": "Verify that a bid equal to the current price is refused",
+          "prerequisites": ["Buyer is logged in", "A live ascending auction has a known current price"],
+          "steps": ["Buyer opens the auction detail page", "Buyer enters an amount exactly equal to the current price", "Buyer clicks Place Bid"],
+          "data": ["An amount equal to the current price"],
+          "expected": "The bid is refused because the price must increase, and the current price is unchanged.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-BID-004",
+          "ref": "TestPlaceBidServlet.negativeBidAmount",
+          "scenario": "Verify that a negative bid amount is refused",
+          "prerequisites": ["Buyer is logged in", "A live ascending auction exists"],
+          "steps": ["Buyer opens the auction detail page", "Buyer enters a negative amount", "Buyer clicks Place Bid"],
+          "data": ["The amount -50"],
+          "expected": "A validation message is shown, the bid is not recorded, and the current price is unchanged.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BID-005",
+          "ref": "TestPlaceBidServlet.closedAuction",
+          "scenario": "Verify that a bid on an auction that has already ended is refused",
+          "prerequisites": ["Buyer is logged in", "An auction whose end time has passed exists"],
+          "steps": ["Buyer opens the ended auction detail page", "Buyer enters a valid amount", "Buyer clicks Place Bid"],
+          "data": ["A valid bid amount on an ended auction"],
+          "expected": "The bid is refused with a message saying the auction is closed, and no bid is recorded.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BID-006",
+          "ref": "DutchClockTest.listedPriceFollowsTheClock",
+          "scenario": "Verify that the displayed price of a Dutch auction falls over time and never goes below the floor price",
+          "prerequisites": ["A Dutch auction exists with a start price, a floor price, a start time and an end time"],
+          "steps": ["Buyer opens the Dutch auction detail page at the start time and notes the price", "Buyer reopens the page halfway through the auction and notes the price", "Buyer reopens the page at the end time and notes the price"],
+          "data": ["A Dutch auction with a start price and a lower floor price"],
+          "expected": "The price equals the start price at the start, has fallen to the midpoint value halfway through, and never drops below the floor price.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BID-007",
+          "ref": "TestBidApiServlet.bidTooLow",
+          "scenario": "Verify that a bid below the required increment is refused and the minimum is shown",
+          "prerequisites": ["Buyer is logged in", "A live auction exists with a known current price and increment"],
+          "steps": ["Buyer opens the auction detail page", "Buyer enters an amount below the required minimum", "Buyer clicks Place Bid"],
+          "data": ["An amount below the current price plus the increment"],
+          "expected": "The bid is refused and the message states the minimum amount that would be accepted.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BID-008",
+          "ref": "BidDAORateLimitTest.secondBidInsideWindowRejected",
+          "scenario": "Verify that a buyer cannot place bids faster than the cooldown allows",
+          "prerequisites": ["Buyer is logged in", "Buyer has just placed a bid on the auction"],
+          "steps": ["Buyer immediately enters a higher amount", "Buyer clicks Place Bid before the cooldown has passed"],
+          "data": ["A second bid placed inside the cooldown window"],
+          "expected": "The second bid is refused with a message asking the buyer to wait, and only the first bid is recorded.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Buyer: Blind (Sealed Bid) Auctions",
+      "cases": [
+        {
+          "tc": "TC-BLD-001",
+          "ref": "TestBlindAuction.openBlindHidesTheStandingBidFromRivalBidders",
+          "scenario": "Verify that a rival bidder cannot see the leading bid while a blind auction is open",
+          "prerequisites": ["Buyer is logged in", "A live blind auction has three sealed bids, the highest being 250 dollars", "The buyer does not own the auction"],
+          "steps": ["Buyer opens the blind auction detail page"],
+          "data": ["A live blind auction with a leading sealed bid of 250 dollars"],
+          "expected": "No current bid amount is displayed. The page marks the auction as sealed and shows only the number of bids received.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-002",
+          "ref": "TestBlindAuction.openBlindHidesTheStandingBidFromAnonymousVisitors",
+          "scenario": "Verify that an unregistered visitor cannot see the leading bid of an open blind auction",
+          "prerequisites": ["A live blind auction with sealed bids exists", "No user is logged in"],
+          "steps": ["Guest opens the blind auction detail page"],
+          "data": ["A live blind auction with a leading sealed bid of 250 dollars"],
+          "expected": "No current bid amount is displayed, and the page does not treat the visitor as the owner.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-003",
+          "ref": "TestBlindAuction.theSellerSeesTheStandingBidOnTheirOwnListing",
+          "scenario": "Verify that the seller can see the standing bid on their own blind auction",
+          "prerequisites": ["Seller is logged in", "The seller owns a live blind auction with a leading sealed bid of 250 dollars"],
+          "steps": ["Seller opens their own blind auction detail page"],
+          "data": ["A live blind auction owned by the logged in seller"],
+          "expected": "The standing bid of 250 dollars is displayed to the seller, so that the Declare Winner Early option can be used at that price.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BLD-004",
+          "ref": "TestBlindAuction.closedBlindRevealsTheWinningBid",
+          "scenario": "Verify that the winning amount of a blind auction is revealed once it closes",
+          "prerequisites": ["Buyer is logged in", "A blind auction has passed its end time"],
+          "steps": ["Buyer opens the closed blind auction detail page"],
+          "data": ["A closed blind auction whose winning bid was 250 dollars"],
+          "expected": "The winning bid of 250 dollars is displayed and the auction is no longer marked as sealed.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BLD-005",
+          "ref": "TestBlindAuction.aBidderSeesTheirOwnBidButNotTheOthers",
+          "scenario": "Verify that a bidder can see their own sealed bid but not anyone else's",
+          "prerequisites": ["Buyer is logged in", "The buyer has submitted a sealed bid of 120 dollars", "Another bidder holds the leading bid of 250 dollars"],
+          "steps": ["Buyer opens the blind auction detail page"],
+          "data": ["The buyer's own sealed bid of 120 dollars"],
+          "expected": "The buyer's own bid of 120 dollars is shown, and no leading bid amount is displayed.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-006",
+          "ref": "TestBlindAuction.openBlindBidHistoryReturnsNoRows",
+          "scenario": "Verify that the bid history is empty while a blind auction is still open",
+          "prerequisites": ["A live blind auction has three sealed bids"],
+          "steps": ["Buyer opens the blind auction detail page", "Buyer opens the bid history panel"],
+          "data": ["A live blind auction with three sealed bids"],
+          "expected": "The bid history lists no entries. The total count of three is shown, but no amount or bidder appears.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-007",
+          "ref": "AuctionEventPublisherBlindTest.openBlindSnapshotCarriesNoAmount",
+          "scenario": "Verify that the live price update on an open blind auction carries no amount",
+          "prerequisites": ["A live blind auction with a leading bid of 250 dollars is open in the browser", "Another bidder places a sealed bid"],
+          "steps": ["Buyer keeps the blind auction detail page open", "A second bidder submits a sealed bid", "Buyer watches the page update without reloading"],
+          "data": ["A sealed bid submitted by another bidder while the page is open"],
+          "expected": "The bid count on the page increases, and no bid amount is displayed at any point.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-008",
+          "ref": "TestBlindAuction.searchResolvesABlindListingToItsStartingPrice",
+          "scenario": "Verify that no listing view reveals the leading bid of a live blind auction",
+          "prerequisites": ["A live blind auction exists with a starting price of 100 dollars and a leading sealed bid of 250 dollars"],
+          "steps": ["Guest finds the blind auction in the search results and notes the price on the card", "Guest applies a price filter that would only match the sealed amount", "Guest checks the trending listings strip", "Guest checks the featured listings strip"],
+          "data": ["A blind auction with a starting price of 100 dollars and a sealed leading bid of 250 dollars"],
+          "expected": "Every view shows the starting price of 100 dollars. The price filter does not single the listing out, so the sealed amount cannot be worked out from any listing view.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-009",
+          "ref": "TestBlindAuction.aSealedBidIsAcknowledgedWithoutRevealingAnything",
+          "scenario": "Verify that a buyer can submit a sealed bid and is told only that it was received",
+          "prerequisites": ["Buyer is logged in", "A live blind auction exists", "The buyer has not yet bid on it"],
+          "steps": ["Buyer opens the blind auction detail page", "Buyer enters a sealed bid amount", "Buyer clicks Submit Sealed Bid"],
+          "data": ["A sealed bid of 250 dollars"],
+          "expected": "A confirmation states that the sealed bid was received. No price, ranking or comparison against other bids is shown.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BLD-010",
+          "ref": "TestBlindAuction.aSecondSealedBidFromTheSameBuyerIsRefused",
+          "scenario": "Verify that a buyer cannot submit a second sealed bid on the same auction",
+          "prerequisites": ["Buyer is logged in", "The buyer has already submitted a sealed bid on this auction"],
+          "steps": ["Buyer opens the same blind auction detail page", "Buyer enters a higher amount", "Buyer clicks Submit Sealed Bid"],
+          "data": ["A second sealed bid higher than the buyer's first"],
+          "expected": "The submission is refused with the message that a sealed bid has already been submitted for this auction, and the original bid is unchanged.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BLD-011",
+          "ref": "TestBlindAuction.aBidAtExactlyTheEntryPriceIsAccepted",
+          "scenario": "Verify that the entry price of a blind auction is an inclusive minimum to the cent",
+          "prerequisites": ["A live blind auction has a starting price of 100 dollars", "Two buyer accounts are available"],
+          "steps": ["First buyer submits a sealed bid of exactly 100.00 dollars", "Second buyer submits a sealed bid of 99.99 dollars"],
+          "data": ["A sealed bid of 100.00 dollars", "A sealed bid of 99.99 dollars"],
+          "expected": "The bid of 100.00 dollars is accepted. The bid of 99.99 dollars is refused as too low and is not recorded.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-BLD-012",
+          "ref": "TestBlindAuction.buyItNowDoesNotApplyToABlindAuction",
+          "scenario": "Verify that Buy It Now and Dutch acceptance cannot be used on a blind auction",
+          "prerequisites": ["Buyer is logged in", "A live blind auction exists"],
+          "steps": ["Buyer attempts a Buy It Now purchase on the blind auction", "Buyer attempts to accept the current Dutch clock price on the blind auction"],
+          "data": ["A Buy It Now request on a blind auction", "A Dutch acceptance request on a blind auction"],
+          "expected": "Both attempts are refused with a message that the action does not apply to this auction type, and nothing is purchased.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BLD-013",
+          "ref": "TestBlindAuction.aSealedBidNotifiesNoOutbidBidder",
+          "scenario": "Verify that submitting a sealed bid sends no outbid or new bid notification",
+          "prerequisites": ["A live blind auction already has sealed bids from other buyers", "Those buyers have notifications turned on"],
+          "steps": ["A new buyer submits a higher sealed bid", "Earlier bidders check their notifications", "The seller checks their notifications"],
+          "data": ["A new sealed bid that exceeds the existing highest"],
+          "expected": "No outbid notification reaches the earlier bidders and no new bid notification reaches the seller, so no message discloses the standing amount.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-014",
+          "ref": "TestBlindAuction.theHighestSealedBidWins",
+          "scenario": "Verify that the highest sealed bid wins when a blind auction closes and the order is raised for that amount",
+          "prerequisites": ["A blind auction has several sealed bids", "The highest is 250 dollars from one buyer", "The auction has passed its end time"],
+          "steps": ["Tester waits for the auction to be finalised", "Winning buyer opens their purchases page", "Losing bidders check their notifications"],
+          "data": ["Sealed bids where the highest is 250 dollars"],
+          "expected": "The buyer who bid 250 dollars is the winner, one order is raised for exactly 250.00 dollars, the winner is notified that they won, and every other bidder is notified that they lost.",
+          "type": "Integration"
+        },
+        {
+          "tc": "TC-BLD-015",
+          "ref": "TestBlindAuction.watchlistDoesNotLeakTheSealedBid",
+          "scenario": "Verify that watchlisting a live blind auction does not reveal its leading bid",
+          "prerequisites": ["Buyer is logged in", "A live blind auction has a starting price of 100 dollars and a leading sealed bid of 250 dollars"],
+          "steps": ["Buyer adds the blind auction to their watchlist", "Buyer opens the watchlist page", "Buyer reads the price shown on the watchlist entry"],
+          "data": ["A live blind auction on the buyer's watchlist"],
+          "expected": "The watchlist shows the starting price of 100 dollars. The sealed leading bid of 250 dollars does not appear.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-016",
+          "ref": "TestBlindAuction.sellerProfileDoesNotLeakTheSealedBid",
+          "scenario": "Verify that a public seller profile does not reveal the leading bid of a live blind auction",
+          "prerequisites": ["A seller has a live blind listing with a starting price of 100 dollars and a leading sealed bid of 250 dollars", "No user is logged in"],
+          "steps": ["Guest opens the seller's public profile page", "Guest reads the price shown against the blind listing"],
+          "data": ["A seller profile showing a live blind listing"],
+          "expected": "The profile shows the starting price of 100 dollars. The sealed leading bid does not appear to a visitor with no session.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-017",
+          "ref": "TestBlindAuction.bidHistoryHidesLiveSealedBidsForEveryCaller",
+          "scenario": "Verify that the bid history of a live blind auction is empty on every page that displays it",
+          "prerequisites": ["A live blind auction has sealed bids"],
+          "steps": ["Guest opens the auction detail page and checks the bid history panel", "Guest opens the standalone bid history page for the same auction directly by its address"],
+          "data": ["A live blind auction with sealed bids"],
+          "expected": "Neither page lists any bid amount. Entering the bid history address directly does not disclose the sealed bids.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-018",
+          "ref": "TestBlindAuction.ascendingBidOnABlindAuctionIsRefused",
+          "scenario": "Verify that an ordinary ascending bid on a blind auction is refused outright",
+          "prerequisites": ["Buyer is logged in", "A live blind auction exists", "The leading sealed amount is not known to the buyer"],
+          "steps": ["Buyer submits an ordinary bid of 250 dollars through the standard bidding page instead of the sealed bid form", "Buyer repeats with several different amounts and compares the messages"],
+          "data": ["Ordinary bids of several different amounts on a blind auction"],
+          "expected": "Every attempt is refused with the same message that the action does not apply to this auction type. No bid is recorded, and the wording never differs according to the amount, so it cannot be used to work out the sealed bid.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-019",
+          "ref": "TestBlindAuction.thePriceFilteredCountCannotProbeTheSealedBid",
+          "scenario": "Verify that the search result count cannot be used to work out a sealed bid",
+          "prerequisites": ["A live blind auction has a starting price of 100 dollars and a leading sealed bid of 250 dollars"],
+          "steps": ["Guest searches with a price range that excludes 100 dollars but includes 250 dollars", "Guest notes the result count shown", "Guest narrows the price range repeatedly and watches the count"],
+          "data": ["A series of narrowing minimum and maximum price filters"],
+          "expected": "The result count matches the listings actually shown on the page at every step. The blind auction is never counted against its sealed amount, so narrowing the range does not locate it.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-020",
+          "ref": "TestBlindAuction.aConcludedBlindAuctionIsNotHidden",
+          "scenario": "Verify that a blind auction reveals its winning bid once it has ended",
+          "prerequisites": ["A blind auction with sealed bids has passed its end time", "The auction is on a buyer's watchlist"],
+          "steps": ["Buyer opens the watchlist page after the auction has ended", "Buyer opens the auction detail page", "Buyer opens the bid history panel"],
+          "data": ["A blind auction that has passed its end time"],
+          "expected": "The winning amount is shown on the watchlist, on the detail page and in the bid history. The hiding applies only while the auction is running.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-BLD-021",
+          "ref": "TestBlindAuction.settingAnAutoBidIsRefused",
+          "scenario": "Verify that an auto-bid cannot be set on a blind auction",
+          "prerequisites": ["Buyer is logged in", "A live blind auction exists"],
+          "steps": ["Buyer opens the blind auction detail page", "Buyer attempts to set an auto-bid ceiling of 500 dollars"],
+          "data": ["An auto-bid ceiling of 500 dollars on a blind auction"],
+          "expected": "The request is refused with a message explaining that a sealed auction takes one hidden bid instead, and no auto-bid is stored.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BLD-022",
+          "ref": "TestBlindAuction.cancellingIsStillAllowed",
+          "scenario": "Verify that an auto-bid stored on a blind auction before the restriction can still be cancelled",
+          "prerequisites": ["Buyer is logged in", "An auto-bid row exists against a blind auction from before the restriction"],
+          "steps": ["Buyer cancels the auto-bid on that blind auction"],
+          "data": ["An existing auto-bid row on a blind auction"],
+          "expected": "The cancellation succeeds and the stored auto-bid is removed.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BLD-023",
+          "ref": "TestBlindAuction.readingOneBackReportsNone",
+          "scenario": "Verify that no auto-bid is reported for a blind auction even if one is still stored",
+          "prerequisites": ["Buyer is logged in", "An auto-bid row still exists against a blind auction"],
+          "steps": ["Buyer opens the blind auction detail page", "Buyer checks the auto-bid area"],
+          "data": ["A blind auction with a leftover auto-bid row"],
+          "expected": "The page reports that no auto-bid is set, and the stored value is not displayed.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-BLD-024",
+          "ref": "TestBlindAuction.openBlindDoesNotEchoAnAutoBid",
+          "scenario": "Verify that a blind auction page does not display an Auto-Bid Active panel",
+          "prerequisites": ["Buyer is logged in", "The buyer has a leftover auto-bid of 900 dollars against a live blind auction"],
+          "steps": ["Buyer opens the blind auction detail page"],
+          "data": ["A leftover auto-bid of 900 dollars on a live blind auction"],
+          "expected": "No Auto-Bid Active panel is shown and the 900 dollar ceiling is not displayed, so the buyer is not promised a defence that will never run.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BLD-025",
+          "ref": "TestBlindAuction.anAscendingAuctionStillAcceptsOne",
+          "scenario": "Verify that the blind auction restriction has not stopped auto-bidding on ordinary auctions",
+          "prerequisites": ["Buyer is logged in", "A live ascending auction exists"],
+          "steps": ["Buyer opens the ascending auction detail page", "Buyer sets an auto-bid ceiling of 500 dollars", "Buyer clicks Save"],
+          "data": ["An auto-bid ceiling of 500 dollars on an ascending auction"],
+          "expected": "The auto-bid is accepted and stored as before, and the Auto-Bid Active panel is shown.",
+          "type": "Functional"
+        }
+      ]
+    },
+    {
+      "name": "Buyer: Auto-Bid and Proxy Bidding",
+      "cases": [
+        {
+          "tc": "TC-AUT-001",
+          "ref": "TestSetAutoBidServlet.successfulSet",
+          "scenario": "Verify that a buyer can set an auto-bid ceiling on a live auction",
+          "prerequisites": ["Buyer is logged in", "A live ascending auction exists", "The buyer does not own the auction"],
+          "steps": ["Buyer opens the auction detail page", "Buyer enters a maximum amount in the auto-bid field", "Buyer clicks Set Auto-Bid"],
+          "data": ["A maximum auto-bid amount above the current price"],
+          "expected": "The auto-bid is saved, a confirmation is shown, and the stored ceiling is not readable in plain form in the database.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-AUT-002",
+          "ref": "TestSetAutoBidServlet.competingHigherMaxWins",
+          "scenario": "Verify that when two buyers hold auto-bids the higher ceiling takes the lead",
+          "prerequisites": ["Two buyers have set auto-bids on the same live auction with different maximum amounts"],
+          "steps": ["A new bid is placed that triggers both auto-bids", "Tester opens the auction detail page and reads the leading bid"],
+          "data": ["Two auto-bid ceilings of different amounts on one auction"],
+          "expected": "The buyer with the higher ceiling leads, at one increment above the lower ceiling rather than at their own maximum.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-AUT-003",
+          "ref": "TestSetAutoBidServlet.equalMaxFifoTiebreak",
+          "scenario": "Verify that two identical auto-bid ceilings are settled in favour of whoever set theirs first",
+          "prerequisites": ["Two buyers have set auto-bids with exactly the same maximum amount on the same auction", "The order in which they were set is known"],
+          "steps": ["A new bid is placed that triggers both auto-bids", "Tester opens the auction detail page and reads the leading bidder"],
+          "data": ["Two identical auto-bid ceilings set at different times"],
+          "expected": "The buyer who set their auto-bid first holds the lead. The result is the same on every repeat, not arbitrary.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-AUT-004",
+          "ref": "AutoBidDAOStaleKeyTest.undecryptableRowReadsAsAbsent",
+          "scenario": "Verify that an auto-bid that can no longer be read is treated as absent rather than causing an error",
+          "prerequisites": ["An auto-bid was stored under an encryption key that has since been rotated", "Database can be accessed"],
+          "steps": ["Buyer opens the auction detail page carrying that auto-bid", "A new bid is placed on the auction"],
+          "data": ["An auto-bid stored under a superseded encryption key"],
+          "expected": "The page reports no auto-bid set, the auction continues to work, and no bid is placed at an incorrect amount.",
+          "type": "Negative"
+        }
+      ]
+    },
+    {
+      "name": "Buyer: Watchlist, Questions, Ratings and Reports",
+      "cases": [
+        {
+          "tc": "TC-BUY-001",
+          "ref": "TestWatchlistServlet.addSuccess",
+          "scenario": "Verify that a buyer can add a listing to their watchlist",
+          "prerequisites": ["Buyer is logged in", "The auction is not already on the watchlist"],
+          "steps": ["Buyer opens an auction detail page", "Buyer clicks Add to Watchlist", "Buyer opens the watchlist page"],
+          "data": ["An existing live auction"],
+          "expected": "A confirmation is shown and the auction appears on the buyer's watchlist.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BUY-002",
+          "ref": "TestWatchlistApiServlet.getForbiddenForGuest",
+          "scenario": "Verify that an unregistered visitor cannot view a watchlist",
+          "prerequisites": ["No user is logged in"],
+          "steps": ["Guest enters the address of the watchlist page", "Guest loads the page"],
+          "data": ["The address of the watchlist page"],
+          "expected": "Access is refused and no watchlist entries are shown.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BUY-003",
+          "ref": "TestAuctionQuestionServlet.testAskSuccessSanitized",
+          "scenario": "Verify that a buyer can ask the seller a question and that the text is cleaned before it is shown",
+          "prerequisites": ["Buyer is logged in", "The auction does not belong to the buyer"],
+          "steps": ["Buyer opens the auction detail page", "Buyer types a question containing HTML markup", "Buyer clicks Submit Question", "Seller checks their notifications"],
+          "data": ["Question text containing an HTML tag"],
+          "expected": "The question is posted with the markup shown as plain characters, and the seller receives a notification.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-BUY-004",
+          "ref": "TestAuctionQuestionServlet.testReplyWrongSeller403",
+          "scenario": "Verify that only the owning seller can answer a question on a listing",
+          "prerequisites": ["A seller is logged in who does not own the auction", "An unanswered question exists on that auction"],
+          "steps": ["Seller opens the auction detail page", "Seller attempts to submit a reply to the question"],
+          "data": ["A reply to a question on another seller's listing"],
+          "expected": "The reply is refused and no answer is stored against the question.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BUY-005",
+          "ref": "TestRateSellerServlet.buyerNotWinner",
+          "scenario": "Verify that only the winning buyer can rate the seller",
+          "prerequisites": ["Buyer is logged in", "The auction has finished", "The logged in buyer did not win it"],
+          "steps": ["Buyer opens the finished auction page", "Buyer attempts to submit a rating of 5 for the seller"],
+          "data": ["A rating score of 5 from a buyer who did not win"],
+          "expected": "The rating is refused and no rating is recorded against the seller.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-BUY-006",
+          "ref": "TestRateSellerServlet.scoreBoundaryMax",
+          "scenario": "Verify that the rating scale accepts its highest value",
+          "prerequisites": ["Buyer is logged in", "The buyer won the auction", "The buyer has not yet rated the seller"],
+          "steps": ["Buyer opens the finished auction page", "Buyer selects the maximum score of 5", "Buyer clicks Submit Rating"],
+          "data": ["A rating score of 5"],
+          "expected": "The rating is accepted and appears on the seller's profile.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-BUY-007",
+          "ref": "TestBuyerReportServlet.duplicateReport",
+          "scenario": "Verify that a buyer cannot report the same listing twice",
+          "prerequisites": ["Buyer is logged in", "The buyer has already submitted a report on this listing that is still open"],
+          "steps": ["Buyer opens the same listing", "Buyer submits a second report"],
+          "data": ["A second report on a listing already reported by this buyer"],
+          "expected": "The second report is refused with a message saying the listing has already been reported, and only one report exists.",
+          "type": "Negative"
+        }
+      ]
+    },
+    {
+      "name": "Buyer: Orders, Payment, Shipping and Refunds",
+      "cases": [
+        {
+          "tc": "TC-ORD-001",
+          "ref": "TestOrderApiServlet.paySuccess",
+          "scenario": "Verify that a winning buyer can pay for an order with a saved payment method",
+          "prerequisites": ["Buyer is logged in", "The buyer has an unpaid order", "The buyer has a saved payment method"],
+          "steps": ["Buyer opens the purchases page", "Buyer selects the unpaid order", "Buyer chooses their saved payment method", "Buyer clicks Pay"],
+          "data": ["An unpaid order", "A saved payment method belonging to the buyer"],
+          "expected": "The order is marked as paid, and both the buyer and the seller receive a notification.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-ORD-002",
+          "ref": "TestOrderApiServlet.payRejectsForeignMethod",
+          "scenario": "Verify that a buyer cannot pay using another user's saved payment method",
+          "prerequisites": ["Buyer is logged in with an unpaid order", "A payment method belonging to a different user is known"],
+          "steps": ["Buyer opens the unpaid order", "Buyer submits payment referencing another user's saved payment method"],
+          "data": ["A payment method identifier belonging to a different user"],
+          "expected": "The payment is refused and the order remains unpaid.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ORD-003",
+          "ref": "TestOrderApiServlet.shippingRejectsUnpaidOrder",
+          "scenario": "Verify that shipping cannot be advanced before the order is paid",
+          "prerequisites": ["Seller is logged in", "An order on the seller's listing is still unpaid"],
+          "steps": ["Seller opens the sales page", "Seller selects the unpaid order", "Seller attempts to mark it as despatched"],
+          "data": ["An unpaid order"],
+          "expected": "The change is refused and the shipping stage stays as it was.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-ORD-004",
+          "ref": "TestOrderApiServlet.refundReasonTooShort",
+          "scenario": "Verify that a refund request must carry a reason of the minimum length",
+          "prerequisites": ["Buyer is logged in", "The buyer has a paid order"],
+          "steps": ["Buyer opens the paid order", "Buyer clicks Request Refund", "Buyer enters a reason shorter than the minimum length", "Buyer clicks Submit"],
+          "data": ["A refund reason shorter than the minimum permitted length"],
+          "expected": "A validation message is shown and no refund request is raised.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-ORD-005",
+          "ref": "OrderDAOPaymentTimeoutTest.overdueOrderIsCancelled",
+          "scenario": "Verify that an unpaid order past its payment deadline is cancelled automatically",
+          "prerequisites": ["An unpaid order exists that is older than the configured payment deadline", "A separate paid order also exists"],
+          "steps": ["Tester waits for the scheduled payment timeout to run", "Tester opens the order list and checks both orders"],
+          "data": ["One unpaid order past the deadline", "One paid order"],
+          "expected": "The overdue unpaid order is cancelled. The paid order is untouched and the related auction records are unchanged.",
+          "type": "Integration"
+        },
+        {
+          "tc": "TC-ORD-006",
+          "ref": "AccountApiPaymentMethodUpdateTest.updateRefusesPanChange",
+          "scenario": "Verify that a saved card number cannot be changed through the edit form",
+          "prerequisites": ["Buyer is logged in", "The buyer has a saved card"],
+          "steps": ["Buyer opens the payment methods page", "Buyer opens the saved card for editing", "Buyer attempts to submit a different card number along with a new expiry date"],
+          "data": ["A different card number", "A new expiry date"],
+          "expected": "The card number is unchanged. Only the cardholder name and expiry date are updated.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Seller: Listings, Maintenance and Analytics",
+      "cases": [
+        {
+          "tc": "TC-SEL-001",
+          "ref": "TestCreateAuctionServlet.TestValidTags",
+          "scenario": "Verify that a seller can publish a listing with images and tags",
+          "prerequisites": ["Seller is logged in with selling turned on", "Database can be accessed"],
+          "steps": ["Seller opens the create listing page", "Seller fills in the listing details", "Seller uploads one or more images", "Seller adds tags", "Seller clicks Publish"],
+          "data": ["A complete set of listing details", "One or more permitted image files", "One or more tags"],
+          "expected": "The listing is published and appears in search results with its images and tags attached.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-SEL-002",
+          "ref": "TestCreateAuctionServlet.TestNotSeller",
+          "scenario": "Verify that a member without selling turned on cannot create a listing",
+          "prerequisites": ["A member is logged in who has not turned selling on"],
+          "steps": ["Member enters the address of the create listing page", "Member fills in the form and clicks Publish"],
+          "data": ["A complete listing form submitted by a buyer only account"],
+          "expected": "The request is refused and no listing is created.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEL-003",
+          "ref": "TestCreateAuctionServlet.testInvalidExtension",
+          "scenario": "Verify that only permitted image types can be uploaded to a listing",
+          "prerequisites": ["Seller is logged in with selling turned on"],
+          "steps": ["Seller opens the create listing page", "Seller selects a file with a disallowed extension", "Seller clicks Publish"],
+          "data": ["A file with a disallowed extension"],
+          "expected": "The upload is refused with a file type message, and no file is saved on the server.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEL-004",
+          "ref": "TestCreateAuctionServlet.testFileTooLarge",
+          "scenario": "Verify that an image larger than the size limit is refused",
+          "prerequisites": ["Seller is logged in with selling turned on"],
+          "steps": ["Seller opens the create listing page", "Seller selects an image larger than the permitted size", "Seller clicks Publish"],
+          "data": ["An image file exceeding the size limit"],
+          "expected": "The upload is refused with a size message and the listing is not published.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-SEL-005",
+          "ref": "TestEditAuctionServlet.hasBidsBlocksEdit",
+          "scenario": "Verify that a listing that already has bids cannot be edited",
+          "prerequisites": ["Seller is logged in", "The seller owns a live auction that has at least one bid"],
+          "steps": ["Seller opens their listing", "Seller clicks Edit", "Seller changes a field and clicks Save"],
+          "data": ["An edit to a listing that already has bids"],
+          "expected": "The edit is refused with a message explaining that bidders bid on the original terms, and the listing is unchanged.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-SEL-006",
+          "ref": "TestEditAuctionServlet.toctouBidsPlacedAfterGet",
+          "scenario": "Verify that a bid arriving while the edit form is open still blocks the edit",
+          "prerequisites": ["Seller is logged in", "The seller owns a live auction with no bids yet"],
+          "steps": ["Seller opens the edit form while the listing has no bids", "A buyer places a bid on that listing in another browser", "Seller changes a field and clicks Save"],
+          "data": ["A bid placed after the edit form was opened but before it was saved"],
+          "expected": "The edit is refused because the check is repeated at save time, and the listing is unchanged.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-SEL-007",
+          "ref": "TestSellerListingMaintenance.lastUnitEndsListingAndNotifies",
+          "scenario": "Verify that removing the last unit of stock ends the listing and tells the bidders",
+          "prerequisites": ["Seller is logged in", "The seller owns a listing with a quantity of 1", "The listing has existing bidders"],
+          "steps": ["Seller opens the listing", "Seller removes the remaining unit and enters a reason", "Seller confirms", "Bidders check their notifications"],
+          "data": ["A listing with a quantity of 1", "A removal reason"],
+          "expected": "The listing is ended, the reason is recorded against it, and every bidder receives a notification.",
+          "type": "Integration"
+        }
+      ]
+    },
+    {
+      "name": "Admin: Console and Database Backup",
+      "cases": [
+        {
+          "tc": "TC-ADM-001",
+          "ref": "TestAdminManageUserServlet.TestSuspend",
+          "scenario": "Verify that an admin can suspend an active member account",
+          "prerequisites": ["Admin is logged in", "Database can be accessed", "At least one active member account exists"],
+          "steps": ["Admin opens the user management page", "Admin clicks Suspend next to an active member account"],
+          "data": ["An existing active member account"],
+          "expected": "The status of the account becomes SUSPENDED.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-ADM-002",
+          "ref": "TestAdminManageUserServlet.TestSelfAction",
+          "scenario": "Verify that an admin cannot moderate their own account",
+          "prerequisites": ["Admin is logged in"],
+          "steps": ["Admin opens the user management page", "Admin attempts to suspend their own account"],
+          "data": ["The logged in admin's own account"],
+          "expected": "The action is refused and the admin's own account status is unchanged.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-ADM-003",
+          "ref": "TestAdminManageUserServlet.TestUnbanAdminTarget",
+          "scenario": "Verify that one admin cannot change another admin's account status",
+          "prerequisites": ["Admin is logged in", "A second admin account exists"],
+          "steps": ["Admin opens the user management page", "Admin attempts to change the status of the other admin account"],
+          "data": ["A second admin account"],
+          "expected": "The action is refused, because admin accounts cannot be moderated from this page.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ADM-004",
+          "ref": "TestAdminReportServlet.testGetNonAdmin",
+          "scenario": "Verify that a buyer cannot open the report moderation queue",
+          "prerequisites": ["Buyer is logged in with an ordinary member account"],
+          "steps": ["Buyer enters the address of the admin reports page", "Buyer loads the page"],
+          "data": ["The address of the admin reports page"],
+          "expected": "Access is refused and no report data is shown.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ADM-005",
+          "ref": "TestAdminCategoriesServlet.testDeleteRestrictedByAuctions",
+          "scenario": "Verify that a category still used by live auctions cannot be deleted",
+          "prerequisites": ["Admin is logged in", "A category is referenced by at least one live auction"],
+          "steps": ["Admin opens the category management page", "Admin clicks Delete next to that category"],
+          "data": ["A category referenced by live auctions"],
+          "expected": "The deletion is refused with a message explaining the category is still in use, and the category remains.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-ADM-006",
+          "ref": "DatabaseBackupUtilTest.rejectDestructive",
+          "scenario": "Verify that a restore file containing destructive statements is rejected",
+          "prerequisites": ["Admin is logged in", "A backup file containing DROP or DELETE statements is prepared"],
+          "steps": ["Admin opens the database backup and restore page", "Admin uploads the prepared file", "Admin clicks Restore"],
+          "data": ["A backup file containing a DROP statement"],
+          "expected": "The file is rejected before anything runs, and the database is unchanged.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ADM-007",
+          "ref": "DatabaseBackupUtilTest.allowsSemicolonInAValue",
+          "scenario": "Verify that a restore file is accepted when a semicolon appears inside a genuine data value",
+          "prerequisites": ["Admin is logged in", "A valid backup file is prepared where one inserted value contains a semicolon"],
+          "steps": ["Admin opens the database backup and restore page", "Admin uploads the prepared file", "Admin clicks Restore"],
+          "data": ["A backup file whose inserted value contains a semicolon"],
+          "expected": "The restore completes and the value is stored with its semicolon intact, so a legitimate value is not mistaken for a second statement.",
+          "type": "Boundary"
+        }
+      ]
+    },
+    {
+      "name": "Platform: Recommendation Engine",
+      "cases": [
+        {
+          "tc": "TC-REC-001",
+          "ref": "TestRecommendationApiServlet.personalisedForBuyer",
+          "scenario": "Verify that a signed in buyer receives personalised recommendations",
+          "prerequisites": ["Buyer is logged in", "The buyer has browsing or bidding history"],
+          "steps": ["Buyer opens the home page", "Buyer reads the recommendations strip"],
+          "data": ["A buyer account with interaction history"],
+          "expected": "The strip shows recommendations related to the buyer's history and is labelled as personalised.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-REC-002",
+          "ref": "TestRecommendationApiServlet.trendingForAnonymous",
+          "scenario": "Verify that an unregistered visitor still receives useful recommendations",
+          "prerequisites": ["No user is logged in"],
+          "steps": ["Guest opens the home page", "Guest reads the recommendations strip"],
+          "data": ["A home page visit with no session"],
+          "expected": "The strip shows trending listings and is not labelled as personalised.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-REC-003",
+          "ref": "TestRecommendationPipeline.coldStartFallsThroughToTrending",
+          "scenario": "Verify that a newly registered user is not shown an empty recommendations strip",
+          "prerequisites": ["A newly registered account exists with no browsing or bidding history"],
+          "steps": ["New member logs in", "New member opens the home page", "New member reads the recommendations strip"],
+          "data": ["An account with no interaction history"],
+          "expected": "The strip is filled with trending listings rather than left empty.",
+          "type": "Negative"
+        },
+        {
+          "tc": "TC-REC-004",
+          "ref": "TestRecommendationPipeline.categoryCapLimitsASingleCategory",
+          "scenario": "Verify that a single category cannot fill the whole recommendations strip",
+          "prerequisites": ["Buyer is logged in", "The buyer's history is concentrated in one category"],
+          "steps": ["Buyer opens the home page", "Buyer counts the recommendations belonging to each category"],
+          "data": ["A buyer history concentrated in one category"],
+          "expected": "No category exceeds the configured limit, and the strip still holds a full set of recommendations.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-REC-005",
+          "ref": "TestRecommendationPipeline.recencyMultiplierFadesWithAge",
+          "scenario": "Verify that recent activity influences recommendations more than older activity",
+          "prerequisites": ["Buyer is logged in", "The buyer has interactions of clearly different ages"],
+          "steps": ["Buyer opens the home page", "Buyer expands the why this panel on the recommendations and reads the scores"],
+          "data": ["Interactions from today and from several weeks ago"],
+          "expected": "Recent interactions carry more weight than older ones, and an interaction dated in the future does not increase a score.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-REC-006",
+          "ref": "TestRecommendationProvenance.withholdsMaskedNameForLoneClicker",
+          "scenario": "Verify that the recommendation explanation never identifies a single other user",
+          "prerequisites": ["Buyer is logged in", "A recommended item has been interacted with by exactly one other user"],
+          "steps": ["Buyer opens the home page", "Buyer expands the why this panel on that recommendation"],
+          "data": ["A recommended item with exactly one other interacting user"],
+          "expected": "The explanation is worded generally and contains no name, masked or otherwise, that would identify that one user.",
+          "type": "Security"
+        }
+      ]
+    },
+    {
+      "name": "Platform: Notifications and Preferences",
+      "cases": [
+        {
+          "tc": "TC-NOT-001",
+          "ref": "BidApiNotificationTest.plainBidNotifiesThePreviousLeader",
+          "scenario": "Verify that the leading bidder is told when a higher bid displaces them",
+          "prerequisites": ["An ascending auction has a leading bidder", "A second buyer is logged in"],
+          "steps": ["Second buyer places a higher bid", "Displaced bidder checks their notifications", "A third buyer who never bid checks their notifications"],
+          "data": ["A bid higher than the current leading bid"],
+          "expected": "The displaced bidder receives exactly one outbid notification. No other user receives it.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-NOT-002",
+          "ref": "NotificationServiceLostTest.everyLoserExceptTheWinner",
+          "scenario": "Verify that every losing bidder is told the auction ended and the winner is not",
+          "prerequisites": ["An auction with several bidders has passed its end time"],
+          "steps": ["Tester waits for the auction to be finalised", "Each losing bidder checks their notifications", "The winning bidder checks their notifications"],
+          "data": ["An ended auction with one winner and several losing bidders"],
+          "expected": "Each losing bidder receives one notification that they did not win. The winner receives the won notification instead and no losing notification.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-NOT-003",
+          "ref": "NotificationServiceLostTest.bodyNeverNamesTheWinner",
+          "scenario": "Verify that a losing bidder notification does not reveal who won",
+          "prerequisites": ["An auction with several bidders has been finalised"],
+          "steps": ["Losing bidder opens their notifications", "Losing bidder reads the full text of the losing notification"],
+          "data": ["A losing bidder notification"],
+          "expected": "The message states that the auction ended without naming or otherwise identifying the winning bidder.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-NOT-004",
+          "ref": "NotificationServiceSellerAlertsTest.aBiddingWarCollapsesIntoOneMessage",
+          "scenario": "Verify that rapid bidding does not flood the seller with notifications",
+          "prerequisites": ["Seller is logged in", "The seller owns a live auction"],
+          "steps": ["Several buyers place bids in quick succession on that auction", "Seller opens their notifications"],
+          "data": ["Several bids placed within a short window"],
+          "expected": "The seller receives a single combined notification carrying the current price rather than one message per bid.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-NOT-005",
+          "ref": "TestUpdatePreferenceServlet.testAllFalse",
+          "scenario": "Verify that a member can switch off every optional notification",
+          "prerequisites": ["Member is logged in"],
+          "steps": ["Member opens the notification preferences page", "Member turns off every optional notification", "Member clicks Save", "An event that would normally raise an optional notification occurs"],
+          "data": ["All optional notification toggles set to off"],
+          "expected": "The preferences are saved, and no further optional notification is delivered to that member.",
+          "type": "Functional"
+        }
+      ]
+    },
+    {
+      "name": "Platform: Telegram Notification Integration",
+      "cases": [
+        {
+          "tc": "TC-TEL-001",
+          "ref": "TelegramApiServletTest.linkStartMintsBothPaths",
+          "scenario": "Verify that a member can start linking their Telegram account",
+          "prerequisites": ["Member is logged in", "The Telegram bot is configured"],
+          "steps": ["Member opens the notification settings page", "Member clicks Link Telegram"],
+          "data": ["A member account with no Telegram link"],
+          "expected": "The page shows both a link that opens the bot directly and a one-time code that can be sent to the bot by hand.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-TEL-002",
+          "ref": "TelegramWebhookServletTest.wrongSecretIsRejected",
+          "scenario": "Verify that the Telegram webhook only accepts calls carrying the correct secret token",
+          "prerequisites": ["The Telegram bot is configured with a secret token"],
+          "steps": ["Tester sends a webhook call carrying a wrong secret token", "Tester repeats with a token that is a leading portion of the correct one"],
+          "data": ["A wrong secret token", "A token matching only the first characters of the correct one"],
+          "expected": "Both calls are rejected and nothing is changed by either of them.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-TEL-003",
+          "ref": "TelegramWebhookServletTest.bruteForceIsBlocked",
+          "scenario": "Verify that link codes cannot be guessed by repeated attempts through the bot",
+          "prerequisites": ["The Telegram bot is configured", "A chat is available for testing"],
+          "steps": ["Tester sends a wrong link code to the bot", "Tester repeats until the attempt limit is reached", "Tester sends one more code"],
+          "data": ["Wrong link codes repeated up to the attempt limit"],
+          "expected": "The chat is blocked from further attempts once the limit is reached.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-TEL-004",
+          "ref": "TelegramLinkDAOTest.consumeCode_isSingleUse",
+          "scenario": "Verify that a Telegram link code can only be used once",
+          "prerequisites": ["A valid unused link code has been issued"],
+          "steps": ["Tester sends the link code to the bot from one chat", "Tester sends the same link code again from a second chat"],
+          "data": ["One valid link code used twice"],
+          "expected": "The first use links the account. The second use is refused and does not link the second chat.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-TEL-005",
+          "ref": "TelegramOutboxWorkerTest.blockedUserDeactivatesTheLink",
+          "scenario": "Verify that blocking the bot stops further messages without causing repeated retries",
+          "prerequisites": ["A member has linked their Telegram account", "A notification is queued for that member"],
+          "steps": ["Member blocks the bot in Telegram", "Tester waits for the queued notification to be sent", "Tester checks the member's Telegram link status"],
+          "data": ["A queued notification for a chat that has blocked the bot"],
+          "expected": "The link is marked inactive, no message is delivered, and the system does not keep retrying.",
+          "type": "Negative"
+        }
+      ]
+    },
+    {
+      "name": "Account: Management and Personal Data",
+      "cases": [
+        {
+          "tc": "TC-ACC-001",
+          "ref": "TestUpdateProfileServlet.update_reencryptsPiiBeforePersist",
+          "scenario": "Verify that a phone number and address are stored encrypted when a profile is updated",
+          "prerequisites": ["Member is logged in", "Database can be accessed"],
+          "steps": ["Member opens the profile page", "Member enters a new phone number and address", "Member clicks Save", "Tester reads the stored values from the database"],
+          "data": ["A new phone number", "A new address"],
+          "expected": "The profile page shows the new values, and the stored values are not readable as plain text in the database.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ACC-002",
+          "ref": "TestAccountManagementServlet.loadsOnlySessionUserIdIgnoresRequestParam",
+          "scenario": "Verify that a member cannot open another user's account page by changing the address",
+          "prerequisites": ["Member is logged in", "The identifier of another user's account is known"],
+          "steps": ["Member opens their own account page", "Member adds another user's identifier to the page address", "Member reloads the page"],
+          "data": ["Another user's account identifier"],
+          "expected": "The member's own account details are shown. The identifier in the address is ignored and no other user's data is displayed.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-ACC-003",
+          "ref": "UserDAOClosureTest.paidUndespatchedSaleRaisesRefund",
+          "scenario": "Verify that closing a seller account does not strand a buyer who has already paid",
+          "prerequisites": ["A seller has a sale that is paid but not yet despatched", "The seller requests account closure"],
+          "steps": ["Seller opens the account settings page", "Seller requests account closure and confirms", "Admin opens the refund queue", "Admin checks their notifications"],
+          "data": ["A paid order that has not been despatched"],
+          "expected": "A refund decision is raised for that order and the admins are alerted, so the buyer's payment is not lost.",
+          "type": "Integration"
+        },
+        {
+          "tc": "TC-ACC-004",
+          "ref": "UserDAOClosureTest.cleanupFailureRollsBackAnonymisation",
+          "scenario": "Verify that account closure either completes fully or leaves the account untouched",
+          "prerequisites": ["A member account is eligible for closure", "A step of the closure process is made to fail", "Database can be accessed"],
+          "steps": ["Member requests account closure", "The closure process fails part way through", "Tester inspects the account record"],
+          "data": ["An account closure that fails at the cleanup step"],
+          "expected": "The whole closure is rolled back. The account is left as it was, with no partly anonymised details.",
+          "type": "Integration"
+        }
+      ]
+    },
+    {
+      "name": "Frontend: Web Interface",
+      "cases": [
+        {
+          "tc": "TC-FE-001",
+          "ref": "ProtectedRoute.test.jsx, sends a signed-out visitor to the login page",
+          "scenario": "Verify that a guarded page cannot be opened without logging in",
+          "prerequisites": ["No user is logged in"],
+          "steps": ["Guest enters the address of a guarded page such as the watchlist", "Guest loads the page"],
+          "data": ["The address of a guarded page"],
+          "expected": "The guest is redirected to the login page and the guarded content is not shown.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-FE-002",
+          "ref": "ProtectedRoute.test.jsx, offers the selling gate to a member who has not switched selling on",
+          "scenario": "Verify that a member without selling turned on is offered the selling opt-in rather than an error",
+          "prerequisites": ["Member is logged in", "Selling is not turned on for that account"],
+          "steps": ["Member opens a seller page such as the seller dashboard"],
+          "data": ["A member account with selling not turned on"],
+          "expected": "The selling opt-in page is shown, explaining how to turn selling on. No error page is displayed.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-FE-003",
+          "ref": "AuctionCard.test.jsx, only shows the why this panel for a recommended card",
+          "scenario": "Verify that the why this panel appears only on recommended listings",
+          "prerequisites": ["Buyer is logged in", "The home page shows both recommended and ordinary listings"],
+          "steps": ["Buyer opens the home page", "Buyer checks a card in the recommendations strip", "Buyer checks a card in an ordinary listing strip"],
+          "data": ["One recommended listing card", "One ordinary listing card"],
+          "expected": "The why this panel is offered on the recommended card only, and does not appear on the ordinary card.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-FE-004",
+          "ref": "AuctionCard.test.jsx, shows the re-ranker score and the component behind it once expanded",
+          "scenario": "Verify that a buyer can see why an item was recommended",
+          "prerequisites": ["Buyer is logged in", "The home page shows recommendations"],
+          "steps": ["Buyer opens the home page", "Buyer clicks the why this link on a recommended card"],
+          "data": ["A recommended listing card"],
+          "expected": "The panel opens and shows the recommendation score together with the main reason behind it.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-FE-005",
+          "ref": "CountdownTimer.test.jsx, colours by urgency: normal, then amber inside a day, then red in the last hour",
+          "scenario": "Verify that the countdown changes colour as an auction approaches its end time",
+          "prerequisites": ["Three auctions exist, ending in more than a day, in less than a day, and in less than an hour"],
+          "steps": ["Buyer opens the search results page showing all three auctions", "Buyer compares the countdown colour on each"],
+          "data": ["An auction ending in more than a day", "An auction ending in less than a day", "An auction ending in less than an hour"],
+          "expected": "The countdown is shown in the neutral colour, amber and red respectively.",
+          "type": "Boundary"
+        },
+        {
+          "tc": "TC-FE-006",
+          "ref": "Modal.test.jsx, moves focus to the first focusable element on open",
+          "scenario": "Verify that a dialog can be operated by keyboard",
+          "prerequisites": ["Member is logged in", "A page with a dialog such as a confirmation prompt is open"],
+          "steps": ["Member opens the dialog using the keyboard", "Member presses Tab to move through the dialog", "Member closes the dialog"],
+          "data": ["A dialog opened from a button on the page"],
+          "expected": "Focus moves into the dialog when it opens, stays within it while tabbing, and returns to the button that opened it when it closes.",
+          "type": "Functional"
+        },
+        {
+          "tc": "TC-FE-007",
+          "ref": "AccountSettings.test.jsx, does not offer the card number for editing, and says why",
+          "scenario": "Verify that the card editing screen does not offer the card number for editing",
+          "prerequisites": ["Buyer is logged in", "The buyer has a saved card"],
+          "steps": ["Buyer opens the payment methods page", "Buyer opens the saved card for editing"],
+          "data": ["A saved card"],
+          "expected": "No card number field is offered, and the page explains that the card number cannot be changed.",
+          "type": "Security"
+        },
+        {
+          "tc": "TC-FE-008",
+          "ref": "usePolling.test.jsx, stops polling and aborts the in-flight request on unmount",
+          "scenario": "Verify that live price updates stop when the buyer leaves the auction page",
+          "prerequisites": ["Buyer is logged in", "An auction detail page is open with the browser developer tools on the network tab"],
+          "steps": ["Buyer watches the repeating price requests on the network tab", "Buyer navigates away to another page", "Buyer watches the network tab again"],
+          "data": ["An open auction detail page polling for price updates"],
+          "expected": "The repeating requests stop as soon as the page is left, and any request still in progress is cancelled.",
+          "type": "Negative"
+        }
+      ]
+    }
+  ]
+}
