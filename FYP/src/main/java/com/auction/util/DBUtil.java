@@ -13,9 +13,15 @@ import com.zaxxer.hikari.HikariDataSource;
  *   <li>{@code AUCTION_DB_URL} — full JDBC URL, e.g.
  *       {@code jdbc:postgresql://host:5432/auction_db?sslmode=require}</li>
  *   <li>{@code AUCTION_DB_USER} — default {@code postgres}</li>
- *   <li>{@code AUCTION_DB_PASSWORD} — database password</li>
+ *   <li>{@code AUCTION_DB_PASSWORD} — database password; required, there is no default</li>
  * </ul>
  * If {@code AUCTION_DB_URL} is unset, falls back to local {@code localhost:5432/auction_db}.
+ *
+ * <p>The URL, user and database name have local defaults because none of them is a secret.
+ * The password deliberately has none: a default password in this file would be a credential
+ * committed to the repository, readable by anyone with the source. An unset
+ * {@code AUCTION_DB_PASSWORD} therefore fails immediately with an explanation instead of
+ * guessing, since a guessed password only produces an authentication error further on.</p>
  *
  * <p>Every database connection in the application comes from here. Connections are pooled
  * by HikariCP rather than opened per query, because opening a PostgreSQL connection costs
@@ -25,6 +31,9 @@ import com.zaxxer.hikari.HikariDataSource;
  * expected pattern.</p>
  */
 public class DBUtil {
+    /** Environment variable holding the database password. Never defaulted in source. */
+    private static final String DB_PASSWORD_ENV = "AUCTION_DB_PASSWORD";
+
     private static HikariDataSource dataSource;
 
     /**
@@ -78,9 +87,27 @@ public class DBUtil {
         return user != null ? user : "postgres";
     }
 
+    /**
+     * The database password, which must come from the environment.
+     *
+     * <p>An explicitly empty value is honoured, because a local PostgreSQL set to {@code trust}
+     * authentication genuinely needs no password. Leaving the variable out altogether is a
+     * misconfiguration rather than a choice, so it is reported as one.</p>
+     */
     private static String dbPassword() {
-        String pw = firstNonBlank(System.getenv("AUCTION_DB_PASSWORD"));
-        return pw != null ? pw : "chloelee";
+        String pw = firstNonBlank(System.getenv(DB_PASSWORD_ENV));
+        if (pw != null) {
+            return pw;
+        }
+        if (System.getenv(DB_PASSWORD_ENV) != null) {
+            return "";
+        }
+        throw new IllegalStateException(DB_PASSWORD_ENV + " is not set, so the application cannot "
+                + "connect to the database. Set it in your run configuration or shell before "
+                + "starting Tomcat, e.g. export " + DB_PASSWORD_ENV + "=<your local postgres "
+                + "password>. Set it to an empty value if your local PostgreSQL uses trust "
+                + "authentication. There is no built-in default, because a password must not be "
+                + "stored in the source code.");
     }
 
     private static String firstNonBlank(String v) {

@@ -40,7 +40,7 @@ Set these before `mvn cargo:run` or in the deploy environment. **Do not commit r
 |----------|---------|
 | `AUCTION_DB_URL` | JDBC URL (default local: `jdbc:postgresql://localhost:5432/auction_db`) |
 | `AUCTION_DB_USER` | DB user (default `postgres`) |
-| `AUCTION_DB_PASSWORD` | DB password |
+| `AUCTION_DB_PASSWORD` | DB password. **Required — there is no default.** Startup fails with an explanation if it is unset; set it to an empty value for a local PostgreSQL using `trust` authentication |
 | `AUCTION_AES_SECRET` | AES-GCM key material for encrypted PII |
 | `AUCTION_PUBLIC_BASE_URL` | Public site URL used in notification links |
 | `AUCTION_UPLOAD_DIR` | Optional upload directory (useful on Render) |

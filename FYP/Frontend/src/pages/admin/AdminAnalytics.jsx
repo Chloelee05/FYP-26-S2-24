@@ -135,8 +135,10 @@ export default function AdminAnalytics() {
     }
   };
 
-  // Reads the report without sending anything, so the tool is demonstrable on a server
-  // with no SMTP configured — which is every deployment of this app today.
+  // Reads the report without sending anything, so the tool is demonstrable whether or not
+  // the server can send mail. Only the server's own emailConfigured answer may raise the
+  // "not configured" warning below: assuming it would contradict the message this same
+  // handler sets on a deployment where SMTP is working.
   const handleViewReport = async () => {
     if (!selectedSellerId) {
       setMsg('Select a seller first.');
@@ -148,7 +150,7 @@ export default function AdminAnalytics() {
     try {
       const r = await getSellerAnalyticsReport(selectedSellerId);
       setSellerReport(r.data);
-      setReportOnly(true);
+      setReportOnly(r.data?.emailConfigured === false);
       setMsg(r.data?.emailConfigured
         ? 'Report generated. Email is configured, so "Email selected seller" will deliver it.'
         : 'Report generated. Email is not configured on this server, so nothing would be sent.');

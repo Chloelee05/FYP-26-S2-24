@@ -1030,7 +1030,7 @@ public class AdminApiServlet extends ApiBase {
      */
     private void catCreate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         // sanitizeText, not sanitize: the name is echoed back through escaping views, so
-        // entity-encoding it here would store "Home &amp; Garden" / "Men&#39;&#39;s Fashion".
+        // entity-encoding it here would store "Home &amp; Garden" / "Men&#39;s Fashion".
         String name = SecurityUtil.sanitizeText(param(req, "name"));
         String desc = SecurityUtil.sanitizeText(param(req, "description"));
         int order   = parseInt(param(req, "displayOrder"), 0);

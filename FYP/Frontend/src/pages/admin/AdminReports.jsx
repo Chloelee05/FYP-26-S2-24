@@ -55,8 +55,8 @@ export default function AdminReports() {
       await resolveReport(report.id, report.type);
       patch(report, { resolved: true });
       setMsg('Marked as resolved.');
-    } catch {
-      setMsg('Failed to resolve report.');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Failed to resolve report.'));
     }
   };
 
@@ -65,8 +65,8 @@ export default function AdminReports() {
       await dismissReport(report.id, report.type);
       patch(report, { resolved: false });
       setMsg('Report reopened.');
-    } catch {
-      setMsg('Failed to reopen report.');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Failed to reopen report.'));
     }
   };
 

@@ -313,11 +313,22 @@ public final class SecurityUtil {
     }
 
     /**
-     * Trims input, performs HTML entity escaping for XSS mitigation, and doubles single quotes
-     * for ANSI SQL string-literal escaping as a secondary control. Primary defenses must remain
-     * parameterized queries / {@code PreparedStatement} and contextual output encoding.
-     * Prefer storing raw text in the database with {@code PreparedStatement} and escaping on
-     * output; use this helper where a single normalized “safe string” is required by convention.
+     * Trims input and performs HTML entity escaping for XSS mitigation.
+     * <p>
+     * This helper used to also double single quotes for ANSI SQL string-literal escaping. That
+     * was removed: every write in this application binds parameters through a
+     * {@code PreparedStatement}, which never interprets the value as SQL, so the doubling
+     * protected nothing and corrupted the data instead — {@code O'Brien} was stored as
+     * {@code O''Brien} and read back that way forever.
+     * </p>
+     * <p>
+     * The HTML escaping stays because it is load-bearing. The legacy JSP views are not
+     * uniformly escaping: {@code search.jsp} interpolates the sanitized query and location
+     * straight into a pagination {@code href} with raw EL, so an unescaped value there would
+     * break out of the attribute. Escaping at this layer is the wrong layer in principle, and
+     * {@link #sanitizeText(String)} is the right helper for anything shown back to the user,
+     * but removing it here would open a real XSS hole on those pages.
+     * </p>
      * <p>
      * Requirement: NFR3.
      * </p>
@@ -330,9 +341,7 @@ public final class SecurityUtil {
             return null;
         }
         try {
-            String trimmed = input.trim();
-            String sqlEscaped = escapeSqlStringLiteral(trimmed);
-            return escapeHtml(sqlEscaped);
+            return escapeHtml(input.trim());
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "sanitize: unexpected failure, returning empty string", e);
             return "";
@@ -346,11 +355,11 @@ public final class SecurityUtil {
      * {@code "} exactly as the user typed them.
      * <p>
      * Prefer this over {@link #sanitize(String)} for anything shown back to the user.
-     * {@code sanitize} entity-encodes and doubles single quotes at write time, so with an
-     * escaping view layer the value is encoded twice: {@code Men's Fashion} is persisted as
-     * {@code Men&#39;&#39;s Fashion} and renders with the entities visible. Persistence
-     * safety already comes from {@code PreparedStatement}, and XSS safety from output
-     * encoding, so the write-time encoding only corrupts the data.
+     * {@code sanitize} entity-encodes at write time, so with an escaping view layer the value
+     * is encoded twice: {@code Men's Fashion} is persisted as {@code Men&#39;s Fashion} and
+     * renders with the entity visible. Persistence safety already comes from
+     * {@code PreparedStatement}, and XSS safety from output encoding, so the write-time
+     * encoding only corrupts the data.
      * </p>
      * <p>
      * Requirement: NFR3.
@@ -455,13 +464,6 @@ public final class SecurityUtil {
             }
         }
         return sb.toString();
-    }
-
-    /**
-     * Doubles {@code '} per SQL string literal rules (defense in depth only).
-     */
-    private static String escapeSqlStringLiteral(String s) {
-        return s.replace("'", "''");
     }
 
     /**

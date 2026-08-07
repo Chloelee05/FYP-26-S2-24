@@ -75,6 +75,22 @@ class SecurityUtilTest {
     }
 
     @Test
+    @DisplayName("sanitize no longer doubles single quotes, so O'Brien is not corrupted")
+    void sanitizeDoesNotDoubleQuotes() {
+        assertEquals("O&#39;Brien", SecurityUtil.sanitize("O'Brien"));
+        assertEquals("Men&#39;s Fashion", SecurityUtil.sanitize("  Men's Fashion  "));
+        assertFalse(SecurityUtil.sanitize("O'Brien").contains("''"));
+        assertNull(SecurityUtil.sanitize(null));
+    }
+
+    @Test
+    @DisplayName("sanitize still HTML-escapes, which the raw-EL JSP pagination links rely on")
+    void sanitizeStillEscapesHtml() {
+        assertEquals("&quot; onmouseover=&quot;alert(1)", SecurityUtil.sanitize("\" onmouseover=\"alert(1)"));
+        assertEquals("Home &amp; Garden", SecurityUtil.sanitize("Home & Garden"));
+    }
+
+    @Test
     @DisplayName("sanitizeText keeps & and ' as typed so escaping views do not double-encode")
     void sanitizeTextKeepsPunctuation() {
         assertEquals("Home & Garden", SecurityUtil.sanitizeText("  Home & Garden  "));
