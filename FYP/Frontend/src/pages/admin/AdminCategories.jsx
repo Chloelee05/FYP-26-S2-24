@@ -1,19 +1,25 @@
 /*
  * Category management at "/admin/categories". ADMIN only.
  * Reads GET /api/admin/categories and calls the create, edit, delete and restore admin
- * endpoints. These are the categories sellers pick from when listing and shoppers filter by
- * on Search, so a change here shows up on both sides at once.
+ * endpoints, plus the two image endpoints that attach or clear a category picture. These are
+ * the categories sellers pick from when listing and shoppers filter by on Search, so a change
+ * here shows up on both sides at once.
  * Delete is a soft delete: the row is flagged rather than removed, which keeps the category
  * attached to auctions that already use it. Deactivated categories are listed separately and
  * can be restored, and the server refuses a delete that would strand live listings.
  */
-import { useState, useEffect } from 'react';
-import { Plus, Trash2, RotateCcw, Pencil, Tag, AlertCircle } from 'lucide-react';
-import { getAdminCategories, createCategory, editCategory, deleteCategory, restoreCategory } from '../../api/admin';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, RotateCcw, Pencil, Tag, AlertCircle, Upload, X } from 'lucide-react';
+import {
+  getAdminCategories, createCategory, editCategory, deleteCategory, restoreCategory,
+  uploadCategoryImage, removeCategoryImage,
+} from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
 import Modal from '../../components/Modal';
+import CategoryVisual from '../../components/CategoryVisual';
 
-// Backend Category fields: id, name, description, displayOrder, slug, deleted, createdAt, auctionCount
+// Backend Category fields: id, name, description, displayOrder, slug, deleted, createdAt,
+// auctionCount, imageUrl
 
 export default function AdminCategories() {
   const [categories, setCategories] = useState([]);
@@ -23,21 +29,27 @@ export default function AdminCategories() {
   const [editForm, setEditForm] = useState({ name: '', description: '', displayOrder: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [editError, setEditError] = useState(''); // shown inside the edit dialog
+  const [picBusy, setPicBusy] = useState(false);
+  const fileRef = useRef(null);
 
-  useEffect(() => {
-    getAdminCategories().then(r => setCategories(r.data ?? [])).catch(() => {});
-  }, []);
+  const load = () => getAdminCategories().then(r => setCategories(r.data ?? []));
+
+  useEffect(() => { load().catch(() => {}); }, []);
 
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!newName.trim()) return;
     setAdding(true);
+    setError('');
     try {
-      const res = await createCategory({ name: newName.trim() });
-      setCategories(prev => [...prev, res.data]);
+      // CREATE answers with { categoryId, message }, not a category row, so reload the
+      // list rather than appending the response — appending left a blank, unusable row.
+      await createCategory({ name: newName.trim() });
       setNewName('');
-    } catch {
-      alert('Failed to create category.');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to create category.'));
     } finally {
       setAdding(false);
     }
@@ -59,6 +71,7 @@ export default function AdminCategories() {
 
   const openEdit = (cat) => {
     setEditing(cat);
+    setEditError('');
     setEditForm({
       name: cat.name ?? '',
       description: cat.description ?? '',
@@ -72,21 +85,57 @@ export default function AdminCategories() {
     e.preventDefault();
     if (!editForm.name.trim()) return;
     setSaving(true);
+    setEditError('');
     try {
       await editCategory(editing.id, {
         name: editForm.name.trim(),
         description: editForm.description.trim(),
         displayOrder: editForm.displayOrder === '' ? null : editForm.displayOrder,
       });
-      setCategories(prev => prev.map(c => c.id === editing.id
-        ? { ...c, name: editForm.name.trim(), description: editForm.description.trim(),
-            displayOrder: editForm.displayOrder === '' ? c.displayOrder : Number(editForm.displayOrder) }
-        : c));
       setEditing(null);
+      await load();
     } catch (err) {
-      alert(apiErrorMessage(err, 'Failed to update category.'));
+      setEditError(apiErrorMessage(err, 'Failed to update category.'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // The picture is stored against a category that already exists, so it uploads on pick
+  // rather than waiting for Save. Both states are pushed into `editing` and the table row
+  // so the dialog preview and the list agree without a reload.
+  const applyPicture = (imageUrl) => {
+    setEditing(prev => (prev ? { ...prev, imageUrl } : prev));
+    setCategories(prev => prev.map(c => (c.id === editing.id ? { ...c, imageUrl } : c)));
+  };
+
+  const handlePickPicture = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // lets the same file be re-picked after a failure
+    if (!file || !editing) return;
+    setEditError('');
+    setPicBusy(true);
+    try {
+      const res = await uploadCategoryImage(editing.id, file);
+      applyPicture(res.data?.imageUrl ?? null);
+    } catch (err) {
+      setEditError(apiErrorMessage(err, 'Could not upload that picture.'));
+    } finally {
+      setPicBusy(false);
+    }
+  };
+
+  const handleRemovePicture = async () => {
+    if (!editing) return;
+    setEditError('');
+    setPicBusy(true);
+    try {
+      await removeCategoryImage(editing.id);
+      applyPicture(null);
+    } catch (err) {
+      setEditError(apiErrorMessage(err, 'Could not remove that picture.'));
+    } finally {
+      setPicBusy(false);
     }
   };
 
@@ -119,6 +168,54 @@ export default function AdminCategories() {
       {editing && (
         <Modal title="Edit Category" icon={Tag} size="md" onClose={() => setEditing(null)}>
           <form onSubmit={handleEditSave} className="p-6 space-y-4">
+            {editError && (
+              <div className="alert-error">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-ink-500 mb-1">Picture</label>
+              <div className="flex items-center gap-4">
+                <CategoryVisual category={editing} size="lg" />
+                <div className="flex flex-col gap-2 min-w-0">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={picBusy}
+                      className="btn-secondary text-xs py-1.5 px-3"
+                    >
+                      <Upload size={13} /> {editing.imageUrl ? 'Replace' : 'Upload'}
+                    </button>
+                    {editing.imageUrl && (
+                      <button
+                        type="button"
+                        onClick={handleRemovePicture}
+                        disabled={picBusy}
+                        className="btn-secondary text-xs py-1.5 px-3"
+                      >
+                        <X size={13} /> Remove
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-ink-400 leading-snug">
+                    {picBusy
+                      ? 'Working…'
+                      : editing.imageUrl
+                        ? 'Saved as soon as you pick a file, separately from Save Changes.'
+                        : 'Optional. With no picture this category uses the icon matched to its name.'}
+                  </p>
+                </div>
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={handlePickPicture}
+                className="hidden"
+              />
+            </div>
             <div>
               <label className="block text-xs text-ink-500 mb-1">Name</label>
               <input
@@ -184,7 +281,12 @@ export default function AdminCategories() {
           <tbody className="divide-y divide-ink-100">
             {visible.map(cat => (
               <tr key={cat.id} className="hover:bg-ink-50 transition-colors">
-                <td className="px-4 py-3 font-medium text-ink-900">{cat.name}</td>
+                <td className="px-4 py-3 font-medium text-ink-900">
+                  <span className="flex items-center gap-3">
+                    <CategoryVisual category={cat} size="sm" />
+                    {cat.name}
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-ink-500">{cat.auctionCount ?? 0} listings</td>
                 <td className="px-4 py-3">
                   <button onClick={() => openEdit(cat)} className="text-ink-400 hover:text-primary-500 transition-colors p-1" title="Edit category">

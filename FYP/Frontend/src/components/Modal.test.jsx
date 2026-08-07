@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Modal from './Modal';
@@ -89,6 +90,31 @@ describe('Modal', () => {
   it('moves focus to the first focusable element on open', () => {
     open();
     expect(screen.getByRole('button', { name: 'Close dialog' })).toHaveFocus();
+  });
+
+  // Callers pass an inline arrow for onClose, so it changes identity every render. When
+  // that fed the setup effect's dependency list, each keystroke in a controlled field
+  // tore the effect down and re-ran it, throwing focus back to the close button — you
+  // had to click the field again after every character.
+  it('keeps focus in a controlled field while typing', () => {
+    function Host() {
+      const [value, setValue] = useState('');
+      return (
+        <Modal title="Edit Category" onClose={() => {}}>
+          <input aria-label="Name" value={value} onChange={e => setValue(e.target.value)} />
+        </Modal>
+      );
+    }
+    render(<Host />);
+
+    const input = screen.getByLabelText('Name');
+    input.focus();
+    fireEvent.change(input, { target: { value: 'M' } });
+    expect(input).toHaveFocus();
+
+    fireEvent.change(input, { target: { value: "Men's & Co" } });
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue("Men's & Co");
   });
 
   it('restores focus to whatever opened it', () => {

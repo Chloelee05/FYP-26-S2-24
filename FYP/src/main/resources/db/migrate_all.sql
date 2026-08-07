@@ -150,4 +150,10 @@
 \echo '== blind auctions: clear auto-bids that could never fire =='
 \ir migration_blind_auction_no_auto_bid.sql
 
+\echo '== decode HTML entities stored in category names/descriptions =='
+\ir migration_category_name_unescape.sql
+
+\echo '== per-category picture (admin-uploaded, overrides the built-in icon) =='
+\ir migration_category_image.sql
+
 \echo 'All migrations applied.'

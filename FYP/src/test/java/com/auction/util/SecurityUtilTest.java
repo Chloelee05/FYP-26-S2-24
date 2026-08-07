@@ -75,6 +75,23 @@ class SecurityUtilTest {
     }
 
     @Test
+    @DisplayName("sanitizeText keeps & and ' as typed so escaping views do not double-encode")
+    void sanitizeTextKeepsPunctuation() {
+        assertEquals("Home & Garden", SecurityUtil.sanitizeText("  Home & Garden  "));
+        assertEquals("Men's Fashion", SecurityUtil.sanitizeText("Men's Fashion"));
+        assertNull(SecurityUtil.sanitizeText(null));
+    }
+
+    @Test
+    @DisplayName("sanitizeText drops the angle brackets that could open a tag")
+    void sanitizeTextStripsTagDelimiters() {
+        String clean = SecurityUtil.sanitizeText("<script>alert(1)</script>Hello");
+        assertFalse(clean.contains("<"));
+        assertFalse(clean.contains(">"));
+        assertTrue(clean.contains("Hello"));
+    }
+
+    @Test
     @DisplayName("The encryption key comes from AUCTION_AES_SECRET, falling back for local runs")
     void aesSecretPrefersTheEnvironment() throws Exception {
         java.lang.reflect.Method aesSecret = SecurityUtil.class.getDeclaredMethod("aesSecret");

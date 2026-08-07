@@ -17,12 +17,13 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, ArrowRight, ShieldCheck, Gavel, Sparkles, TrendingUp, Search as SearchIcon,
-  Watch, Headphones, Car, Smartphone, Home as HomeIcon, Camera, Tag, SearchX,
+  Watch, Headphones, Car, Smartphone, Home as HomeIcon, Camera, SearchX,
   AlertCircle, RotateCcw, UserPlus, BadgeDollarSign, Star, Quote, Check, Scale,
   Timer, LockKeyhole, LineChart, Users, Minus,
 } from 'lucide-react';
 import { apiErrorMessage } from '../utils/apiError';
 import AuctionCard from '../components/AuctionCard';
+import CategoryVisual from '../components/CategoryVisual';
 import Reveal from '../components/Reveal';
 import CountUp from '../components/CountUp';
 import {
@@ -494,9 +495,11 @@ export default function Home() {
                     to={`/search?category=${encodeURIComponent(cat.name)}`}
                     className="card card-hover h-full flex flex-col items-center gap-2 py-5 px-2 text-center group"
                   >
-                    <span className="grid place-items-center w-14 h-14 rounded-2xl bg-ink-100 text-ink-500 transition-all duration-300 group-hover:bg-primary-50 group-hover:text-primary-600 group-hover:scale-105">
-                      <Tag size={22} strokeWidth={1.75} />
-                    </span>
+                    <CategoryVisual
+                      category={cat}
+                      size="md"
+                      className="transition-transform duration-300 group-hover:scale-105"
+                    />
                     <span className="text-xs font-semibold text-ink-700 leading-tight line-clamp-2 group-hover:text-primary-600 transition-colors">
                       {cat.name}
                     </span>
