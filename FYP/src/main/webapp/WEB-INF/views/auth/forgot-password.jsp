@@ -1,3 +1,10 @@
+<%--
+  Step one of the password reset: asks for the account's email or phone number.
+  Rendered by ForgotPasswordServlet (/forgot-password), and also by ResetPasswordServlet when
+  someone opens step two directly without a code. The "OtpSent" message is deliberately the
+  same whether or not the account exists.
+  Legacy JSP flow; the SPA uses /api/auth/forgot-password.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

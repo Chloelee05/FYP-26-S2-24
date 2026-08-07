@@ -13,12 +13,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Seller-scoped auction operations.
+ * Seller-scoped auction operations: cancel, edit, relist, stock maintenance and the My listings
+ * dashboard. Reads and writes {@code auction} and {@code auction_details}, manages
+ * {@code auction_images}, and reads {@code bids}, {@code auction_status} and {@code watchlist} for
+ * the dashboard. Called by the seller API servlets and the legacy edit JSP.
+ *
+ * <p>Every method takes {@code sellerId} and puts it in the WHERE clause, so a seller can only
+ * ever act on their own listings. What may be edited depends on whether bids exist, which is
+ * re-checked inside the transaction rather than trusted from the form that was rendered earlier.</p>
  *
  * State transitions: PENDING(4) → ACTIVE(1) → FINISHED(2)
  *                                    ↓               ↓
  *                               CANCELLED(3)    CANCELLED(3)*
- * (* cancelling a finished auction is rejected – only PENDING and ACTIVE may be cancelled)
+ * (* cancelling a finished auction is rejected. Only PENDING and ACTIVE may be cancelled.)
  */
 public class SellerAuctionDAO {
 
@@ -31,6 +38,9 @@ public class SellerAuctionDAO {
      * @return true if the row was updated; false means not-found, wrong owner, or wrong state
      */
     public boolean cancelAuction(long auctionId, int sellerId, String cancelReason) throws Exception {
+        // Ownership and the allowed states are all in the WHERE clause, so the check and the write
+        // are one statement and there is no window between them. A row count of zero covers every
+        // refusal case without saying which, which also avoids confirming the auction exists.
         String sql = "UPDATE auction SET status_id = ?, cancel_reason = ? "
                    + "WHERE auction_id = ? AND seller_id = ? AND status_id IN (?, ?)";
         try (Connection conn = DBUtil.connectDB();
@@ -49,8 +59,8 @@ public class SellerAuctionDAO {
      * Outcome of {@link #removeUnit}.
      *
      * <p>{@code LISTING_ENDED} is the interesting one: it means the unit removed was the
-     * last one, so the listing was cancelled in the same transaction. It is a success, not
-     * a refusal — the old {@code LAST_UNIT} refusal is what made minimum requirement
+     * last one, so the listing was cancelled in the same transaction. It is a success rather than
+     * a refusal. The old {@code LAST_UNIT} refusal is what made minimum requirement
      * Seller (d) only half-met.</p>
      */
     public enum ReduceQtyResult { SUCCESS, LISTING_ENDED, NOT_FOUND, NOT_OWNER, NOT_ACTIVE, ALREADY_EMPTY }
@@ -106,10 +116,14 @@ public class SellerAuctionDAO {
                 ps.executeUpdate();
             }
 
+            // Units left over, so the listing carries on and the decrement is all that was needed.
             if (qty > 1) {
                 conn.commit();
                 return ReduceQtyResult.SUCCESS;
             }
+
+            // That was the last unit. Cancelling here, in the same transaction as the decrement, is
+            // what stops quantity = 0 ever being observable on a listing that is still taking bids.
 
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction SET status_id = ?, cancel_reason = ? WHERE auction_id = ?")) {
@@ -132,8 +146,8 @@ public class SellerAuctionDAO {
      * Decrements the stock of a listing that has just been won, flooring at zero.
      *
      * <p>Called from inside the caller's transaction by every path that concludes an auction
-     * with a winner — {@link com.auction.util.AuctionFinalizer}, {@code OrderDAO.declareWinner},
-     * Buy It Now and Dutch acceptance — because until now nothing reduced stock on a sale and
+     * with a winner: {@link com.auction.util.AuctionFinalizer}, {@code OrderDAO.declareWinner},
+     * Buy It Now and Dutch acceptance. Until this existed nothing reduced stock on a sale and
      * a multi-quantity listing's quantity was therefore decorative.</p>
      *
      * <p>This model awards one auction to one winner ({@code winner_id} and the order are both
@@ -165,6 +179,8 @@ public class SellerAuctionDAO {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, auctionId);
             try (ResultSet rs = ps.executeQuery()) {
+                // Fails closed: refusing the bid is safer than allowing an uncapped one
+                // against a listing whose cap could not be read.
                 if (!rs.next()) return false; // auction not found — fail safe
                 BigDecimal cap = rs.getBigDecimal("max_price");
                 return cap == null || bidAmount.compareTo(cap) <= 0;
@@ -175,8 +191,9 @@ public class SellerAuctionDAO {
     // ------------------------------------------------------------------ edit (SCRUM-37)
 
     /**
-     * Returns the auction data needed to populate the edit form.
-     * Returns null when the auction does not exist or is not owned by {@code sellerId}.
+     * Returns the auction data needed to populate the edit form, images included.
+     * Returns null when the auction does not exist or is not owned by {@code sellerId}, so a
+     * seller probing another seller's auction id gets the same answer either way.
      */
     public AuctionEditData getAuctionForEdit(long auctionId, int sellerId) throws Exception {
         String sql =
@@ -215,7 +232,10 @@ public class SellerAuctionDAO {
         }
     }
 
-    /** Returns the number of bids placed on the given auction. */
+    /**
+     * Bids placed on this auction. The edit screen uses it to decide which fields to disable,
+     * though the authoritative check happens again inside {@link #editAuction}'s transaction.
+     */
     public int countBids(long auctionId) throws Exception {
         String sql = "SELECT COUNT(*) FROM bids WHERE auction_id = ?";
         try (Connection conn = DBUtil.connectDB();
@@ -231,7 +251,7 @@ public class SellerAuctionDAO {
      * Text-and-images-only edit, for the legacy JSP form which has no stock, cost or
      * product/service fields. Passing null for those leaves {@code quantity},
      * {@code cost_price}, {@code listing_kind}, {@code category} and
-     * {@code item_condition_id} untouched — this caller passes null for the category and
+     * {@code item_condition_id} untouched. This caller passes null for the category and
      * the condition too, so those two had to honour the same contract as the rest.
      */
     public void editAuction(long auctionId, int sellerId,
@@ -250,17 +270,17 @@ public class SellerAuctionDAO {
      * <p>Three tiers, by how much a change would move the ground under someone who has
      * already bid:</p>
      * <ul>
-     *   <li><b>Always</b> — the end date.</li>
-     *   <li><b>Always</b> — {@code quantity} and {@code cost_price}, the two fields minimum
+     *   <li>Always editable: the end date.</li>
+     *   <li>Always editable: {@code quantity} and {@code cost_price}, the two fields minimum
      *       requirement Seller (b) names that were previously write-once. {@code cost_price}
      *       is seller-private bookkeeping that no buyer ever sees and that takes no part in
      *       pricing, so there is nothing for a bid to conflict with. {@code quantity} is stock
-     *       information a seller has to be able to correct while a listing is live — that is
-     *       the requirement — and the platform already let it be decremented mid-auction with
+     *       information a seller has to be able to correct while a listing is live, which is
+     *       the requirement, and the platform already let it be decremented mid-auction with
      *       bids present, so freezing it on the first bid would have been the inconsistency.
      *       The caller clamps it to at least 1: emptying a listing is
      *       {@link #removeUnit}'s job, because it ends the listing and has to say so first.</li>
-     *   <li><b>Zero bids only</b> — title, description, category, product/service kind,
+     *   <li>Zero bids only: title, description, category, product/service kind,
      *       condition and images. These define <em>what is being sold</em>, and rewriting them
      *       under a live bid would mean someone had committed money to a different item.
      *       {@code listing_kind} belongs in this tier and not the one above it: turning a
@@ -337,6 +357,9 @@ public class SellerAuctionDAO {
           + "(SELECT ai.image_url FROM auction_images ai "
           + " WHERE ai.auction_id = a.auction_id ORDER BY ai.id LIMIT 1) AS thumbnail_url, "
           + "(SELECT COUNT(*)::int FROM watchlist w WHERE w.auction_id = a.auction_id) AS watch_count, "
+          // Auctions are finalised lazily, so an ACTIVE row whose end time has passed has not been
+          // updated yet. This CASE reports it as Finished so the seller is not told a listing is
+          // still running when it stopped accepting bids hours ago.
           + "CASE WHEN s.status = 'Active' AND a.date_end <= CURRENT_TIMESTAMP "
           + "     THEN 'Finished' ELSE s.status END AS status_name "
           + "FROM auction a "
@@ -345,6 +368,11 @@ public class SellerAuctionDAO {
           + "LEFT JOIN bids       b ON b.auction_id = a.auction_id "
           + "WHERE a.seller_id = ?";
 
+    /**
+     * The GROUP BY that goes with {@link #ROW_SELECT}. Needed because bids is LEFT JOINed to
+     * aggregate the highest bid and the bid count per auction; the LEFT keeps listings with no
+     * bids in the result, where COALESCE then reports their current bid as zero.
+     */
     private static final String ROW_GROUP_BY =
             " GROUP BY a.auction_id, d.title, d.starting_price, d.max_price, d.quantity, "
           + "d.listing_kind, a.date_created, a.date_end, s.status";
@@ -380,7 +408,7 @@ public class SellerAuctionDAO {
         }
     }
 
-    /** Total count for pagination — same WHERE clause as listSellerAuctions. */
+    /** Total count for pagination, using the same WHERE clause as listSellerAuctions. */
     public int countSellerAuctions(int sellerId, Integer statusId) throws Exception {
         String sql = "SELECT COUNT(*) FROM auction WHERE seller_id = ?"
                    + (statusId != null ? " AND status_id = ?" : "");
@@ -401,7 +429,7 @@ public class SellerAuctionDAO {
      *
      * <p>These are not stored statuses, which is why a plain {@code status_id} filter could
      * not drive the tabs and why the page previously had to fetch everything and split it in
-     * the browser — the reason a seller with more than one page of listings could not reach
+     * the browser. That is also why a seller with more than one page of listings could not reach
      * the rest of them at all. Two of the four need more than {@code status_id}:</p>
      * <ul>
      *   <li>An ACTIVE row whose end date has passed is really finished; the row's status only
@@ -429,9 +457,14 @@ public class SellerAuctionDAO {
     private static final String EFFECTIVELY_ENDED =
             "(a.status_id = 2 OR (a.status_id = 1 AND a.date_end <= CURRENT_TIMESTAMP))";
 
+    /** Correlated EXISTS, which is what separates a sold listing from one nobody bid on. */
     private static final String HAS_BIDS =
             "EXISTS (SELECT 1 FROM bids bx WHERE bx.auction_id = a.auction_id)";
 
+    /**
+     * The extra WHERE fragment for one tab. ACTIVE covers pending listings and live ones whose
+     * end time has not passed; CANCELLED is the only bucket a single status_id can express.
+     */
     private static String bucketPredicate(ListingBucket bucket) {
         switch (bucket) {
             case ACTIVE:
@@ -570,6 +603,7 @@ public class SellerAuctionDAO {
         return out;
     }
 
+    /** Maps one dashboard row. Column names must match {@link #ROW_SELECT}. */
     private static SellerAuctionRow mapRow(ResultSet rs) throws SQLException {
         return new SellerAuctionRow(
                 rs.getLong("auction_id"),
@@ -593,9 +627,9 @@ public class SellerAuctionDAO {
      * Relists a CANCELLED or FINISHED auction owned by {@code sellerId} by resetting it
      * to PENDING status and clearing the cancel reason.
      *
-     * <p>Also restores at least one unit of stock. Two paths can now leave a concluded
-     * listing at {@code quantity = 0} — the seller removing the final item, and a sale
-     * decrementing the last unit — and relisting is the seller saying they have the item
+     * <p>Also restores at least one unit of stock. Two paths can leave a concluded
+     * listing at {@code quantity = 0}, the seller removing the final item and a sale
+     * decrementing the last unit, and relisting is the seller saying they have the item
      * to sell again, so a relist that produced a live auction with nothing behind it would
      * be the one way {@code quantity = 0} could reach an ACTIVE row. {@code GREATEST} rather
      * than a flat 1 so a seller relisting a five-unit lot keeps their five units.</p>
@@ -635,6 +669,10 @@ public class SellerAuctionDAO {
 
     // ------------------------------------------------------------------ private helpers
 
+    /**
+     * Ownership and state check in one query: the auction must be this seller's and must be
+     * ACTIVE or PENDING. A finished or cancelled listing is history and is not editable.
+     */
     private boolean isEditableBy(Connection conn, long auctionId, int sellerId) throws Exception {
         String sql = "SELECT 1 FROM auction WHERE auction_id = ? AND seller_id = ? AND status_id IN (?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -648,6 +686,7 @@ public class SellerAuctionDAO {
         }
     }
 
+    /** Bid count on the caller's transaction, so the edit decision sees a consistent snapshot. */
     private int countBidsConn(Connection conn, long auctionId) throws Exception {
         String sql = "SELECT COUNT(*) FROM bids WHERE auction_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -662,7 +701,7 @@ public class SellerAuctionDAO {
      * Writes whichever of quantity / cost_price the seller actually supplied.
      *
      * <p>Built dynamically rather than as one fixed UPDATE because null here means "leave it
-     * as it is", not "set it to NULL" — a form that omits cost price must not erase a cost
+     * as it is" rather than "set it to NULL". A form that omits cost price must not erase a cost
      * price that is already recorded. Clearing a cost price is a separate intent and is
      * expressed by the caller sending {@code 0}, which the column's
      * {@code cost_price >= 0} CHECK accepts.</p>
@@ -691,19 +730,19 @@ public class SellerAuctionDAO {
      *
      * <p>Every optional column here is applied with {@code COALESCE(?, column)} rather than
      * written unconditionally, because null in this method means "the caller has no opinion",
-     * not "set it to NULL" — the same contract {@link #updateStockAndCost} keeps for quantity
+     * not "set it to NULL", the same contract {@link #updateStockAndCost} keeps for quantity
      * and cost price, and the one the nine-argument {@link #editAuction} overload documents.
      * All three columns are NOT NULL, so a plain bind of null is a constraint violation and an
      * HTTP 500 rather than a no-op:</p>
      * <ul>
-     *   <li>{@code listing_kind} — the legacy form has no such field, and its edits must not
+     *   <li>{@code listing_kind}: the legacy form has no such field, and its edits must not
      *       reset a service back to a product.</li>
-     *   <li>{@code item_condition_id} — an omitted condition used to bind SQL NULL straight
+     *   <li>{@code item_condition_id}: an omitted condition used to bind SQL NULL straight
      *       into the NOT NULL column, so {@code POST /api/seller/edit} without
      *       {@code itemCondition} returned 500. The React form always sends it, but
      *       {@code EditAuctionServlet} passes null, and a client that leaves it out is asking
      *       for the stored condition to stand, not for the edit to fail.</li>
-     *   <li>{@code category} — this one did not throw, which made it worse. Null was coerced
+     *   <li>{@code category}: this one did not throw, which made it worse. Null was coerced
      *       to the empty string, so an edit that said nothing about the category silently
      *       blanked it, dropping the listing out of category browsing and out of the
      *       recommender's SAME_CATEGORY arm with no error anywhere.</li>
@@ -750,6 +789,10 @@ public class SellerAuctionDAO {
         }
     }
 
+    /**
+     * Adds rows for files the servlet already wrote to the upload directory. One shared timestamp
+     * for the batch, which keeps the upload order stable when {@link #fetchImages} sorts on it.
+     */
     private void insertNewImages(Connection conn, long auctionId,
                                  List<String> filenames) throws Exception {
         if (filenames == null || filenames.isEmpty()) return;
@@ -766,6 +809,7 @@ public class SellerAuctionDAO {
         }
     }
 
+    /** The listing's images in upload order, which is the order the edit form displays them in. */
     private List<AuctionEditData.ImageEntry> fetchImages(Connection conn,
                                                          long auctionId) throws Exception {
         String sql = "SELECT id, image_url FROM auction_images WHERE auction_id = ? ORDER BY upload_date";
@@ -781,6 +825,11 @@ public class SellerAuctionDAO {
         return list;
     }
 
+    /**
+     * Bids on one of the seller's own auctions. The join back to {@code auction} carries the
+     * {@code seller_id} condition, so passing another seller's auction id returns nothing rather
+     * than exposing their bidding activity.
+     */
     public List<Bid> getBidHistory(Long auctionId, Long sellerId) throws Exception
     {
         String sqlString = "SELECT b.user_id, b.bid_amount, b.bid_time " +
@@ -812,6 +861,7 @@ public class SellerAuctionDAO {
     }
     // ------------------------------------------------------------------ value types
 
+    /** Everything the edit form needs about one listing, assembled from both auction tables. */
     public static final class AuctionEditData {
         public final long auctionId;
         public final long sellerId;
@@ -842,6 +892,8 @@ public class SellerAuctionDAO {
             this.title = title;
             this.description = description;
             this.category = category;
+            // Rows written before listing_kind existed hold null or an unrecognised value, so an
+            // unparseable kind falls back to the default rather than reaching the form as null.
             ListingKind parsedKind = ListingKind.parse(listingKind);
             this.listingKind = (parsedKind != null ? parsedKind : ListingKind.DEFAULT).name();
             this.itemConditionId = itemConditionId;
@@ -853,6 +905,7 @@ public class SellerAuctionDAO {
             this.images = images;
         }
 
+        /** One stored image. The id is what the form sends back to request a deletion. */
         public static final class ImageEntry {
             public final long imageId;
             public final String imageUrl;

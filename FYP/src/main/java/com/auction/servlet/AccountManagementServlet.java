@@ -19,6 +19,16 @@ import java.util.Locale;
 /**
  * Signed-in user's account dashboard. Loads the profile by {@code session.userId} only
  * (never by request parameters) so another user's row cannot be targeted.
+ *
+ * <p>Legacy JSP page behind {@code AuthFilter}; the SPA reads the same data from
+ * {@code /api/account/*} in {@code AccountApiServlet}. It pulls together three sources:
+ * {@link UserDAO} for the profile row, {@link ProfileActivityDAO} for the transaction list,
+ * the purchase and sale counters and the ratings, and {@link SecurityUtil} to decrypt the
+ * stored PII and to produce the masked variants shown in the public-preview panel.</p>
+ *
+ * <p>The static helpers here ({@code readUserId} and {@code decryptPiiForDisplay}) are reused
+ * by the other account servlets in this package, which is why they are package-private static
+ * rather than instance methods.</p>
  */
 @WebServlet("/protected/account")
 public class AccountManagementServlet extends HttpServlet {
@@ -46,6 +56,13 @@ public class AccountManagementServlet extends HttpServlet {
         this.profileActivityDAO = profileActivityDAO;
     }
 
+    /**
+     * Builds the dashboard. Loads the profile, then sets both the plain values (for the owner's
+     * own view) and the masked values (for the "how others see you" preview) on the request,
+     * followed by the transaction list, its totals and the rating summary.
+     * The optional {@code tx} parameter selects the transaction filter; anything unrecognised
+     * falls back to the default inside {@code TxFilter.fromParam}.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
@@ -61,6 +78,9 @@ public class AccountManagementServlet extends HttpServlet {
             return;
         }
 
+        // Redundant on paper, since the id came from the session in the first place. It is kept
+        // as a second line of defence in case the lookup above is ever changed to accept a
+        // parameter, which is the usual way an IDOR hole gets introduced.
         if (!isProfileOwnedBySession(session, profile)) {
             resp.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied");
             return;
@@ -95,6 +115,8 @@ public class AccountManagementServlet extends HttpServlet {
         req.setAttribute("txSaleTotal", txStats.getSaleCount());
         req.setAttribute("txVolumeTotal", txStats.getTotalVolume());
 
+        // Star count for the display widget: round the average, but never show zero stars to a
+        // user who does have reviews, and never more than five.
         RatingSummary rating = profileActivityDAO.getRatingSummary(userId);
         int ratingStarsFilled = 0;
         if (rating.getReviewCount() > 0) {
@@ -113,6 +135,12 @@ public class AccountManagementServlet extends HttpServlet {
         req.getRequestDispatcher(VIEW_DASHBOARD).forward(req, resp);
     }
 
+    /**
+     * Reads the signed-in user's id from the session, or {@code null} when nobody is signed in.
+     * The attribute is written as an Integer by the JSP login path but as a Long by parts of the
+     * API path, so every numeric type is accepted rather than casting and risking a
+     * ClassCastException at runtime.
+     */
     static Integer readUserId(HttpSession session) {
         if (session == null) {
             return null;
@@ -130,11 +158,18 @@ public class AccountManagementServlet extends HttpServlet {
         return null;
     }
 
+    /** True when the loaded profile really belongs to the session that asked for it. */
     private static boolean isProfileOwnedBySession(HttpSession session, User profile) {
         Integer sessionUserId = readUserId(session);
         return sessionUserId != null && sessionUserId == profile.getId();
     }
 
+    /**
+     * Decrypts an AES-GCM encrypted phone or address field for display, returning {@code null}
+     * when the column is empty or cannot be decrypted. Failing quietly is deliberate: a row
+     * encrypted under an older key should leave one field blank on the page rather than break
+     * the whole dashboard with a 500.
+     */
     static String decryptPiiForDisplay(String ciphertext) {
         if (ciphertext == null || ciphertext.isBlank()) {
             return null;

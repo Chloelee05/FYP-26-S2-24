@@ -1,3 +1,17 @@
+/*
+ * App.jsx is the router for the whole AuctionHub front end and the single place where
+ * access control is declared. Three tiers of access exist here:
+ *   1. Public, reachable by an unregistered visitor: the landing page, search, an auction
+ *      detail page, a public seller profile, the login/register/password flows and the
+ *      legal pages. A guest can browse and look at auctions but cannot bid.
+ *   2. Signed in, wrapped in <ProtectedRoute>: profile, account settings, watchlist,
+ *      bidding history, purchases, messages and support. No session means a redirect
+ *      to /login.
+ *   3. Capability or role gated: <ProtectedRoute requireSeller> for the seller tools and
+ *      <ProtectedRoute roles={['ADMIN']}> for the admin console.
+ * AuthProvider wraps everything so useAuth() can read the session anywhere, and every
+ * page under MainLayout gets the navbar, footer and support chat widget.
+ */
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
@@ -49,8 +63,11 @@ const AdminReviews = lazy(() => import('./pages/admin/AdminReviews'));
 const AdminOrders = lazy(() => import('./pages/admin/AdminOrders'));
 const AdminChat = lazy(() => import('./pages/admin/AdminChat'));
 
+// Terms, privacy, payments, cookies and ad choice all render from one LegalPage component
+// that picks its text from the current path, so they share a single route definition.
 const LEGAL_PATHS = ['/terms', '/privacy', '/payments', '/cookies', '/adchoice'];
 
+// Skeleton shown while a lazily imported route chunk is still downloading.
 function RouteFallback() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 space-y-4" aria-busy="true" aria-label="Loading">
@@ -61,6 +78,9 @@ function RouteFallback() {
   );
 }
 
+// Shared shell for the public and member pages. The admin console is deliberately outside
+// this layout because it has its own sidebar. ErrorBoundary sits inside <main> so a crash
+// in one page still leaves the navbar usable for navigating away.
 function MainLayout({ children }) {
   return (
     <div className="flex flex-col min-h-screen">
@@ -75,6 +95,8 @@ function MainLayout({ children }) {
 }
 
 function App() {
+  // The build can be served from a sub path (the WAR deploys under a context path), so the
+  // router basename comes from Vite's BASE_URL with the trailing slash stripped.
   const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || undefined;
 
   return (
@@ -92,7 +114,9 @@ function App() {
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/2fa-verify" element={<TwoFactorLogin />} />
 
-              {/* Admin – own sidebar layout */}
+              {/* Admin, own sidebar layout. The guard is on the parent route, so every
+                  nested admin page inherits the ADMIN role requirement and a non admin
+                  account is bounced to the landing page before any admin page mounts. */}
               <Route path="/admin" element={
                 <ProtectedRoute roles={['ADMIN']}>
                   <AdminLayout />
@@ -111,12 +135,17 @@ function App() {
                 <Route path="chat" element={<AdminChat />} />
               </Route>
 
-              {/* All other pages with Navbar + Footer */}
+              {/* Public pages. No ProtectedRoute wrapper, so a visitor with no account can
+                  browse the catalogue and open any auction. Bidding controls on those pages
+                  check the session themselves and prompt a guest to sign in. */}
               <Route path="/" element={<MainLayout><Home /></MainLayout>} />
               <Route path="/search" element={<MainLayout><Search /></MainLayout>} />
               <Route path="/auction/:id" element={<MainLayout><AuctionDetail /></MainLayout>} />
+              {/* React Router ranks a literal segment above a dynamic one, so /seller/dashboard
+                  below still wins over this /seller/:username pattern despite coming later. */}
               <Route path="/seller/:username" element={<MainLayout><SellerProfilePublic /></MainLayout>} />
 
+              {/* Member pages. ProtectedRoute with no props means any signed in account. */}
               <Route path="/profile" element={<MainLayout><ProtectedRoute><UserProfile /></ProtectedRoute></MainLayout>} />
               <Route path="/profile/settings" element={<MainLayout><ProtectedRoute><AccountSettings /></ProtectedRoute></MainLayout>} />
               {/* Editing the profile, the password and 2FA are all tabs of Account settings
@@ -134,6 +163,9 @@ function App() {
               <Route path="/support" element={<MainLayout><ProtectedRoute><SupportChat /></ProtectedRoute></MainLayout>} />
               <Route path="/messages" element={<MainLayout><ProtectedRoute><Messages /></ProtectedRoute></MainLayout>} />
 
+              {/* Seller tools. requireSeller is a capability check on user.canSell, not a
+                  separate role, because one account both buys and sells. An account without
+                  the capability is shown the enable selling gate instead of being redirected. */}
               <Route path="/seller/dashboard" element={<MainLayout><ProtectedRoute requireSeller><SellerDashboard /></ProtectedRoute></MainLayout>} />
               <Route path="/seller/listings" element={<MainLayout><ProtectedRoute requireSeller><MyListings /></ProtectedRoute></MainLayout>} />
               <Route path="/seller/create" element={<MainLayout><ProtectedRoute requireSeller><CreateAuction /></ProtectedRoute></MainLayout>} />

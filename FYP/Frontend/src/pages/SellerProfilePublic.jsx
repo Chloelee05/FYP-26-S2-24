@@ -1,3 +1,12 @@
+/*
+ * Public seller profile at "/seller/:username". Public, so a guest can check a seller's
+ * standing before deciding to bid. Reads GET seller profile and POSTs a user report.
+ * Only reputation data is exposed: username, photo, join month, active listing count,
+ * completed sales, rating and reviews. The email in the response is already masked server
+ * side and no phone or address is included, which is the PDPA position for this page.
+ * Reviewers appear by masked name. Rating a seller is not done here, it happens from a
+ * completed order, and the page says so rather than offering a control that would fail.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Flag, Star, Package, Search, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -15,6 +24,8 @@ import { useAuth } from '../context/AuthContext';
 // Route: /seller/:sellerId — must navigate with numeric seller ID
 
 export default function SellerProfilePublic() {
+  // The route parameter is named :username but carries the numeric seller id. Renamed on the
+  // way in so the rest of the component is not misled by it.
   const { username: sellerId } = useParams();
   const { user } = useAuth();
   const [seller, setSeller] = useState(null);
@@ -31,12 +42,16 @@ export default function SellerProfilePublic() {
       .catch(() => setError('Could not load this seller profile.'));
   }, [sellerId]);
 
+  // The seller's listings come down with the profile, so the search box filters in memory
+  // rather than issuing another request per keystroke.
   const listings = useMemo(() => {
     const all = seller?.listings ?? [];
     const q = query.trim().toLowerCase();
     return q ? all.filter(l => (l.title ?? '').toLowerCase().includes(q)) : all;
   }, [seller, query]);
 
+  // Reports the seller to moderation. The report then shows up under the reporter's own
+  // profile, in the Reports tab, along with any reply the team writes.
   const handleReport = async (e) => {
     e.preventDefault();
     try {
@@ -144,6 +159,8 @@ export default function SellerProfilePublic() {
           </div>
         )}
 
+        {/* Only worth saying to a signed in buyer. A guest cannot have a completed order,
+            and an admin does not buy. */}
         {user && user.role !== 'ADMIN' && (
           <p className="mt-5 pt-5 divider text-sm text-ink-500">
             Rate this seller from <Link to="/purchases" className="link-subtle">My purchases</Link> after a completed order.

@@ -26,6 +26,15 @@ import java.util.List;
  * <p>Access is public; no authentication is required to view auction details or Q&A.
  * The bid form is displayed only to authenticated buyers who are not the seller
  * of this auction (canBid flag, evaluated server-side).</p>
+ *
+ * <p>Legacy JSP page. The SPA reads the same auction from {@code /api/auction/*} in
+ * {@code AuctionApiServlet} and renders it client-side. This servlet assembles everything the
+ * page needs in one request: the auction itself from {@link BidDAO}, the Q&amp;A thread from
+ * {@link QuestionDAO}, the first page of public bid history, and the viewer's existing auto-bid
+ * ceiling from {@link AutoBidDAO}.</p>
+ *
+ * <p>The secondary loads are individually wrapped in try/catch: a failure in the Q&amp;A or the
+ * bid history degrades to an empty section rather than losing the whole listing page.</p>
  */
 @WebServlet("/auction/*")
 public class AuctionDetailServlet extends HttpServlet {
@@ -46,6 +55,11 @@ public class AuctionDetailServlet extends HttpServlet {
         this.questionDAO = questionDAO;
     }
 
+    /**
+     * Builds the auction detail page for the id in the path. Works for a guest and for a signed-in
+     * user; what changes is the set of permission flags handed to the JSP. Accepts optional
+     * {@code page} and {@code size} parameters for the embedded bid history.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -103,6 +117,8 @@ public class AuctionDetailServlet extends HttpServlet {
         }
         int bidTotalPages = bidTotalCount == 0 ? 1
                 : (int) Math.ceil((double) bidTotalCount / bidPageSize);
+        // If someone asks for page 9 of a 3-page history, clamp and reload rather than showing
+        // an empty table with pagination links that go nowhere.
         if (bidPage > bidTotalPages && bidTotalCount > 0) {
             bidPage = bidTotalPages;
             try {
@@ -113,6 +129,8 @@ public class AuctionDetailServlet extends HttpServlet {
         }
 
         // Determine whether the current user can bid / ask / answer
+        // These flags only decide what the page draws. Every one of them is re-checked inside
+        // the servlet that performs the action, so hiding a button is presentation, not security.
         HttpSession session = req.getSession(false);
         boolean loggedIn = session != null && session.getAttribute("userId") != null;
         boolean isBuyer  = RbacUtil.isBuyer(session);
@@ -152,6 +170,9 @@ public class AuctionDetailServlet extends HttpServlet {
         }
 
         // Flash messages set by PlaceBidServlet / SetAutoBidServlet / AuctionQuestionServlet
+        // Those servlets finish with a redirect back here, so the outcome message has to survive
+        // one request in the session. It is copied onto the request and removed immediately,
+        // which is what stops "your bid was placed" reappearing on every later page view.
         if (session != null) {
             req.setAttribute("bidFlash",          session.getAttribute("bidFlash"));
             req.setAttribute("bidFlashError",     session.getAttribute("bidFlashError"));

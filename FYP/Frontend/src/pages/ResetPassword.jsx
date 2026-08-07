@@ -1,3 +1,11 @@
+/*
+ * Step two of password recovery, at "/reset-password". Public, no navbar. Normally arrived
+ * at from ForgotPassword with ?email= already filled in, but it also works standalone, in
+ * which case it asks for the address itself.
+ * Presented as two steps, code then new password, purely for the user. Both values go to
+ * the server in one POST /api/auth/reset-password, which is the shape the backend expects.
+ * A resend goes back through the forgot-password endpoint, since a new code replaces the old.
+ */
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
@@ -44,6 +52,8 @@ export default function ResetPassword() {
     }
   };
 
+  // Moves to the password step. Nothing is verified server side yet, so the code is only
+  // length checked here; whether it is the right code is found out on the final submit.
   const handleContinue = (e) => {
     e.preventDefault();
     if (!form.identifier) { setError('Please enter your email first.'); return; }
@@ -51,6 +61,9 @@ export default function ResetPassword() {
     setError(''); setCodeSent(false); setStep('password');
   };
 
+  // Sends the code and the new password together. The CODE_ERROR test below is what decides
+  // which step the user is dropped back on: a rejected or expired code is fixed on the code
+  // step, a weak password is fixed where they already are.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (form.newPassword !== form.confirmNewPassword) { setError('Passwords do not match.'); return; }

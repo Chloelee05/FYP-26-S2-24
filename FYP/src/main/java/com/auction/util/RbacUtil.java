@@ -7,6 +7,19 @@ import jakarta.servlet.http.HttpSession;
  * Role-Based Access Control helper.
  * All checks are stateless — they read the {@code userRole} and {@code userId}
  * attributes written into the session by {@code LoginServlet} on successful login.
+ *
+ * <p>The access model has two parts. A <em>role</em> is what an account is, and every
+ * account has exactly one, which for anything created since the merge is administrator or
+ * buyer. A <em>capability</em> is something an account may additionally do, and selling is
+ * the only one of those at present. The two are kept separate
+ * because buying and selling were merged onto a single login: a member browses and bids
+ * from the same account they list items with, so there is no seller role to switch into.
+ * Selling is granted by the {@code users.can_sell} column, copied into the session as
+ * {@code canSell} at login, and {@link #isSeller} reads that rather than the role.</p>
+ *
+ * <p>Accounts predating the merge still carry the legacy {@link Role#SELLER} role, so the
+ * seller check accepts either signal. Servlets are expected to call these before acting,
+ * since nothing here is enforced by the session itself.</p>
  */
 public final class RbacUtil {
 

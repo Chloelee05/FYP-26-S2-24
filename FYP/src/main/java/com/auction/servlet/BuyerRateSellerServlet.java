@@ -32,6 +32,12 @@ import java.util.logging.Logger;
  *
  * <p><b>No PII in logs:</b> Only {@code auctionId}, {@code buyerId}, and {@code score}
  * are logged.</p>
+ *
+ * <p>Legacy JSP flow; the SPA posts to {@code /api/rate} in {@code RateApiServlet}.
+ * This is the {@link ReviewDAO} based rating path and is the mirror image of
+ * {@link SellerRateBuyerServlet}: the two together give each completed auction a rating in both
+ * directions. {@link RateSellerServlet} is an older servlet covering the same feature through
+ * {@code RatingDAO}.</p>
  */
 @WebServlet("/protected/buyer/rate-seller")
 public class BuyerRateSellerServlet extends HttpServlet {
@@ -48,6 +54,11 @@ public class BuyerRateSellerServlet extends HttpServlet {
         this.reviewDAO = reviewDAO;
     }
 
+    /**
+     * Records the buyer's rating of the seller. Expects {@code auctionId} and a {@code score}
+     * from 1 to 5. Most refusals come back as a flash message, but an ownership violation is
+     * answered with 403, because that is an attempt to rate an auction the caller had no part in.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {

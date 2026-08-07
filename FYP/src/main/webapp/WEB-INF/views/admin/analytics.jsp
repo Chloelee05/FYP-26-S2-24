@@ -1,3 +1,9 @@
+<%--
+  Admin analytics page. Rendered by AdminAnalyticsServlet (/admin/analytics) behind
+  AdminFilter, which forwards here without loading anything, so the figures and charts on this
+  page are static placeholders rather than live data.
+  Legacy JSP admin console; real platform figures come from /api/stats and /api/admin/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

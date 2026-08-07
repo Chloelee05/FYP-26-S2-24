@@ -23,14 +23,25 @@ import java.util.List;
 
 /**
  * Profile transaction history and reviews (SCRUM-84).
+ *
+ * <p>Read-only. Reads {@code auction}, {@code auction_details}, {@code auction_status},
+ * {@code bids}, {@code user_reviews} and {@code auction_images}. Called by the profile API servlet
+ * for the signed-in member's own activity tabs. Reviewer usernames are masked before they leave
+ * the class, the same treatment {@link SellerProfileDAO} applies.</p>
+ *
+ * <p>The transaction history is assembled from four separate queries rather than one UNION,
+ * because a purchase, a completed sale, a sale still running and a cancelled sale each derive
+ * their date, amount and status from different columns.</p>
  */
 public class ProfileActivityDAO {
 
     private static final ZoneId ZONE = ZoneId.systemDefault();
 
+    /** Which side of the ledger to show. Parsed from a query parameter, defaulting to ALL. */
     public enum TxFilter {
         ALL, PURCHASE, SALE;
 
+        /** Whitelist parse: anything unrecognised falls back to ALL rather than erroring. */
         public static TxFilter fromParam(String raw) {
             if (raw == null || raw.isBlank()) {
                 return ALL;
@@ -46,8 +57,16 @@ public class ProfileActivityDAO {
         }
     }
 
+    /**
+     * The member's combined purchase and sale history, newest first, with display ids applied.
+     *
+     * @param filter narrows the merged list to purchases or sales; filtering happens in Java
+     *               because the four loaders have already been merged by then
+     */
     public List<ProfileTransactionRow> listTransactions(int userId, TxFilter filter) {
         List<ProfileTransactionRow> raw = new ArrayList<>();
+        // Four loaders share one connection: completed purchases, completed sales, sales still
+        // running, and cancelled sales.
         try (Connection conn = DBUtil.connectDB()) {
             loadPurchaseCompleted(conn, userId, raw);
             loadSaleCompleted(conn, userId, raw);
@@ -69,6 +88,8 @@ public class ProfileActivityDAO {
             }
         }
 
+        // Display ids (T001, T002, ...) are assigned after sorting and filtering, so they number
+        // the list the member is actually looking at. They are not stored anywhere.
         int seq = 1;
         List<ProfileTransactionRow> withIds = new ArrayList<>();
         for (ProfileTransactionRow r : filtered) {
@@ -84,6 +105,11 @@ public class ProfileActivityDAO {
         return withIds;
     }
 
+    /**
+     * Headline counters for the profile: how many auctions the member won, how many they sold, and
+     * the combined value. Both halves key off {@code winning_bid IS NOT NULL}, which is what marks
+     * an auction as actually sold, so unsold listings are excluded from every figure.
+     */
     public TransactionStats computeTransactionStats(int userId) {
         int purchases = 0;
         int sales = 0;
@@ -119,6 +145,10 @@ public class ProfileActivityDAO {
         return new TransactionStats(purchases, sales, volume);
     }
 
+    /**
+     * Average score, review count and a 5-bucket histogram for the ratings bar chart.
+     * Two queries: one aggregate, one GROUP BY rating for the distribution.
+     */
     public RatingSummary getRatingSummary(int userId) {
         double avg = 0;
         int count = 0;
@@ -141,6 +171,9 @@ public class ProfileActivityDAO {
                     while (rs.next()) {
                         int rating = rs.getInt("rating");
                         int c = rs.getInt("c");
+                        // The histogram is stored highest first, so index 0 is 5 stars and index 4
+                        // is 1 star. The bounds check discards any out-of-range score rather than
+                        // throwing an array index error.
                         if (rating >= 1 && rating <= 5) {
                             hist[5 - rating] += c;
                         }
@@ -153,6 +186,19 @@ public class ProfileActivityDAO {
         return new RatingSummary(avg, count, hist);
     }
 
+    /**
+     * The member's bidding history, one row per auction rather than one per bid, newest activity
+     * first.
+     *
+     * <p>The query joins two derived tables. {@code ub} collapses this member's bids on each
+     * auction down to their highest amount and latest bid time; {@code top} does the same across
+     * all bidders to get the leading bid on that auction. Comparing the two is how the "won" flag
+     * is worked out. A correlated EXISTS also reports whether the member has already left a rating,
+     * so the UI can hide the rate button.</p>
+     *
+     * @param page 1-based page number
+     * @param size rows per page
+     */
     public List<BidHistoryRow> getBidHistory(int userId, int page, int size) {
         List<BidHistoryRow> list = new ArrayList<>();
         // One row per auction; retrieve both the user's max bid and the overall max bid,
@@ -190,11 +236,17 @@ public class ProfileActivityDAO {
                             : bidTs.toInstant().atZone(ZONE).toLocalDateTime();
                     Timestamp endTs = rs.getTimestamp("date_end");
                     int statusId = rs.getInt("status_id");
+                    // An auction counts as ended if it is cancelled, marked finished, or simply
+                    // past its end time. The last case matters because auctions are finalized
+                    // lazily, so a closed auction can still be sitting at status ACTIVE.
                     boolean cancelled = statusId == AuctionStatus.CANCELLED.getId();
                     boolean ended = cancelled
                             || statusId == AuctionStatus.FINISHED.getId()
                             || (endTs != null && endTs.toInstant().isBefore(Instant.now()));
                     String status = ended ? "Ended" : "Live";
+                    // Won means the auction is over, was not cancelled, and this member's best bid
+                    // is the leading bid. Compared with compareTo rather than equals so scale
+                    // differences such as 10.0 against 10.00 do not read as a loss.
                     boolean won = ended && !cancelled
                             && amount != null && auctionMax != null
                             && amount.compareTo(auctionMax) >= 0;
@@ -208,6 +260,10 @@ public class ProfileActivityDAO {
         return list;
     }
 
+    /**
+     * Pagination total for {@link #getBidHistory}. Counts DISTINCT auction ids so it matches that
+     * query's one-row-per-auction shape rather than counting individual bids.
+     */
     public int countBidHistory(int userId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -221,6 +277,7 @@ public class ProfileActivityDAO {
         }
     }
 
+    /** Reviews other members have left about this user, newest first, with reviewer names masked. */
     public List<ProfileReviewRow> listReviewsAboutUser(int userId) {
         List<ProfileReviewRow> list = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB()) {
@@ -256,6 +313,7 @@ public class ProfileActivityDAO {
         return list;
     }
 
+    /** Auctions this member won: they are the {@code winner_id} and a winning bid was recorded. */
     private static void loadPurchaseCompleted(Connection conn, int userId, List<ProfileTransactionRow> out)
             throws Exception {
         String sql = "SELECT a.date_end, d.title, d.winning_bid FROM auction a "
@@ -271,6 +329,7 @@ public class ProfileActivityDAO {
         }
     }
 
+    /** Listings this member sold: they are the seller and a winning bid was recorded. */
     private static void loadSaleCompleted(Connection conn, int userId, List<ProfileTransactionRow> out)
             throws Exception {
         String sql = "SELECT a.date_end, d.title, d.winning_bid FROM auction a "
@@ -286,6 +345,11 @@ public class ProfileActivityDAO {
         }
     }
 
+    /**
+     * Listings still running: no winning bid yet, end time in the future, and not already marked
+     * cancelled or finished. The amount shown is the current leading bid, coalesced to 0 when
+     * nobody has bid, since there is no winning_bid to report yet.
+     */
     private static void loadSalePending(Connection conn, int userId, List<ProfileTransactionRow> out)
             throws Exception {
         String sql = "SELECT a.date_end, d.title, "
@@ -309,6 +373,7 @@ public class ProfileActivityDAO {
         }
     }
 
+    /** Listings the seller pulled. Amount is zero because no money changed hands. */
     private static void loadSaleCancelled(Connection conn, int userId, List<ProfileTransactionRow> out)
             throws Exception {
         String sql = "SELECT a.date_end, d.title "
@@ -329,6 +394,10 @@ public class ProfileActivityDAO {
         }
     }
 
+    /**
+     * Shared row builder for the two completed loaders. The display id is left blank here and
+     * filled in by {@link #listTransactions} after the merged list has been sorted.
+     */
     private static ProfileTransactionRow row(ResultSet rs, String type, String status) throws Exception {
         Timestamp ts = rs.getTimestamp("date_end");
         LocalDate dt = ts == null ? LocalDate.now() : ts.toInstant().atZone(ZONE).toLocalDate();
@@ -337,6 +406,7 @@ public class ProfileActivityDAO {
         return new ProfileTransactionRow("", dt, title, type, amt, status);
     }
 
+    /** Return type of {@link #computeTransactionStats}: counts plus combined value. */
     public static final class TransactionStats {
         private final int purchaseCount;
         private final int saleCount;

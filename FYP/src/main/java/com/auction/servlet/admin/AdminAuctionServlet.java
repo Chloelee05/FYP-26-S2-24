@@ -10,6 +10,18 @@ import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 
+/**
+ * Changes the moderation state of a single auction through {@link AuctionDAO}.
+ *
+ * <p>Legacy code from the JSP era, and currently dead. There is no {@code @WebServlet}
+ * annotation and no {@code web.xml} entry, so nothing routes here, and the session lookup
+ * expects a {@code user} object that the current login path does not set. The working version
+ * of this feature is {@link AdminListingsServlet} at {@code /admin/listings}, and the SPA uses
+ * {@code /api/admin/*}.</p>
+ *
+ * <p>Worth noting for the security story: this class checks only that somebody is signed in.
+ * It never asks whether they are an admin. That would matter if it were mapped.</p>
+ */
 public class AdminAuctionServlet extends HttpServlet{
 
         private AuctionDAO auctionDAO;
@@ -18,15 +30,22 @@ public class AdminAuctionServlet extends HttpServlet{
             auctionDAO = new AuctionDAO();
         }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setAuctionDAO(AuctionDAO auctionDAO) {
         this.auctionDAO = auctionDAO;
     }
 
+    /** Not implemented: no JSP view was written for this servlet. */
     @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
             //
         }
 
+        /**
+         * Sets the moderation state of an auction. Expects {@code auction_status} and
+         * {@code auction_id}. The state string is passed straight to the DAO with no whitelist
+         * check here, so the set of valid values is whatever {@code updateAuctionState} accepts.
+         */
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
             HttpSession session = req.getSession(false);
@@ -79,6 +98,10 @@ public class AdminAuctionServlet extends HttpServlet{
             }
         }
 
+    /**
+     * Records an error message. The forward is commented out because the view was never built,
+     * so this leaves the response empty rather than rendering anything.
+     */
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message) throws ServletException, IOException {
         req.setAttribute("Error", message);
         // req.getRequestDispatcher("???").forward(req, resp);

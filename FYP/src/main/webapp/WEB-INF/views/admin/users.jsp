@@ -1,3 +1,10 @@
+<%--
+  Admin user table with the ban and unban controls. Rendered by AdminUsersServlet
+  (/admin/users) behind AdminFilter; the buttons post to /admin/users/action, which is handled
+  by AdminManageUserServlet and redirects back here with a flash message in "adminFlash" or
+  "adminFlashError".
+  Legacy JSP admin console; the SPA manages users through /api/admin/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>

@@ -1,3 +1,9 @@
+/*
+ * Step one of password recovery, at "/forgot-password". Public, no navbar.
+ * Takes the account email and posts it to /api/auth/forgot-password, which emails a six
+ * digit code, then forwards to /reset-password with the address in the query string so the
+ * next page can show it and does not have to ask twice.
+ */
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';

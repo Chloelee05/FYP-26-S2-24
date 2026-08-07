@@ -1,3 +1,11 @@
+/*
+ * Saved auctions at "/watchlist". Behind ProtectedRoute, any signed in account; a guest has
+ * nowhere to store a watchlist, so the heart control on an auction is hidden until sign in.
+ * Reads GET /api/watchlist, and removes an entry by POSTing to the same endpoint with
+ * action=remove. Ended and cancelled auctions
+ * stay in the list with a status badge rather than being filtered out, so a shopper can see
+ * what they missed. The countdown is only rendered for a listing still marked active.
+ */
 import { useState, useEffect } from 'react';
 import { Trash2, Heart, Package, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -28,6 +36,8 @@ export default function Watchlist() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Removes one entry. The row is dropped from local state only after the server confirms,
+  // so a failed delete does not leave the page showing a list that was never saved.
   const handleRemove = async (auctionId) => {
     setError('');
     try {

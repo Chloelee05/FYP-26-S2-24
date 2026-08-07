@@ -64,10 +64,12 @@ public class AuthSession {
         return valid;
     }
 
+    /** Idle timeout: measured from the last request, not from when the session was created. */
     boolean isExpired() {
         return (System.currentTimeMillis() - lastAccess) > (maxInactiveSeconds * 1000L);
     }
 
+    /** Restarts the idle timer. Called by {@link TokenStore#get} on every lookup. */
     void touch() {
         this.lastAccess = System.currentTimeMillis();
     }

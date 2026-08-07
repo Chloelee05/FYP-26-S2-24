@@ -25,6 +25,12 @@ import java.io.PrintWriter;
 @WebServlet(value = "/api/auction-events/*", asyncSupported = true)
 public class AuctionEventServlet extends HttpServlet {
 
+    /**
+     * Serves GET /api/auction-events/{auctionId}. The auction id is the only input and comes from
+     * the path. Instead of returning, the method hands the request to the container's async
+     * machinery and leaves the response open so the bus can keep writing to it. 400 if the id is
+     * missing or not a number.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         long auctionId;
@@ -46,6 +52,9 @@ public class AuctionEventServlet extends HttpServlet {
         resp.setHeader("Connection", "keep-alive");
         resp.setHeader("X-Accel-Buffering", "no"); // disable proxy buffering
 
+        // "retry" tells EventSource to wait 3s before reconnecting after a drop. The line starting
+        // with a colon is an SSE comment: it is ignored by the client but forces the headers and
+        // first bytes out now, so the browser sees the connection as established straight away.
         PrintWriter writer = resp.getWriter();
         writer.write("retry: 3000\n");
         writer.write(": connected\n\n");
@@ -56,6 +65,8 @@ public class AuctionEventServlet extends HttpServlet {
 
         final long id = auctionId;
         AuctionEventBus bus = AuctionEventBus.getInstance();
+        // Every terminal outcome has to unsubscribe, otherwise the bus keeps writing to a socket
+        // whose browser tab has closed and the subscriber map leaks.
         ctx.addListener(new AsyncListener() {
             @Override public void onComplete(AsyncEvent e) { bus.unsubscribe(id, ctx); }
             @Override public void onTimeout(AsyncEvent e)  { bus.unsubscribe(id, ctx); ctx.complete(); }

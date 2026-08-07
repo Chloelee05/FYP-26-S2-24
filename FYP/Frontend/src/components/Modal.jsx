@@ -1,7 +1,25 @@
+/**
+ * The dialog shell every modal in the app is built on: ReportModal, OrderRefundModal,
+ * OrderMessageModal, OrderTrackingModal, RateBuyerModal, SuccessModal and
+ * TelegramConnectModal all render their content as children of this component.
+ *
+ * It renders through createPortal into document.body rather than where it is written in
+ * the tree. That is deliberate. In place, the dialog is subject to whatever the ancestors
+ * do: an overflow rule on a card clips it, and a backdrop-filter or transform on an
+ * ancestor makes position: fixed resolve against that ancestor instead of the viewport.
+ * Moving it to document.body means it always sits over the whole page.
+ *
+ * The accessibility handling lives here so no individual dialog has to repeat it: the
+ * panel is role="dialog" with aria-modal, it is labelled by its own title, focus moves
+ * into it on open and back to the trigger on close, Tab cycles inside it, and Escape
+ * closes it.
+ */
 import { useEffect, useRef, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
+// Selector for the elements a keyboard user can reach, used both to place the initial
+// focus and to work out where the Tab cycle wraps.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
@@ -41,9 +59,14 @@ export default function Modal({
   children,
 }) {
   const panelRef = useRef(null);
+  // Whatever had focus when the dialog opened, so it can be given focus back on close.
   const restoreFocusRef = useRef(null);
+  // Unique id tying the heading to the panel's aria-labelledby, so several dialogs in one
+  // page cannot collide.
   const titleId = useId();
 
+  // One effect owns the whole open/close lifecycle: initial focus, the key handler,
+  // the scroll lock, and undoing all three on unmount.
   useEffect(() => {
     restoreFocusRef.current = document.activeElement;
 
@@ -74,8 +97,12 @@ export default function Modal({
       }
     };
 
+    // Capture phase, so Escape reaches the outermost dialog first even when one dialog
+    // opens another.
     document.addEventListener('keydown', onKeyDown, true);
 
+    // Lock page scroll while open, remembering the previous value rather than assuming
+    // it was the default. A dialog opened from inside another must not unlock the page.
     const { overflow } = document.body.style;
     document.body.style.overflow = 'hidden';
 
@@ -89,6 +116,9 @@ export default function Modal({
   return createPortal(
     <div
       className="modal-backdrop"
+      // mousedown rather than click, and only when the press started on the backdrop
+      // itself: a drag that begins inside the panel and ends outside it must not be
+      // read as dismissing the dialog.
       onMouseDown={(e) => {
         if (dismissOnBackdrop && e.target === e.currentTarget) onClose?.();
       }}

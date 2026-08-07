@@ -1,3 +1,5 @@
+// Used wherever a one-time code is typed: the 2FA login challenge, 2FA setup in account
+// settings, and the Telegram code fallback.
 import { useEffect, useRef } from 'react';
 
 /**
@@ -18,12 +20,15 @@ export default function CodeInput({
   label = 'Verification code',
   id = 'code-input',
 }) {
+  // One DOM node per box, so the handlers can move focus between them.
   const inputsRef = useRef([]);
 
   useEffect(() => {
     if (autoFocus) inputsRef.current[0]?.focus();
   }, [autoFocus]);
 
+  // The controlled string spread over the boxes, padded with blanks so a partly typed
+  // code still renders the full set.
   const digits = Array.from({ length }, (_, i) => value[i] ?? '');
 
   const commit = (next) => onChange?.(next.slice(0, length));
@@ -57,6 +62,8 @@ export default function CodeInput({
     focusBox(index + 1);
   };
 
+  // Backspace clears the current box, or steps back and clears the previous one when
+  // this box is already empty. Arrows move without changing anything.
   const handleKeyDown = (index) => (e) => {
     if (e.key === 'Backspace') {
       e.preventDefault();
@@ -68,6 +75,8 @@ export default function CodeInput({
     if (e.key === 'ArrowRight') { e.preventDefault(); focusBox(index + 1); }
   };
 
+  // Pasting a whole code fills from the box that was focused. Non-digits are stripped, so
+  // a code copied with spaces or a trailing newline still lands correctly.
   const handlePaste = (index) => (e) => {
     const pasted = e.clipboardData.getData('text').replace(/\D/g, '');
     if (!pasted) return;

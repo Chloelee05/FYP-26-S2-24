@@ -1,3 +1,9 @@
+<%--
+  Shared navigation bar for the public-facing pages, carrying the brand, the search box and the
+  sign-in links. Statically included by index.jsp, search.jsp, auction-detail.jsp,
+  auction-bid-history.jsp and seller-profile.jsp.
+  Legacy JSP layout fragment; the SPA has its own navigation component.
+--%>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <c:set var="ctx" value="${pageContext.request.contextPath}"/>
 <header class="home-header sticky-top">

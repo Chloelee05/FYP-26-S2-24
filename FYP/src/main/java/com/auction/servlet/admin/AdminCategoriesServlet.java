@@ -30,6 +30,12 @@ import java.util.logging.Logger;
  * Structural validation uses {@link InputValidator} category helpers. The {@code categoryId}
  * parameter is always parsed as a plain integer so injection via crafted strings is rejected
  * before any DAO call.</p>
+ *
+ * <p>Legacy JSP admin console; the SPA manages categories through {@code /api/admin/*} in
+ * {@code AdminApiServlet}. Deletion is a soft delete, and it is refused outright while any
+ * auction still points at the category, so a listing can never end up referencing something
+ * that has gone. Every mutation ends in a redirect back to the list, which is why the outcome
+ * travels as a session flash message rather than a request attribute.</p>
  */
 @WebServlet("/admin/categories")
 public class AdminCategoriesServlet extends HttpServlet {
@@ -54,6 +60,10 @@ public class AdminCategoriesServlet extends HttpServlet {
     // GET — list
     // -------------------------------------------------------------------------
 
+    /**
+     * Renders the category table. The list includes soft-deleted rows so an admin can see and
+     * restore them, which is what the RESTORE action on this page is for.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -70,6 +80,7 @@ public class AdminCategoriesServlet extends HttpServlet {
     // POST — mutations
     // -------------------------------------------------------------------------
 
+    /** Routes on the {@code action} parameter to one of the four handlers below. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -107,6 +118,11 @@ public class AdminCategoriesServlet extends HttpServlet {
     // Action handlers
     // -------------------------------------------------------------------------
 
+    /**
+     * Creates a category from {@code name}, optional {@code description} and optional
+     * {@code displayOrder}. The URL slug is derived from the name rather than accepted from the
+     * form, so an admin cannot set one that collides with an existing category.
+     */
     private void handleCreate(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
         // SCRUM-280: sanitize all user-supplied string inputs before use
@@ -143,6 +159,10 @@ public class AdminCategoriesServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/admin/categories");
     }
 
+    /**
+     * Updates an existing category. The duplicate-name and slug checks both exclude the row
+     * being edited, otherwise saving a category without renaming it would fail against itself.
+     */
     private void handleEdit(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
         int id = parseCategoryId(req, resp, session);
@@ -187,6 +207,10 @@ public class AdminCategoriesServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/admin/categories");
     }
 
+    /**
+     * Soft-deletes a category, but refuses while auctions still reference it and says how many
+     * there are. Soft delete rather than a real one, so historical listings keep their category.
+     */
     private void handleDelete(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
         int id = parseCategoryId(req, resp, session);
@@ -217,6 +241,7 @@ public class AdminCategoriesServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/admin/categories");
     }
 
+    /** Brings a soft-deleted category back into use. */
     private void handleRestore(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
         int id = parseCategoryId(req, resp, session);
@@ -257,6 +282,11 @@ public class AdminCategoriesServlet extends HttpServlet {
                 .replaceAll("^-|-$", "");
     }
 
+    /**
+     * Returns a slug that is free to use, appending {@code -2}, {@code -3} and so on until the
+     * database agrees it is unused. Falls back to "category" when the name reduces to nothing,
+     * for instance a name written entirely in punctuation.
+     */
     private String resolveUniqueSlug(String name, int excludeId) {
         String base = generateSlug(name);
         if (base.isEmpty()) base = "category";
@@ -291,6 +321,7 @@ public class AdminCategoriesServlet extends HttpServlet {
         }
     }
 
+    /** Sort position for the category list; anything missing or unparseable becomes 0. */
     private static int parseDisplayOrder(String raw) {
         if (raw == null || raw.isBlank()) return 0;
         try {
@@ -300,10 +331,12 @@ public class AdminCategoriesServlet extends HttpServlet {
         }
     }
 
+    /** Stores the outcome under the success or the error key so it survives the redirect. */
     private static void setFlash(HttpSession session, boolean ok, String success, String err) {
         session.setAttribute(ok ? "adminFlash" : "adminFlashError", ok ? success : err);
     }
 
+    /** Moves a one-shot message from the session onto the request and clears it. */
     private static void copyFlash(HttpSession session, HttpServletRequest req, String key) {
         Object v = session.getAttribute(key);
         if (v != null) {

@@ -1,3 +1,13 @@
+/**
+ * Seller summary in the sidebar of an auction detail page: avatar, average rating,
+ * joined date, sale counts and the two most recent reviews.
+ *
+ * Props: `seller`, the nested seller object from GET /api/auction/{id}. Renders nothing
+ * if it is absent, which is what a listing whose seller row has gone looks like.
+ *
+ * Reviewer names arrive masked from the server, and comments are run through
+ * decodeHtmlEntities because they were escaped by SecurityUtil.sanitize on the way in.
+ */
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import StarRating from './StarRating';

@@ -21,6 +21,16 @@ import java.io.IOException;
  * POST /api/orders/complete      — (buyer) confirm receipt after delivery
  * POST /api/orders/refund        — (buyer) request a refund on a paid order
  * POST /api/orders/refund-resolve— (seller) approve/decline a refund request
+ *
+ * <p>Drives the order lifecycle after an auction ends: declared, paid, shipped, delivered,
+ * completed, with a refund branch off the paid state. No real payment provider is involved;
+ * payment is simulated, which is why the buyer only has to name a saved payment method.</p>
+ *
+ * <p>Authorisation runs at two levels. The role guard here decides whether a caller may attempt
+ * a buyer-side or seller-side action at all, and {@link OrderDAO} then checks that the caller
+ * really is the buyer or seller on that specific order. The second check is the one that
+ * matters, because one account can be a buyer on one order and the seller on another.
+ * Commission is booked to {@link PlatformRevenueDAO} only when the buyer confirms receipt.</p>
  */
 @WebServlet("/api/orders/*")
 public class OrderApiServlet extends ApiBase {
@@ -35,16 +45,26 @@ public class OrderApiServlet extends ApiBase {
         this.platformRevenueDAO = new PlatformRevenueDAO();
     }
 
-    /** Test hook */
+    /** Test hooks: let a unit test supply stub DAOs instead of the ones built in the constructor. */
     public void setOrderDAO(OrderDAO orderDAO)             { this.orderDAO   = orderDAO; }
     public void setPaymentMethodDAO(PaymentMethodDAO pm)   { this.paymentDAO = pm; }
 
+    /**
+     * GET /api/orders. Returns every order where the caller is the buyer or the seller, which is
+     * what the Purchases and Sales pages both read. Scoped to the session user id, so there is no
+     * way to ask for someone else's orders.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         ok(resp, orderDAO.listForUser(sessionUserId(req)));
     }
 
+    /**
+     * Routes the order actions. Requires a session; each handler then applies its own role guard.
+     * The whole switch is wrapped so an unmigrated database or a DAO fault becomes a 500 with a
+     * useful message instead of a servlet stack trace.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -67,6 +87,13 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/orders/declare with {@code auctionId} and optional {@code early}. The seller
+     * closes an auction and turns the winning bid into an order. {@code early=true} ends it
+     * before the scheduled end time, which is how a BLIND seller accepts the standing sealed bid.
+     * {@link OrderDAO#declareWinner} verifies the caller owns the auction and that it has not
+     * already been finalised, so the action cannot be run twice.
+     */
     private void handleDeclare(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
         if (!canSell(req)) { forbidden(resp); return; }
         Long auctionId = parseLong(param(req, "auctionId"));
@@ -86,15 +113,24 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/orders/pay with {@code orderId} and an optional {@code paymentMethodId}.
+     * Simulated checkout: no gateway is called, the order simply moves to paid. The buyer is
+     * notified with a receipt and the seller is told to despatch.
+     */
     private void handlePay(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {
         Long orderId = parseLong(param(req, "orderId"));
         if (orderId == null) { badRequest(resp, "orderId is required."); return; }
 
+        // The saved method must belong to this buyer, otherwise someone could pay while pointing
+        // at a stranger's stored card id.
         Long pmId = parseLong(param(req, "paymentMethodId"));
         if (pmId != null && !paymentDAO.belongsTo(buyerId, pmId)) {
             badRequest(resp, "Invalid payment method."); return;
         }
 
+        // pay() is scoped to the buyer and to the awaiting-payment state, so a repeated request
+        // returns false rather than charging twice.
         boolean ok = orderDAO.pay(orderId, buyerId, pmId);
         if (!ok) { badRequest(resp, "Order not found or not awaiting payment."); return; }
 
@@ -106,6 +142,11 @@ public class OrderApiServlet extends ApiBase {
         okMsg(resp, "Payment successful. A receipt has been emailed to you and the seller has been notified.");
     }
 
+    /**
+     * POST /api/orders/complete with {@code orderId}. The buyer confirms the item arrived, which
+     * closes the order and unlocks rating the seller. This is also the point where the platform
+     * books its commission, since the sale is only really done once the buyer says so.
+     */
     private void handleComplete(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {
         // Buyer-side action on an order the caller owns; ownership is enforced by
         // confirmReceipt(orderId, buyerId), so selling does not disqualify the caller.
@@ -123,9 +164,16 @@ public class OrderApiServlet extends ApiBase {
         try {
             platformRevenueDAO.recordCommission(orderId);
         } catch (Exception ignored) { }
+        // Commission is bookkeeping. If it fails the order is still complete for both parties,
+        // so the failure is swallowed rather than rolling back a confirmed delivery.
         okMsg(resp, "Receipt confirmed. You can now rate the seller.");
     }
 
+    /**
+     * POST /api/orders/refund with {@code orderId} and {@code reason}. Only valid on a paid order
+     * that is not yet completed. The reason must be at least 10 characters so the seller has
+     * something to judge, and only one request per order is allowed.
+     */
     private void handleRefund(HttpServletRequest req, HttpServletResponse resp, int buyerId) throws IOException {
         // Ownership is enforced by requestRefund(...), which answers NOT_BUYER otherwise.
         if (!canBuy(req)) { forbidden(resp); return; }
@@ -158,6 +206,12 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/orders/refund-resolve with {@code orderId} and {@code action} of approve or
+     * reject. The seller decides on a pending refund. Approving cancels the order; either way
+     * the buyer is notified. The action string is checked explicitly, so an unexpected value is
+     * a 400 rather than being read as a rejection.
+     */
     private void handleRefundResolve(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
         if (!canSell(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
@@ -185,6 +239,11 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/orders/shipping with {@code orderId}. Steps the seller's despatch status forward
+     * one stage at a time rather than letting the client name a target state, so the sequence
+     * cannot be skipped. Requires the order to be paid first.
+     */
     private void handleShipping(HttpServletRequest req, HttpServletResponse resp, int sellerId) throws IOException {
         if (!canSell(req)) { forbidden(resp); return; }
         Long orderId = parseLong(param(req, "orderId"));
@@ -213,6 +272,7 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /** Turns a {@link DeclareStatus} into wording for the seller. Kept together so the messages stay consistent. */
     private String declareMessage(DeclareStatus s) {
         switch (s) {
             case AUCTION_NOT_FOUND:  return "Auction not found.";
@@ -225,17 +285,20 @@ public class OrderApiServlet extends ApiBase {
         }
     }
 
+    /** Reads a boolean flag, accepting "true", "1" or "yes", since different callers send different spellings. */
     private static boolean isTruthy(HttpServletRequest req, String name) {
         String v = req.getParameter(name);
         if (v == null || v.isBlank()) return false;
         return "true".equalsIgnoreCase(v.trim()) || "1".equals(v.trim()) || "yes".equalsIgnoreCase(v.trim());
     }
 
+    /** Parses an id parameter, returning null rather than throwing when it is absent or malformed. */
     private Long parseLong(String s) {
         if (s == null) return null;
         try { return Long.parseLong(s); } catch (NumberFormatException e) { return null; }
     }
 
+    /** First path segment after /api/orders, which names the action. */
     private String sub(HttpServletRequest req) {
         String p = req.getPathInfo();
         if (p == null || p.equals("/")) return "";

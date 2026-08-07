@@ -18,8 +18,13 @@ import java.sql.SQLException;
  * <p><b>Winner verification:</b> {@link #insertRating} reads {@code auction_details.winner_id}
  * inside the same connection to confirm the rater is the auction winner before inserting.</p>
  *
- * <p><b>IDOR prevention:</b> {@code sellerId} is looked up from the DB — never taken from
- * the request — so a buyer cannot fabricate a rating against an arbitrary user.</p>
+ * <p><b>IDOR prevention:</b> {@code sellerId} is looked up from the DB, never taken from
+ * the request, so a buyer cannot fabricate a rating against an arbitrary user.</p>
+ *
+ * <p>Writes {@code user_reviews} and reads {@code auction}, {@code auction_details},
+ * {@code orders} and {@code users}. Called by the rating API servlet, by the admin moderation
+ * console and by the landing page for the testimonials strip. This is the buyer-rates-seller
+ * direction; {@link ReviewDAO} handles the reverse.</p>
  */
 public class RatingDAO {
 
@@ -42,15 +47,19 @@ public class RatingDAO {
     // -------------------------------------------------------------------------
 
     /**
-     * Inserts a 1–5 star rating for the seller of a finished auction.
+     * Inserts a 1 to 5 star rating for the seller of a finished auction.
      *
      * <p>All preconditions (status, winner, duplicate) are verified within a single
      * transaction so the {@code sellerId} read from the DB is always consistent with
      * the auction being rated.</p>
      *
+     * <p>A completed order is required as well as a finished auction, so a buyer who won but
+     * never paid cannot leave the seller a rating.</p>
+     *
      * @param auctionId auction the buyer won (parsed as {@code long} by the servlet)
      * @param raterId   buyer submitting the rating (read from session, never from request)
-     * @param score     star score; must be 1–5 (validated by servlet before this call)
+     * @param score     star score; must be 1 to 5 (validated by servlet before this call)
+     * @param comment   optional text, stored as SQL NULL when blank
      */
     public RatingResult insertRating(long auctionId, int raterId, int score, String comment) {
         Connection conn = null;
@@ -60,6 +69,8 @@ public class RatingDAO {
 
             // Promote a time-expired auction to FINISHED (+ resolve winner) so the
             // winner/status checks below see consistent state. No-op if already final.
+            // Auctions close lazily on read, so without this an auction whose clock has run out
+            // would still read as ACTIVE and the rating would be refused.
             com.auction.util.AuctionFinalizer.FinalizeResult finalizeResult =
                     com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
@@ -121,6 +132,8 @@ public class RatingDAO {
                     + "(reviewer_user_id, reviewee_user_id, auction_id, rating, comment) "
                     + "VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                // reviewee_user_id comes from the seller_id read out of the auction row above, so
+                // the buyer cannot direct their rating at a user of their choosing.
                 ps.setInt(1, raterId);
                 ps.setInt(2, sellerId);
                 ps.setLong(3, auctionId);
@@ -134,6 +147,8 @@ public class RatingDAO {
             }
 
             conn.commit();
+            // Only notify after a successful commit, and only if this call is what finalized the
+            // auction, so a rolled-back rating cannot trigger a "you won" message.
             if (finalizeResult.finalized && finalizeResult.winnerId > 0) {
                 com.auction.notification.NotificationService.notifyAuctionWonIfAbsent(auctionId, finalizeResult.winnerId);
             }
@@ -154,6 +169,7 @@ public class RatingDAO {
         }
     }
 
+    /** True once the auction's order is COMPLETED. Runs on the caller's transaction. */
     private static boolean isOrderCompleted(Connection conn, long auctionId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT 1 FROM orders WHERE auction_id = ? AND status = 'COMPLETED'")) {
@@ -204,6 +220,9 @@ public class RatingDAO {
     public java.util.List<java.util.Map<String, Object>> listWrittenBy(int reviewerId) {
         String sql = "SELECT r.id, r.auction_id, r.rating, r.comment, r.created_at, "
                 + "u.username AS reviewee_name, ad.title, "
+                // The database evaluates the edit window and returns it as a boolean column, so the
+                // UI shows the edit button on exactly the rows the update query would accept.
+                // Computing it in Java against the browser clock could disagree with the server.
                 + "(r.created_at > NOW() - (" + EDIT_WINDOW_HOURS + " * INTERVAL '1 hour')) AS editable "
                 + "FROM user_reviews r "
                 + "JOIN users u ON u.id = r.reviewee_user_id "
@@ -235,7 +254,14 @@ public class RatingDAO {
         return out;
     }
 
-    /** Updates the caller's own review, only within {@link #EDIT_WINDOW_HOURS} of posting. */
+    /**
+     * Updates the caller's own review, only within {@link #EDIT_WINDOW_HOURS} of posting.
+     *
+     * <p>Ownership and the time window are both conditions in the UPDATE, so the write is refused
+     * by the database rather than by a separate check that could race. When nothing is updated,
+     * {@link #ownReviewExists} distinguishes "not yours or not there" from "too late", which is
+     * what lets the API return a useful message.</p>
+     */
     public ModifyResult updateOwnReview(long reviewId, int reviewerId, int score, String comment) {
         String update = "UPDATE user_reviews SET rating = ?, comment = ? "
                 + "WHERE id = ? AND reviewer_user_id = ? "
@@ -268,6 +294,10 @@ public class RatingDAO {
         }
     }
 
+    /**
+     * Whether the review exists and belongs to this reviewer, ignoring the edit window. Used only
+     * to pick between WINDOW_EXPIRED and NOT_FOUND after a write matched no rows.
+     */
     private boolean ownReviewExists(long reviewId, int reviewerId) {
         String sql = "SELECT 1 FROM user_reviews WHERE id = ? AND reviewer_user_id = ?";
         try (Connection conn = DBUtil.connectDB();
@@ -280,8 +310,13 @@ public class RatingDAO {
         }
     }
 
-    /** All reviews for the admin moderation view, newest first. */
+    /**
+     * All reviews for the admin moderation view, newest first. Both names are shown unmasked here
+     * because the audience is staff, unlike the public profile reads.
+     */
     public java.util.List<java.util.Map<String, Object>> listAllForAdmin(int limit) {
+        // users is joined twice under different aliases, ru for the author and tu for the subject,
+        // because one review row points at two different people.
         String sql = "SELECT r.id, r.auction_id, r.rating, r.comment, r.created_at, "
                 + "ru.username AS reviewer_name, tu.username AS reviewee_name, ad.title "
                 + "FROM user_reviews r "
@@ -320,6 +355,8 @@ public class RatingDAO {
      * marketing content is never hand-written.
      */
     public java.util.List<java.util.Map<String, Object>> listTestimonials(int limit) {
+        // Three conditions decide what is quotable: 4 stars or better, a comment present, and at
+        // least 10 characters after trimming so "ok" or a stray space never reaches the homepage.
         String sql = "SELECT r.rating, r.comment, r.created_at, "
                 + "ru.username AS reviewer_name, ad.title "
                 + "FROM user_reviews r "
@@ -349,7 +386,10 @@ public class RatingDAO {
         return out;
     }
 
-    /** Admin removal of an inappropriate review (no time window). */
+    /**
+     * Admin removal of an inappropriate review. No ownership or time-window condition, which is
+     * the whole point: staff can remove abuse long after the author's own edit window closed.
+     */
     public boolean adminDeleteReview(long reviewId) {
         String sql = "DELETE FROM user_reviews WHERE id = ?";
         try (Connection conn = DBUtil.connectDB();
@@ -372,6 +412,8 @@ public class RatingDAO {
             ps.setInt(1, sellerId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
+                    // AVG over no rows is SQL NULL, which getDouble reports as 0.0. wasNull is the
+                    // only way to tell an unrated seller apart from a genuine average of zero.
                     double avg = rs.getDouble(1);
                     return rs.wasNull() ? 0.0 : avg;
                 }

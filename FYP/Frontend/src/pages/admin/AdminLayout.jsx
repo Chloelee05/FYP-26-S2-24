@@ -1,8 +1,20 @@
+/*
+ * Shell for every page under "/admin". ADMIN role only: App.jsx wraps this whole route in
+ * <ProtectedRoute roles={['ADMIN']}>, so the guard is applied once here and every nested
+ * admin page inherits it. A member who types an admin URL is redirected to the landing page
+ * before any admin component mounts.
+ * Deliberately outside MainLayout, so the admin console has its own sidebar rather than the
+ * shopper navbar and footer. The nested page renders through <Outlet/>.
+ * No API calls of its own beyond the notification bell; the session comes from useAuth().
+ */
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe, Star, Gavel, Type } from 'lucide-react';
 import NotificationBell from '../../components/NotificationBell';
 import { useAuth } from '../../context/AuthContext';
 
+// Sidebar links, in the order the admin work tends to happen: overview, then moderation,
+// then the configuration pages. Overview needs end:true or NavLink would mark it active on
+// every /admin/* path, since they all begin with "/admin".
 const NAV = [
   { to: '/admin', icon: LayoutDashboard, label: 'Overview', end: true },
   { to: '/admin/users', icon: Users, label: 'User Moderation' },
@@ -61,7 +73,9 @@ export default function AdminLayout() {
           ))}
         </nav>
 
-        {/* Bottom actions: Browse Site + Logout */}
+        {/* Bottom actions: Browse Site + Logout.
+            "Browse Site" leaves the console for the public shop without signing out, which
+            is how an admin checks that a moderation change looks right to a shopper. */}
         <div className="p-3 border-t border-white/10 space-y-1">
           <Link
             to="/"

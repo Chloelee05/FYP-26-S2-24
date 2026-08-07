@@ -8,6 +8,33 @@ import java.util.regex.Pattern;
  * Complements {@link SecurityUtil#sanitize(String)} — validate structure here, then sanitize or
  * hash as appropriate in servlets/DAOs.
  * </p>
+ *
+ * <p>The rules and where each one is applied:</p>
+ * <ul>
+ *   <li>Email format and a 254 character cap: registration, and any profile edit that
+ *       changes the address.</li>
+ *   <li>Password policy, 8 to 128 characters with an uppercase letter, a lowercase letter,
+ *       a digit and a symbol: registration, password reset and password change.</li>
+ *   <li>Phone, 8 to 15 digits with an optional leading plus: registration requires one,
+ *       profile edit treats it as optional.</li>
+ *   <li>Display name, 2 to 64 characters of letters, digits, spaces, hyphens, dots and
+ *       apostrophes: profile edit.</li>
+ *   <li>Address, optional and capped at 500 characters: profile edit.</li>
+ *   <li>Search query capped at 200 characters: the buyer search endpoint, matching the
+ *       maxlength on the search box.</li>
+ *   <li>Category name and description: the admin category management screens.</li>
+ *   <li>Question and answer text: the listing question and answer feature.</li>
+ *   <li>Profile image URL, https only: profile edit.</li>
+ * </ul>
+ *
+ * <p>Most rules come in a pair. The {@code isValid} form gives a boolean for a caller that
+ * only needs to branch, and the {@code getXViolation} form returns the message to show the
+ * user, or null when the value is fine. Returning null for valid keeps the two consistent:
+ * a non-null result always means something is wrong.</p>
+ *
+ * <p>This checks structure only. It is not a security boundary on its own, since a client
+ * can skip the form entirely; SQL safety comes from prepared statements in the DAOs and
+ * XSS safety from escaping on output.</p>
  */
 public final class InputValidator {
 
@@ -18,8 +45,14 @@ public final class InputValidator {
             "^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}$");
 
 
+    /** Optional leading {@code +} then 8 to 15 digits, following the E.164 length range. */
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[0-9]{8,15}$");
 
+    /**
+     * Must open with a letter or digit, then allows spaces, hyphens, dots and apostrophes
+     * so real names like O'Brien or Anne-Marie pass. {@code \p{L}} covers letters in any
+     * script rather than just ASCII.
+     */
     private static final Pattern DISPLAY_NAME_PATTERN = Pattern.compile(
             "^[\\p{L}0-9][\\p{L}0-9 '\\-.]{1,63}$");
 

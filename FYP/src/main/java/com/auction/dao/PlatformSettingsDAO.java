@@ -10,11 +10,14 @@ import java.util.Map;
 
 /**
  * Generic admin-tunable key/value settings for small platform-wide knobs that do not
- * warrant a dedicated table of their own — the bid rate-limit window, the order payment
- * deadline, the login lockout threshold and cooldown.
+ * warrant a dedicated table of their own: the bid rate-limit window, the order payment
+ * deadline, and the login lockout threshold and cooldown.
+ *
+ * <p>Reads and writes {@code platform_settings}. Called by the admin settings API to change a
+ * value, and by the bid, order and auth code paths to read one.</p>
  *
  * <p>Deliberately not {@code recommendation_settings}: that table is scoped to the
- * recommendation pipeline (see {@link RecommendationDAO}), and these three anti-abuse /
+ * recommendation pipeline (see {@link RecommendationDAO}), and these anti-abuse and
  * lifecycle knobs are unrelated to ranking. Rather than overload a table that already has
  * its own meaning, this mirrors the same proven shape (a {@code key}/{@code value} row store
  * with a TTL-cached snapshot and a hardcoded fallback per key), which is the established
@@ -23,6 +26,8 @@ import java.util.Map;
 public class PlatformSettingsDAO {
 
     private static final long CACHE_TTL_MILLIS = 30_000;
+    // Settings are read on hot paths such as every bid, so the whole table is cached in memory for
+    // 30 seconds. volatile keeps the swap visible across request threads without locking.
     private static volatile Map<String, String> cached;
     private static volatile long cachedAt;
 
@@ -32,6 +37,7 @@ public class PlatformSettingsDAO {
         cachedAt = 0L;
     }
 
+    /** The cached snapshot, reloading from the database once the TTL has expired. */
     private static Map<String, String> settings() {
         Map<String, String> snapshot = cached;
         if (snapshot != null && System.currentTimeMillis() - cachedAt < CACHE_TTL_MILLIS) {
@@ -53,7 +59,8 @@ public class PlatformSettingsDAO {
                 out.put(rs.getString("key"), rs.getString("value"));
             }
         } catch (Exception ignored) {
-            // Table not migrated yet, or DB unavailable — callers fall back to their default.
+            // Table not migrated yet, or the database is unavailable. Returning an empty map means
+            // every caller falls back to its own hardcoded default rather than the request failing.
         }
         return out;
     }

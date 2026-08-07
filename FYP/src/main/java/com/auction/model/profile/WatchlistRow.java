@@ -8,7 +8,9 @@ import java.time.Instant;
 public final class WatchlistRow implements Serializable {
     private long auctionId;
     private String title;
+    /** {@link com.auction.model.AuctionStatus#getId()}, so the row can show live or ended. */
     private int statusId;
+    /** When the buyer added this listing, which is what the watchlist is ordered by. */
     private Instant addedAt;
     private BigDecimal currentBid;
     private Instant endDate;

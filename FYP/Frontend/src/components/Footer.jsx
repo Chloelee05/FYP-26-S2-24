@@ -1,6 +1,11 @@
+/**
+ * Site footer, rendered once in App.jsx below the routed page. Takes no props and shows
+ * the same links to everyone, including guests, since nothing here is account specific.
+ */
 import { Link } from 'react-router-dom';
 import { Gavel } from 'lucide-react';
 
+// The legal pages the assessment requires. Each is a static route under src/pages.
 const LEGAL = [
   { to: '/terms', label: 'User Agreement' },
   { to: '/privacy', label: 'Privacy' },

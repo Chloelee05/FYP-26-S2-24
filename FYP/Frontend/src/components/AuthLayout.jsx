@@ -1,3 +1,5 @@
+// Wrapped around the form on Login, Register, ForgotPassword, ResetPassword and the 2FA
+// challenge, so all five share one layout.
 import { Link } from 'react-router-dom';
 import { Gavel } from 'lucide-react';
 

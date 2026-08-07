@@ -1,3 +1,13 @@
+/*
+ * User moderation at "/admin/users". ADMIN only, guarded on the parent route in App.jsx.
+ * Lists every account from GET /api/admin/users and drives five actions against the admin
+ * user endpoints: approve and reject a pending registration, ban and unban, and deactivate.
+ * Ban is a status flip and reverses cleanly. Deactivate is the soft delete: the row stays so
+ * the account's bids, orders and reviews keep an author, and it asks for a reason that goes
+ * into the audit log. Neither action ever deletes the record.
+ * Admin accounts have no action buttons at all, so one admin cannot lock out another.
+ * Search filters the loaded rows in memory; the list is small enough not to need paging.
+ */
 import { useState, useEffect } from 'react';
 import {
   getAdminUsers, banUser, unbanUser, approveUser, rejectUser, deactivateUser,
@@ -32,12 +42,16 @@ export default function AdminUsers() {
       .catch(err => setError(apiErrorMessage(err, 'Could not load users.')));
   }, []);
 
+  // Patches one row's status locally after a successful call, which avoids refetching the
+  // whole table for a single change.
   const setStatus = (id, statusId) =>
     setUsers(prev => prev.map(u => u.id === id ? { ...u, statusId } : u));
 
+  // Shared wrapper for all five moderation actions: clears the previous message, runs the
+  // call, applies the local status change and reports what happened.
   // Every action used to be wrapped in `catch { /* ignore */ }` with no message area on the
   // page at all, so approving an already-approved account returned 400 and the button just
-  // looked dead.
+  // looked dead. The failure is now shown instead of being swallowed.
   const run = async (call, { onDone, success }) => {
     setMsg('');
     setError('');
@@ -50,6 +64,7 @@ export default function AdminUsers() {
     }
   };
 
+  // One button for both directions: the current status decides whether this bans or unbans.
   const handleBan = (user) => isActive(user)
     ? run(() => banUser(user.id), {
         onDone: () => setStatus(user.id, 2), success: 'Account banned.' })
@@ -62,6 +77,9 @@ export default function AdminUsers() {
   const handleReject = (user) => run(() => rejectUser(user.id), {
     onDone: () => setStatus(user.id, 5), success: 'Account rejected.' });
 
+  // Soft delete. A reason is required, not optional, because the deactivation is recorded in
+  // the audit log and "no reason given" is not much of an audit trail. Cancelling the prompt
+  // or leaving it blank aborts without calling the server.
   const handleDeactivate = (user) => {
     const reason = window.prompt(
       `Deactivate ${user.username}? The account is kept so their bids, orders and reviews `
@@ -146,6 +164,10 @@ export default function AdminUsers() {
                     </span>
                   </td>
                   <td className="px-4 py-4">
+                    {/* Which controls appear is decided by status. An admin row gets none,
+                        a pending registration gets approve and reject, a rejected or already
+                        deactivated account gets a label, and an ordinary member gets ban and
+                        deactivate. */}
                     {isAdmin ? (
                       <span className="text-xs text-ink-400">—</span>
                     ) : pending ? (

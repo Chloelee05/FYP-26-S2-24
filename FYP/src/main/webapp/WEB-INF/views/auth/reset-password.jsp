@@ -1,3 +1,11 @@
+<%--
+  Step two of the password reset: enter the emailed OTP and choose a new password.
+  Reached by forward from ForgotPasswordServlet once a code has been issued, and rendered
+  again by ResetPasswordServlet (/reset-password) on success or failure. The identifier is
+  carried in a hidden field. A "simulatedOtp" value only appears when the AUCTION_DEV_MODE
+  flag is on, which it is not in production.
+  Legacy JSP flow; the SPA uses /api/auth/reset-password.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

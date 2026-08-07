@@ -46,6 +46,15 @@ import java.util.logging.Logger;
  * POST /api/seller/create          — create auction (SELLER role)
  * POST /api/seller/cancel          — cancel auction (SELLER role)
  * POST /api/seller/edit            — edit auction text+images (SELLER role)
+ *
+ * <p>Everything a seller does with their own listings, plus the one public route,
+ * {@code GET /api/seller/{id}}, which is the profile a buyer sees. That route is deliberately
+ * unauthenticated and returns a masked email, never the seller's phone or address.</p>
+ *
+ * <p>Authorisation is two-layered on every seller route: {@code isSeller} confirms the caller
+ * holds the {@code can_sell} capability, then the DAO scopes each query by the session's own
+ * seller id, so a valid seller still cannot touch another seller's auction. Editing is
+ * restricted once bidding has started, because bids are offers against the published terms.</p>
  */
 @WebServlet("/api/seller/*")
 public class SellerApiServlet extends ApiBase {
@@ -71,6 +80,10 @@ public class SellerApiServlet extends ApiBase {
     public void setSellerAuctionDAO(SellerAuctionDAO dao) { this.auctionDAO = dao; }
     public void setAuctionDAO(AuctionDAO dao)             { this.mainDAO    = dao; }
 
+    /**
+     * Routes the GET side. The named segments {@code auctions} and {@code analytics} are checked
+     * first, so a numeric segment is the only thing treated as a seller id.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String[] parts = parts(req);
@@ -97,6 +110,7 @@ public class SellerApiServlet extends ApiBase {
         }
     }
 
+    /** Routes the POST side by action name. Each handler repeats the seller check for itself. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String[] parts = parts(req);
@@ -117,6 +131,11 @@ public class SellerApiServlet extends ApiBase {
 
     // ── GET: seller analytics ────────────────────────────────────────────────
 
+    /**
+     * GET /api/seller/analytics. Sales, views and conversion figures for the signed-in seller
+     * only. The seller id comes from the session, never from a parameter, so one seller cannot
+     * read another's numbers by guessing an id.
+     */
     private void handleAnalytics(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -132,6 +151,12 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: email the seller their analytics report ────────────────────────
 
+    /**
+     * POST /api/seller/analytics. Emails the same report to the seller's registered address.
+     * When SMTP is not configured, which is the normal case on the demo deployment, the report
+     * text is returned in the response with {@code emailConfigured:false} so the UI can show it
+     * inline rather than reporting a failure the marker cannot fix.
+     */
     private void handleAnalyticsEmail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -168,6 +193,8 @@ public class SellerApiServlet extends ApiBase {
      * POST /api/seller/feature  auctionId [days]
      * Lets a seller feature their own active listing for a flat fee
      * ({@link PlatformRevenueDAO#FEATURED_LISTING_FEE}), recorded as platform revenue.
+     * {@code days} is clamped to 1..30. Ownership is checked against the featured table's own
+     * lookup before anything is charged.
      */
     private void handleFeature(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -188,6 +215,8 @@ public class SellerApiServlet extends ApiBase {
             catch (NumberFormatException ignored) { }
         }
 
+        // Only the owner may feature a listing, and paying for someone else's promotion is
+        // refused before the revenue row is written.
         FeaturedListingDAO featuredDAO = new FeaturedListingDAO();
         if (featuredDAO.sellerIdForAuction(auctionId) != sellerId) {
             forbidden(resp); return;
@@ -214,6 +243,11 @@ public class SellerApiServlet extends ApiBase {
 
     // ── GET: public seller profile ───────────────────────────────────────────
 
+    /**
+     * GET /api/seller/{id}. The storefront a buyer sees: rating average, review count, first page
+     * of reviews and up to 48 live listings. No authentication, so the email is the masked form
+     * held on {@link SellerPublicProfile} and no contact details are exposed.
+     */
     private void handlePublicProfile(HttpServletResponse resp, long sellerId) throws IOException {
         SellerPublicProfile profile = profileDAO.getPublicProfile(sellerId);
         if (profile == null) { error(resp, 404, "Seller not found."); return; }
@@ -241,6 +275,11 @@ public class SellerApiServlet extends ApiBase {
 
     // ── GET: seller's own auction list ───────────────────────────────────────
 
+    /**
+     * GET /api/seller/auctions. The seller's own listing table, paged. Reads {@code bucket}
+     * (active, sold, unsold and so on), {@code q}, {@code sort}, {@code page} and {@code size},
+     * with size capped at 50. Returns the rows plus per-bucket counts for the tab badges.
+     */
     private void handleListAuctions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -312,6 +351,13 @@ public class SellerApiServlet extends ApiBase {
 
     // ── GET: auction edit form data ──────────────────────────────────────────
 
+    /**
+     * GET /api/seller/{auctionId}/edit. Loads the current values into the edit form. The DAO
+     * takes the seller id as well as the auction id, so someone else's auction comes back null
+     * and is answered with 404 rather than 403, which avoids confirming the auction exists.
+     * The bid count travels with the response because the form disables the pricing fields once
+     * bidding has begun.
+     */
     private void handleGetForEdit(HttpServletRequest req, HttpServletResponse resp, long auctionId) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -358,6 +404,15 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: create auction ─────────────────────────────────────────────────
 
+    /**
+     * POST /api/seller/create. Builds one auction from the form fields and writes it with its
+     * images and tags through {@link AuctionDAO}. Requires the seller capability.
+     *
+     * <p>Mandatory: auctionName, auctionDetails, endDate, itemCondition, startPrice, category.
+     * Optional: startDate (defaults to now), maxPrice, quantity, costPrice, listingKind, tags,
+     * imageUrls, and the type-specific dutchFloorPrice and buyItNowPrice. Most of the length of
+     * this method is validation, and each rule below states which listing it protects against.</p>
+     */
     private void handleCreate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -422,6 +477,8 @@ public class SellerApiServlet extends ApiBase {
             badRequest(resp, "End date must be after start date."); return;
         }
 
+        // Ascending is the default when the client omits the type, which keeps the older create
+        // forms working. An unrecognised id is an error rather than a silent fallback.
         AuctionType auctionType = AuctionType.PRICE_UP;
         if (auctionTypeStr != null && !auctionTypeStr.isBlank()) {
             try { auctionType = AuctionType.getAuctionType(Integer.parseInt(auctionTypeStr)); }
@@ -552,6 +609,11 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: cancel auction ─────────────────────────────────────────────────
 
+    /**
+     * POST /api/seller/cancel with {@code auctionId} and {@code reason}. Ends a listing early.
+     * The DAO refuses if the caller does not own it or it has already finished, and every bidder
+     * is notified with the reason because their committed bid is being withdrawn from under them.
+     */
     private void handleCancel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -675,6 +737,11 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: relist auction ─────────────────────────────────────────────────
 
+    /**
+     * POST /api/seller/relist with {@code auctionId}. Puts a cancelled or finished listing back
+     * into PENDING so the seller can give it new dates and publish it again. It does not go
+     * straight to active, because the old end date is in the past.
+     */
     private void handleRelist(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -701,6 +768,15 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: edit auction ───────────────────────────────────────────────────
 
+    /**
+     * POST /api/seller/edit. Updates the descriptive fields of an existing listing: title,
+     * description, category, itemCondition, quantity, costPrice, listingKind, endDate, plus
+     * {@code deleteImageIds} and {@code newImageUrls}. Prices set at creation are not editable
+     * here, since a bid is an offer against the published terms.
+     *
+     * <p>The DAO enforces what may still change once bidding has started and signals a refusal
+     * with {@link IllegalStateException}, which is translated to a 400 carrying its message.</p>
+     */
     private void handleEdit(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -808,6 +884,12 @@ public class SellerApiServlet extends ApiBase {
 
     // ── POST: rate buyer ─────────────────────────────────────────────────────
 
+    /**
+     * POST /api/seller/rate-buyer with {@code auctionId}, {@code score} 1 to 5 and an optional
+     * {@code comment}. The other half of the two-way rating system, the seller rating the winner.
+     * The DAO checks ownership, that the auction finished with a winner, that the order is
+     * complete and that no rating exists yet, and each outcome maps to its own status code below.
+     */
     private void handleRateBuyer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -831,6 +913,7 @@ public class SellerApiServlet extends ApiBase {
             badRequest(resp, "Score must be between 1 and 5."); return;
         }
 
+        // Free text shown on the buyer's public profile, so it is sanitised before storage.
         String comment = param(req, "comment");
         if (comment != null) comment = com.auction.util.SecurityUtil.sanitize(comment.trim());
 
@@ -853,12 +936,14 @@ public class SellerApiServlet extends ApiBase {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    /** Path segments after /api/seller, empty when the servlet is hit with no sub-path. */
     private String[] parts(HttpServletRequest req) {
         String p = req.getPathInfo();
         if (p == null || p.equals("/")) return new String[0];
         return p.replaceFirst("^/", "").split("/");
     }
 
+    /** Paging parameter parse. Clamped to at least 1, since page 0 or a negative size is meaningless. */
     private int parseInt(String s, int def) {
         if (s == null) return def;
         try { return Math.max(1, Integer.parseInt(s)); } catch (NumberFormatException e) { return def; }

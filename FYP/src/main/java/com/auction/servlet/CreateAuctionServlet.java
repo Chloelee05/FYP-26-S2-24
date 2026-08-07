@@ -24,6 +24,23 @@ import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.*;
 
+/**
+ * Legacy JSP listing-creation endpoint. Takes the multipart new-auction form, validates it,
+ * writes the uploaded photos to the upload directory, and inserts the auction plus its tags
+ * through {@link AuctionDAO} and {@link AuctionTagsDAO}.
+ *
+ * <p>The SPA creates listings through {@code /api/auction/*} in {@code AuctionApiServlet}.</p>
+ *
+ * <p>Sellers only: the session's role is checked before anything is parsed. The auction type
+ * chosen here decides the whole later lifecycle, PRICE_UP for an ascending auction,
+ * DUTCH_AUCTION for a declining clock, BLIND for sealed bids, and defaults to PRICE_UP when
+ * the form leaves it out.</p>
+ *
+ * <p>Uploads are handled defensively. Only a fixed list of image extensions is accepted, the
+ * submitted filename is reduced to its last path segment and then replaced with a UUID so a
+ * crafted name cannot escape the upload directory, and any files already written are deleted
+ * if a later step fails, so a rejected submission leaves nothing behind on disk.</p>
+ */
 @MultipartConfig(
         fileSizeThreshold = 1024 * 1024,      // 1MB - buffer in memory before writing to disk
         maxFileSize       = 1024 * 1024 * 5,  // 5MB per file
@@ -42,12 +59,18 @@ public class CreateAuctionServlet extends HttpServlet {
         auctionTagsDAO = new AuctionTagsDAO();
     }
 
+    /** Injection point for stub DAOs in unit tests. */
     public void setAuctionDAO(AuctionDAO auctionDAO, AuctionTagsDAO auctionTagsDAO) {
         this.auctionDAO = auctionDAO;
         this.auctionTagsDAO = auctionTagsDAO;
     }
 
 
+    /**
+     * Resolves the {@code uploadDir} context parameter from {@code web.xml} and creates the
+     * directory if it is missing. Failing here refuses to start the servlet at all, which is
+     * better than accepting a listing and silently losing its photos at write time.
+     */
     @Override
     public void init() throws ServletException {
         uploadDir = getServletContext().getInitParameter("uploadDir");
@@ -59,11 +82,18 @@ public class CreateAuctionServlet extends HttpServlet {
         }
     }
 
+    /** Not implemented: the create-listing form was only ever built in the React front end. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         //
     }
 
+    /**
+     * Creates the auction. Runs in four stages, each of which can abort the request: parse and
+     * validate the fields, write the images, validate the tag ids against the tag table, then
+     * insert. If the insert throws, the images written a moment earlier are removed so a failed
+     * attempt does not leave orphaned files.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
@@ -110,6 +140,10 @@ public class CreateAuctionServlet extends HttpServlet {
     }
 
 
+    /**
+     * Carrier for the submitted form. Holds both the raw strings, which are needed to repopulate
+     * the form after an error, and the parsed values used for the insert.
+     */
     private static class AuctionFormInput {
         String auctionName, auctionDetails, startDate, endDate, startPrice, maxPrice, auctionType, itemCondition;
         String[] tagIds;
@@ -124,6 +158,7 @@ public class CreateAuctionServlet extends HttpServlet {
         return (value == null) ? null : value.trim();
     }
 
+    /** Pulls the text fields off the multipart request without judging them yet. */
     private AuctionFormInput parseFormInput(HttpServletRequest req) {
         AuctionFormInput input = new AuctionFormInput();
         input.auctionName    = trimOrNull(req.getParameter("auction_name"));
@@ -138,6 +173,12 @@ public class CreateAuctionServlet extends HttpServlet {
         return input;
     }
 
+    /**
+     * Checks the form and fills in the parsed fields on {@code input} as it goes.
+     * Covers the required fields, a positive starting price, a max price above the starting
+     * price when one is given, parseable dates with the end after the start, and both enum
+     * values. An omitted start date means "start now".
+     */
     // returns false if validation fails
     private boolean validateFormInput(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
         if (input.auctionName == null || input.auctionName.isBlank() ||
@@ -209,6 +250,12 @@ public class CreateAuctionServlet extends HttpServlet {
         return true;
     }
 
+    /**
+     * Writes the uploaded photos and returns the names they were stored under, or null if any
+     * file was rejected. Two safeguards on each file: the extension must be in the allowed list,
+     * and the stored name is a fresh UUID rather than anything the client supplied, so an
+     * uploaded "../../shell.jsp" cannot land outside the upload directory or be served as code.
+     */
     // returns null if processing fails
     private List<String> processImages(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
         List<String> savedFilenames = new ArrayList<>();
@@ -246,6 +293,11 @@ public class CreateAuctionServlet extends HttpServlet {
         return savedFilenames;
     }
 
+    /**
+     * Turns the submitted tag ids into longs and keeps only ids that exist in the tag table.
+     * Checking against the real set rather than trusting the form stops a hand-edited request
+     * attaching a listing to a tag that was never offered.
+     */
     // returns null if validation fails
     private List<Long> validateTags(HttpServletRequest req, HttpServletResponse resp, AuctionFormInput input) throws ServletException, IOException {
         List<Long> selectedTagIds = new ArrayList<>();
@@ -272,6 +324,7 @@ public class CreateAuctionServlet extends HttpServlet {
         return selectedTagIds;
     }
 
+    /** Deletes photos already written for a submission that is not going to be saved. */
     private void cleanupFiles(List<String> filenames) {
         for (String filename : filenames) {
             try {
@@ -282,12 +335,14 @@ public class CreateAuctionServlet extends HttpServlet {
         }
     }
 
+    /** Records the error message and the submitted values for redisplay. */
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message, AuctionFormInput input) throws ServletException, IOException {
         req.setAttribute("Error", message);
         stickyForm(req, input);
         // req.getRequestDispatcher("???").forward(req, resp);
     }
 
+    /** Puts the submitted field values back on the request under their form parameter names. */
     private void stickyForm(HttpServletRequest req, AuctionFormInput input) {
         req.setAttribute("auction_name",    input.auctionName);
         req.setAttribute("auction_details", input.auctionDetails);

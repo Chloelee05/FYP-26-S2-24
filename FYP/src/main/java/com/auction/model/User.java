@@ -2,10 +2,27 @@ package com.auction.model;
 
 import java.io.Serializable;
 
+/**
+ * An account, mapping to a row of the {@code users} table. Loaded by {@code UserDAO} and
+ * used everywhere from login to the profile page.
+ *
+ * <p>Sensitive columns are handled three different ways, and the distinction matters:</p>
+ * <ul>
+ *   <li>{@link #getPassword()} holds a salted SHA-256 hash, which is one way. Nothing can
+ *       read the password back, only check a candidate against it.</li>
+ *   <li>Phone, address and the 2FA secret hold AES-GCM ciphertext, which is reversible,
+ *       because the application genuinely needs those values back.</li>
+ *   <li>Email is stored in the clear so login and mail delivery work, and is masked at
+ *       the point of display instead.</li>
+ * </ul>
+ * See {@link com.auction.util.SecurityUtil} for all three.
+ */
 public class User implements Serializable {
     private int id;
+    /** Stored unmasked so login and email delivery work; masked when displayed publicly. */
     private String email;
     private String username;
+    /** Salted SHA-256 hash in the form {@code 1$salt$hash}, never the plaintext. */
     private String password;
     private Role role;
     /**

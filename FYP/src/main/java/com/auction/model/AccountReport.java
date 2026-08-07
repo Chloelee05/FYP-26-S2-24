@@ -3,13 +3,22 @@ package com.auction.model;
 import java.io.Serializable;
 import java.time.Instant;
 
+/**
+ * One user reporting another, mapping to a row of {@code seller_reports}. Created when a
+ * buyer or seller submits the report form, and read back by the admin reports queue.
+ */
 public class AccountReport implements Serializable {
     private Long id;
+    /** The account that submitted the report. */
     private Long reporter_id;
+    /** The account being reported. */
     private Long target_id;
+    /** Category picked from the report form, for example a scam or a prohibited item. */
     private String reason;
+    /** The reporter's free text, capped at {@code InputValidator.REPORT_DESCRIPTION_MAX_LENGTH}. */
     private String comment;
     private Instant created_at;
+    /** Set once an administrator has acted on the report, which removes it from the queue. */
     private boolean resolved;
 
     public AccountReport()

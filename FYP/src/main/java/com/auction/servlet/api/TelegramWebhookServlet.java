@@ -48,11 +48,17 @@ public class TelegramWebhookServlet extends ApiBase {
     private UserDAO userDAO = new UserDAO();
     private TelegramAttemptLimiter limiter = TelegramAttemptLimiter.getInstance();
 
-    /** Test hooks */
+    /** Test hooks. The limiter is a process-wide singleton, so tests swap in a fresh one. */
     public void setTelegramLinkDAO(TelegramLinkDAO dao) { this.linkDAO = dao; }
     public void setUserDAO(UserDAO dao) { this.userDAO = dao; }
     public void setAttemptLimiter(TelegramAttemptLimiter limiter) { this.limiter = limiter; }
 
+    /**
+     * Serves POST /api/telegram/webhook. The body is a Telegram Update object. Checks the shared
+     * secret header, pulls the chat id and message text out of either {@code message} or
+     * {@code edited_message}, and dispatches the command. Answers 200 for anything it can accept,
+     * 401 for a bad secret and 503 when no bot is configured.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!TelegramConfig.isConfigured()) {
@@ -96,6 +102,11 @@ public class TelegramWebhookServlet extends ApiBase {
     // Command dispatch
     // -------------------------------------------------------------------------
 
+    /**
+     * Maps the message text to an action. {@code /start} with a payload carries the deep-link
+     * token, a bare six-digit message is the manually typed code, and anything unrecognised gets
+     * the help text rather than silence, so a confused user is not left with no reply.
+     */
     private void handleCommand(String chatId, String text, String telegramUsername) {
         if (text.startsWith("/start")) {
             String payload = text.length() > "/start".length()
@@ -132,6 +143,8 @@ public class TelegramWebhookServlet extends ApiBase {
      * entry points cannot drift apart in what they accept or how they consume a code.
      */
     private void attemptLink(String chatId, String code, String telegramUsername) {
+        // The limiter is keyed on a hash of the chat id, so a guessing loop from one chat is
+        // throttled without the raw chat id being held in memory as the key.
         String chatKey = TelegramLinkDAO.hash(chatId);
 
         if (limiter.isBlocked(chatKey)) {
@@ -160,6 +173,7 @@ public class TelegramWebhookServlet extends ApiBase {
                 + "\n\n" + accountLine(userId));
     }
 
+    /** Handles /unlink from inside the chat, so a user can stop alerts without signing in to the site. */
     private void handleUnlink(String chatId) {
         boolean removed = linkDAO.unlinkChat(chatId);
         reply(chatId, removed
@@ -167,6 +181,7 @@ public class TelegramWebhookServlet extends ApiBase {
                 : "This Telegram account isn't linked to AuctionHub, so there is nothing to disconnect.");
     }
 
+    /** Handles /status: says whether this chat is linked and, if so, which account it is linked to, masked. */
     private void handleStatus(String chatId) {
         Integer userId = linkDAO.findUserIdByChatId(chatId);
         if (userId == null) {
@@ -194,6 +209,11 @@ public class TelegramWebhookServlet extends ApiBase {
         return "Account: <b>linked</b>";
     }
 
+    /**
+     * Warns the chat that used to hold the link. Chat ids are stored encrypted, so the old one
+     * has to be decrypted before it can be messaged. Failures are logged quietly, since this is
+     * a courtesy on top of a link that has already succeeded.
+     */
     private void notifyDisplacedChat(String encryptedChatId) {
         try {
             String oldChatId = SecurityUtil.decrypt(encryptedChatId);
@@ -205,6 +225,7 @@ public class TelegramWebhookServlet extends ApiBase {
         }
     }
 
+    /** Sends one HTML-formatted message back to the chat through the bot API. */
     private void reply(String chatId, String html) {
         TelegramClient.sendMessage(chatId, html);
     }
@@ -227,6 +248,10 @@ public class TelegramWebhookServlet extends ApiBase {
                 expected.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Reads the request body as text, stopping at {@link #MAX_BODY_BYTES} so a huge or endless
+     * body cannot exhaust memory on an endpoint that anyone on the internet can reach.
+     */
     private static String readBody(HttpServletRequest req) throws IOException {
         StringBuilder sb = new StringBuilder();
         char[] buffer = new char[4096];

@@ -24,12 +24,17 @@ import java.util.List;
  * {@link WatchlistResult} rather than a raw constraint-violation exception.</p>
  *
  * <p><b>Own-auction guard:</b> {@link #add} resolves {@code seller_id} from the
- * DB inside the transaction — never from the request — and rejects adds where
+ * DB inside the transaction, never from the request, and rejects adds where
  * the watcher is the auction seller.</p>
  *
  * <p><b>IDOR prevention:</b> {@code auctionId} is parsed as {@code long} by the
  * servlet. The seller's identity is always resolved from the DB, never trusted
  * from request parameters.</p>
+ *
+ * <p>Reads and writes {@code watchlist}, and reads {@code auction},
+ * {@code auction_details}, {@code bids} and {@code auction_images} to render the watchlist page.
+ * Called by the watchlist API servlet and by the ending-soon notification job. The listing query
+ * carries the blind-auction price guard.</p>
  */
 public class WatchlistDAO {
 
@@ -63,7 +68,9 @@ public class WatchlistDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
-            // Resolve seller_id server-side (IDOR prevention)
+            // Resolve seller_id server-side (IDOR prevention). Reading it inside the same
+            // transaction as the insert is what makes the own-auction check meaningful; taking a
+            // seller id from the request would let a caller simply claim to be someone else.
             String selectSql = "SELECT seller_id FROM auction WHERE auction_id = ?";
             int sellerId;
             try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
@@ -82,7 +89,8 @@ public class WatchlistDAO {
                 return WatchlistResult.OWN_AUCTION;
             }
 
-            // Friendly duplicate check before hitting the UNIQUE constraint
+            // Friendly duplicate check before hitting the UNIQUE constraint, so the servlet can
+            // return ALREADY_WATCHING instead of surfacing a raw SQL constraint violation.
             String existsSql =
                     "SELECT 1 FROM watchlist WHERE user_id = ? AND auction_id = ?";
             try (PreparedStatement ps = conn.prepareStatement(existsSql)) {
@@ -130,7 +138,8 @@ public class WatchlistDAO {
      * Removes an auction from the buyer's watchlist.
      *
      * @return {@code true} if a row was deleted; {@code false} if the entry did
-     *         not exist (caller should handle gracefully — no exception is thrown)
+     *         not exist. No exception is thrown, so the caller can treat a repeated
+     *         unwatch as a no-op.
      */
     public boolean remove(long auctionId, int userId) {
         String sql = "DELETE FROM watchlist WHERE user_id = ? AND auction_id = ?";
@@ -151,6 +160,11 @@ public class WatchlistDAO {
     /**
      * Returns all watchlist entries for the given user, ordered by most-recently
      * added first.
+     *
+     * <p>Each row is one watchlist card: the auction's title and status, when it was watched, the
+     * price to display, how many bids it has drawn and a thumbnail. The LEFT JOIN onto
+     * {@code bids} plus GROUP BY is what lets a watched auction with no bids still appear, with
+     * MAX and COUNT falling back to the starting price and zero.</p>
      */
     public List<WatchlistRow> listByUser(int userId) {
         String sql =
@@ -184,8 +198,8 @@ public class WatchlistDAO {
                 while (rs.next()) {
                     Timestamp ts = rs.getTimestamp("date_end");
                     Instant endDate = ts != null ? ts.toInstant() : null;
-                    // added_at is TIMESTAMPTZ — read as Timestamp then convert, since the
-                    // PG driver cannot map TIMESTAMPTZ directly to LocalDateTime.
+                    // added_at is TIMESTAMPTZ, so it is read as a Timestamp and then converted,
+                    // because the PG driver cannot map TIMESTAMPTZ directly to LocalDateTime.
                     Timestamp addedTs = rs.getTimestamp("added_at");
                     Instant addedAt = addedTs != null ? addedTs.toInstant() : null;
                     rows.add(new WatchlistRow(
@@ -228,7 +242,15 @@ public class WatchlistDAO {
         }
     }
 
+    /**
+     * Watchlist entries whose auction closes within the next two hours, used by the reminder job.
+     *
+     * <p>Returns one row per watcher per auction, so a popular listing yields several rows and each
+     * watcher is notified individually. Suspended listings are excluded by the moderation filter.</p>
+     */
     public List<WatchlistRow> getEndingSoonWatchlistItems() throws Exception {
+        // The two-hour window is evaluated by the database with NOW(), so all application nodes
+        // agree on which auctions count as ending soon.
         String sql = "SELECT w.user_id, w.auction_id, ad.title, a.date_end " +
                 "FROM watchlist w " +
                 "JOIN auction a ON w.auction_id = a.auction_id " +
@@ -254,6 +276,10 @@ public class WatchlistDAO {
         }
     }
 
+    /**
+     * Fans the ending-soon rows out into one in-app notification per watcher, each deep-linking to
+     * the auction. Delegates the actual insert to {@link NotificationDAO}.
+     */
     private void sendNotification(List<WatchlistRow> endingSoon) throws Exception
     {
         try {

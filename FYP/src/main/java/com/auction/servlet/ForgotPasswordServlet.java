@@ -26,6 +26,14 @@ import java.util.logging.Logger;
  * {@link MailConfig#isSmtpConfigured()} is true ({@code AUCTION_SMTP_HOST}, etc.).
  * Otherwise the OTP is written to the server log, and rendered on the page as
  * {@code simulatedOtp} only when {@link DevMode#isEnabled()}.
+ *
+ * <p>That last condition is a security gate, not a convenience. Putting the code in the HTTP
+ * response makes testing possible without a mail server, but anyone who can reach the form
+ * could then reset an account they do not own. {@link DevMode} reads the {@code AUCTION_DEV_MODE}
+ * flag, which is off in production, so the code can never travel back to the browser there.</p>
+ *
+ * <p>This is the legacy JSP half of the reset flow. The SPA posts to
+ * {@code /api/auth/forgot-password} in {@code AuthApiServlet} for the same feature.</p>
  */
 @WebServlet("/forgot-password")
 public class ForgotPasswordServlet extends HttpServlet {
@@ -51,11 +59,18 @@ public class ForgotPasswordServlet extends HttpServlet {
         this.otpStore = otpStore;
     }
 
+    /** Shows the form that asks for the account's email or phone number. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.getRequestDispatcher(VIEW_FORGOT).forward(req, resp);
     }
 
+    /**
+     * Reads the {@code identifier} field, decides from the presence of an "@" whether to treat
+     * it as an email or a phone number, validates it in the matching format, and issues an OTP
+     * when the account exists. On success the user is forwarded to the reset form with the
+     * identifier carried across; the OTP itself lives in {@link OtpStore}, not in the page.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = req.getParameter("identifier");
@@ -88,6 +103,9 @@ public class ForgotPasswordServlet extends HttpServlet {
 
         User user = isEmail ? userDAO.getUserByEmail(identifier) : null;
 
+        // An unknown identifier gets exactly the same "if that account exists" wording as a real
+        // one. The form must not become a way of testing which emails are registered, so the
+        // response is identical whether or not a lookup succeeded.
         if (user == null) {
             req.setAttribute("OtpSent", "If that account exists, an OTP has been sent.");
             req.getRequestDispatcher(VIEW_FORGOT).forward(req, resp);
@@ -100,6 +118,8 @@ public class ForgotPasswordServlet extends HttpServlet {
             try {
                 OtpMailer.sendPasswordResetCode(identifier, otp);
             } catch (MessagingException e) {
+                // The stored code is thrown away when the mail fails. Leaving a live OTP behind
+                // that nobody received would only widen the window for guessing it.
                 LOG.log(Level.WARNING, "Failed to send password-reset email to " + identifier, e);
                 otpStore.invalidate(identifier);
                 req.setAttribute("Error",

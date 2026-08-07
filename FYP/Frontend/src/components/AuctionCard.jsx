@@ -1,3 +1,20 @@
+/**
+ * One listing tile. Every list surface uses it: the home page strips, search results, the
+ * watchlist, the recommendation rails and the "similar auctions" row on a detail page.
+ *
+ * Props: `auction`, one row from a listing endpoint, with auctionId, title, currentPrice,
+ * endDate, thumbnailUrl, sellerUsername, category, an optional `sealed` flag and an
+ * optional `why` object carrying the recommendation provenance.
+ *
+ * The card never offers a bidding action, only a link through to the detail page, so a
+ * guest and a signed-in member see exactly the same call to action and there is no
+ * role-dependent branch here at all. Bidding, and the sign-in prompt a guest gets when
+ * they try it, both live on the detail page.
+ *
+ * The price shown is whatever the server put in currentPrice. For a Dutch listing that is
+ * the current clock price computed server side, so the card and the detail page cannot
+ * disagree, and for a blind listing no amount is shown at all.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, ImageIcon, Sparkles, ChevronDown, MousePointerClick, Search, Lock, Gauge } from 'lucide-react';
@@ -31,6 +48,12 @@ function loadLandingContentOnce() {
  *
  * Everything shown here is aggregate or masked — the server never sends the
  * identities behind these numbers to a public page.
+ *
+ * This is the recommendation explainability the assessor asked for. `why.reason` is the
+ * sentence built from the reason code the pipeline attached to the card (PEER_BIDS,
+ * SIMILAR_TASTE, SAME_CATEGORY, SEARCH_KEYWORD or TRENDING), and the panel underneath
+ * shows the evidence: the match score, how many people clicked the listing, and which of
+ * the user's own search keywords it matched.
  */
 // How the re-ranker's five signals read on a card. The dominant one is the single
 // biggest contributor to the score, which is not always the arm that produced the card:
@@ -45,6 +68,9 @@ const COMPONENT_LABELS = {
 };
 
 function WhyThis({ why }) {
+  // Collapsed by default. The toggle sits inside a card that is itself a link, which is
+  // why its handler calls preventDefault and stopPropagation below: without them,
+  // expanding the evidence would navigate to the listing instead.
   const [open, setOpen] = useState(false);
   const keywords = why.keywords ?? [];
   const clicks = why.clickCount ?? 0;
@@ -109,9 +135,15 @@ export default function AuctionCard({ auction }) {
     auctionId, title, currentPrice, endDate, thumbnailUrl, sellerUsername, category, why, sealed,
   } = auction;
 
+  // Button wording, admin-editable through landing_content. Starts at the built-in
+  // defaults so the card renders correctly before the fetch resolves, and stays on them
+  // if the request fails.
   const [viewCta, setViewCta] = useState(DEFAULT_VIEW_CTA);
   const [endedCta, setEndedCta] = useState(DEFAULT_ENDED_CTA);
 
+  // Pull the admin-edited labels once per page. The `cancelled` flag stops a late
+  // response calling setState on a card that has already been unmounted, which happens
+  // routinely when search results are replaced.
   useEffect(() => {
     let cancelled = false;
     loadLandingContentOnce().then(content => {
@@ -184,7 +216,11 @@ export default function AuctionCard({ auction }) {
         {why?.reason && <WhyThis why={why} />}
 
         {/* A sealed-bid listing shows no amount at all: the bids stay secret until
-            it closes, so quoting a number here would be misleading at best. */}
+            it closes, so quoting a number here would be misleading at best.
+            `sealed` is set by the server for a BLIND listing, so the leading bid is
+            never sent to the browser in the first place. For the other two types
+            currentPrice is the top bid on an ascending listing, or the current clock
+            price on a Dutch one. */}
         <div className="mt-auto pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
             {sealed ? 'Sealed bid' : 'Current bid'}

@@ -40,6 +40,10 @@ import java.util.logging.Logger;
  * </p>
  *
  * <p><b>No PII in logs:</b> Only {@code auctionId} and {@code userId} are logged.</p>
+ *
+ * <p>Legacy JSP flow; the SPA uses {@code /api/watchlist} in {@code WatchlistApiServlet}.
+ * The watchlist is also what feeds the "ending soon" reminders: {@code AuctionExpiryListener}
+ * reads these rows on each sweep and notifies the watchers.</p>
  */
 @WebServlet("/protected/watchlist")
 public class WatchlistServlet extends HttpServlet {
@@ -60,6 +64,7 @@ public class WatchlistServlet extends HttpServlet {
     // GET — list watchlist
     // -------------------------------------------------------------------------
 
+    /** Lists everything the signed-in buyer is watching. Takes no parameters by design. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -90,6 +95,10 @@ public class WatchlistServlet extends HttpServlet {
     // POST — add / remove
     // -------------------------------------------------------------------------
 
+    /**
+     * Adds or removes one auction. Requires {@code auctionId} and {@code action}, which must be
+     * exactly "add" or "remove"; anything else is a 400 rather than a silent no-op.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -136,6 +145,10 @@ public class WatchlistServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Adds the auction to the watchlist. The DAO decides the refusals (auction gone, own
+     * listing, already watching) and each comes back as a flash message on the auction page.
+     */
     private void handleAdd(HttpServletRequest req, HttpServletResponse resp,
                            HttpSession session, long auctionId, int userId)
             throws IOException {
@@ -160,6 +173,10 @@ public class WatchlistServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/auction/" + auctionId);
     }
 
+    /**
+     * Removes the auction from the watchlist. Removing something that is not there is treated as
+     * success with no message, which keeps a double click from producing a pointless error.
+     */
     private void handleRemove(HttpServletRequest req, HttpServletResponse resp,
                               HttpSession session, long auctionId, int userId)
             throws IOException {

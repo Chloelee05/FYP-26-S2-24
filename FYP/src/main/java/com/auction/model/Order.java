@@ -16,12 +16,14 @@ public final class Order {
     private final long buyerId;
     private final long sellerId;
     private final BigDecimal amount;
+    /** Payment stage: PENDING, PAID, COMPLETED or CANCELLED. Only ever moves forwards. */
     private final String status;
     private final Instant createdAt;
     private final Instant paidAt;
     private final Instant completedAt;
     private final String role;          // "buyer" or "seller" for the requesting user
     private final String counterparty;  // the other party's username
+    /** Delivery stage, tracked separately from {@link #status}: PREPARING, SHIPPED, IN_TRANSIT, DELIVERED. */
     private final String shippingStatus;
     private final Instant shippingUpdatedAt;
     private final boolean hasRated;

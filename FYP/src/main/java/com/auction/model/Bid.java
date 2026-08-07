@@ -3,6 +3,13 @@ package com.auction.model;
 import java.io.Serializable;
 import java.time.Instant;
 
+/**
+ * One row of the {@code bids} table: who bid how much on what, and when.
+ *
+ * <p>There is no primary key field because a bid is identified by the whole tuple. Bid
+ * time breaks ties on equal amounts, which is how the earliest of two identical bids wins
+ * in {@link com.auction.util.AuctionFinalizer}.</p>
+ */
 public class Bid implements Serializable {
     private Long auction_id;
     private Long user_id;

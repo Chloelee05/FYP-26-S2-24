@@ -13,6 +13,16 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Instant;
 
+/**
+ * Files a report against another user account, as opposed to {@link BuyerReportServlet} which
+ * reports a listing. Builds an {@link AccountReport} and stores it through {@link ReportDAO}
+ * for an admin to review later.
+ *
+ * <p>Legacy code from the JSP era, and currently dead. It carries no {@code @WebServlet}
+ * annotation and no {@code web.xml} entry, and it looks for a {@code user} object in the
+ * session that the current login path never sets. The live equivalent is
+ * {@code ReportApiServlet} on {@code /api/report/*}.</p>
+ */
 public class ReportUserServlet extends HttpServlet {
 
     private ReportDAO reportDAO;
@@ -21,15 +31,22 @@ public class ReportUserServlet extends HttpServlet {
         reportDAO = new ReportDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setDAO(ReportDAO reportDAO) {
         this.reportDAO = reportDAO;
     }
 
+    /** Not implemented: no JSP report form was built. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         //
     }
 
+    /**
+     * Submits the report. Expects {@code target_id} plus an optional {@code reason} and
+     * {@code comment}. The reporter is taken from the session, and reporting yourself is
+     * refused, which is the only rule that can be decided without touching the database.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
@@ -82,6 +99,10 @@ public class ReportUserServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Sets the error message and the submitted values. The forward is commented out because the
+     * view was never written, so this currently produces an empty response rather than a page.
+     */
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message,
                               Long target_id, String reason, String comment) throws ServletException, IOException {
         req.setAttribute("Error", message);
@@ -89,6 +110,7 @@ public class ReportUserServlet extends HttpServlet {
         // req.getRequestDispatcher("???").forward(req, resp);
     }
 
+    /** Puts the submitted values back on the request for a form redisplay. */
     private void stickyForm(HttpServletRequest req, Long target_id, String reason, String comment) {
         req.setAttribute("target_id", target_id);
         req.setAttribute("reason", reason);

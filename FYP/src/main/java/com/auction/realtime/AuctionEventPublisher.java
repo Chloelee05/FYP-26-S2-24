@@ -45,7 +45,15 @@ public final class AuctionEventPublisher {
         }
     }
 
+    /**
+     * Reads the auction's current state straight from the database and shapes it into the
+     * map sent to browsers. Returns null when the auction id does not exist. Package private
+     * so the unit tests can assert the visibility rules without opening an SSE stream.
+     */
     static Map<String, Object> buildSnapshot(long auctionId) {
+        // Aggregating in SQL rather than in Java: one round trip gives both the highest bid and
+        // the bid count. COALESCE covers an auction with no bids yet, where MAX is null and the
+        // starting price is the price to show.
         String sql =
                 "SELECT a.status_id, a.auction_type, a.date_created, a.date_end, a.moderation_state, "
                 + "d.starting_price, d.dutch_floor_price, "
@@ -75,6 +83,10 @@ public final class AuctionEventPublisher {
                 BigDecimal currentBid = rs.getBigDecimal("current_bid");
                 int bidCount = rs.getInt("bid_count");
 
+                // "Open" needs all four conditions: the seller has it active, a moderator has not
+                // suspended it, the end time has not passed, and the scheduled start has arrived.
+                // Everything below keys off this flag, so an auction that is merely scheduled is
+                // treated the same as a closed one for price visibility.
                 Instant nowPub = Instant.now();
                 boolean open = statusId == AuctionStatus.ACTIVE.getId()
                         && "active".equals(modState)
@@ -94,6 +106,10 @@ public final class AuctionEventPublisher {
 
                 switch (type) {
                     case DUTCH_AUCTION:
+                        // While the clock runs the price is a function of elapsed time, not of bids,
+                        // so it is computed here instead of read. Bid count is forced to 0 because a
+                        // Dutch auction ends on the first accepted offer, so a non-zero count would
+                        // only confuse the buyer.
                         if (open) {
                             BigDecimal clock = DutchClock.currentPrice(
                                     startingPrice, dutchFloor, dateCreated, dateEnd, Instant.now());
@@ -106,6 +122,9 @@ public final class AuctionEventPublisher {
                         break;
                     case BLIND:
                         // Sealed: hide the amount while open; reveal the winning bid once closed.
+                        // This is the confidentiality guard, and it has to be applied on every read
+                        // path that projects a price. Leaking it here would let a bidder watch the
+                        // SSE stream and undercut the leader by a cent.
                         body.put("currentBid", open ? null : currentBid);
                         body.put("numBids", bidCount);
                         break;

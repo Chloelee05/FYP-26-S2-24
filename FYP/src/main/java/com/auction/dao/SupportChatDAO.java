@@ -12,9 +12,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Admin–user support chat threads and messages. */
+/**
+ * Admin to user support chat threads and messages.
+ *
+ * <p>Reads and writes {@code support_threads}, {@code support_messages} and
+ * {@code support_thread_reads}, joining {@code users} and {@code roles} to label who sent what.
+ * Called by the support API servlet for both the user-facing inbox and the admin console.
+ * Distinct from {@link OrderMessageDAO}, which handles buyer to seller order chat. Thread
+ * ownership is not enforced by the queries here, so the servlet must call
+ * {@link #threadBelongsToUser} before serving a non-admin request.</p>
+ */
 public class SupportChatDAO {
 
+    /**
+     * Shared projection for a thread summary row. Each correlated subquery answers one question
+     * about the thread's messages: how many there are, when the last one arrived, its body and
+     * attachment, who sent it, and when this viewer last read the thread. The trailing
+     * {@code last_read_at} subquery takes the viewer id as parameter 1, which is why every caller
+     * binds the viewer before any other filter.
+     */
     private static final String THREAD_SELECT =
             "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, "
           + "  (SELECT COUNT(*) FROM support_messages m WHERE m.thread_id = t.id) AS message_count, "
@@ -24,6 +40,13 @@ public class SupportChatDAO {
           + "  (SELECT m.sender_id FROM support_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id, "
           + "  (SELECT tr.last_read_at FROM support_thread_reads tr WHERE tr.thread_id = t.id AND tr.user_id = ?) AS last_read_at ";
 
+    /**
+     * Opens a new support thread for a user.
+     *
+     * @param subject free text; a blank subject falls back to "Support request" so the admin list
+     *                never shows an empty row
+     * @return the new thread id, or -1 if nothing was inserted
+     */
     public long createThread(int userId, String subject) throws Exception {
         String sql = "INSERT INTO support_threads (user_id, subject) VALUES (?, ?) RETURNING id";
         try (Connection conn = DBUtil.connectDB();
@@ -37,15 +60,24 @@ public class SupportChatDAO {
         return -1;
     }
 
+    /** A user's own threads, newest activity first. The viewer and the filter are the same user. */
     public List<Map<String, Object>> listThreadsForUser(int userId) throws Exception {
         String sql = THREAD_SELECT
                 + "FROM support_threads t WHERE t.user_id = ? "
+                // Sort by last message time, falling back to the thread's own updated_at through
+                // COALESCE so a freshly opened thread with no messages still sorts to the top
+                // rather than sorting as NULL.
                 + "ORDER BY COALESCE("
                 + "  (SELECT MAX(m.created_at) FROM support_messages m WHERE m.thread_id = t.id), "
                 + "  t.updated_at) DESC";
         return queryThreadsForViewer(sql, userId, userId);
     }
 
+    /**
+     * Every thread in the system for the admin console, with the reporting user's name attached.
+     * The projection repeats THREAD_SELECT because it adds the username join and drops the
+     * user filter, so the parameter positions differ.
+     */
     public List<Map<String, Object>> listThreadsForAdmin(int adminUserId) throws Exception {
         String sql =
             "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, "
@@ -71,6 +103,11 @@ public class SupportChatDAO {
         return out;
     }
 
+    /**
+     * Runs a THREAD_SELECT-shaped query. Parameter 1 is the viewer, used by the last_read_at
+     * subquery to work out the unread flag; parameter 2 is the user whose threads to list. They
+     * are separate arguments so an admin view could read a thread list framed as someone else.
+     */
     private List<Map<String, Object>> queryThreadsForViewer(String sql, int viewerUserId, int filterUserId) throws Exception {
         List<Map<String, Object>> out = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
@@ -84,6 +121,11 @@ public class SupportChatDAO {
         return out;
     }
 
+    /**
+     * Turns one thread row into the JSON shape the UI expects, including the derived unread flag.
+     *
+     * @param withUsername true for the admin projection, which alone carries the username column
+     */
     private static Map<String, Object> mapThread(ResultSet rs, boolean withUsername, int viewerUserId) throws Exception {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", rs.getLong("id"));
@@ -101,12 +143,19 @@ public class SupportChatDAO {
         if (rs.wasNull()) lastSender = -1;
         Timestamp lastMsgTs = rs.getTimestamp("last_message_at");
         Timestamp lastReadTs = rs.getTimestamp("last_read_at");
+        // Unread means somebody else spoke last and the viewer has not opened the thread since.
+        // A thread the viewer replied to last is never unread to them, and a null last_read_at
+        // means they have never opened it at all.
         boolean unread = lastSender > 0 && lastSender != viewerUserId && lastMsgTs != null
                 && (lastReadTs == null || lastMsgTs.after(lastReadTs));
         m.put("unread", unread);
         return m;
     }
 
+    /**
+     * Stamps the viewer's read position for a thread. Upserts because a user may open the same
+     * thread many times and there is one read marker per (thread, user) pair.
+     */
     public void markThreadRead(long threadId, int userId) throws Exception {
         String sql = "INSERT INTO support_thread_reads (thread_id, user_id, last_read_at) VALUES (?, ?, CURRENT_TIMESTAMP) "
                 + "ON CONFLICT (thread_id, user_id) DO UPDATE SET last_read_at = CURRENT_TIMESTAMP";
@@ -118,6 +167,7 @@ public class SupportChatDAO {
         }
     }
 
+    /** Header for one thread, or null if it does not exist. Carries no access check of its own. */
     public Map<String, Object> getThread(long threadId) throws Exception {
         String sql =
             "SELECT t.id, t.user_id, t.subject, t.status, t.created_at, t.updated_at, u.username "
@@ -140,6 +190,7 @@ public class SupportChatDAO {
         }
     }
 
+    /** Ownership check the servlet runs before letting a non-admin read or post to a thread. */
     public boolean threadBelongsToUser(long threadId, int userId) throws Exception {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -150,10 +201,18 @@ public class SupportChatDAO {
         }
     }
 
+    /** Text-only message. Convenience overload for the common case. */
     public long addMessage(long threadId, int senderId, String body) throws Exception {
         return addMessage(threadId, senderId, body, null);
     }
 
+    /**
+     * Adds a message and bumps the parent thread's {@code updated_at} in the same transaction, so
+     * the thread cannot appear in the list without the message that reordered it.
+     *
+     * @param attachmentUrl optional file link; a message needs a body or an attachment, not both
+     * @return the new message id, or -1 if the insert returned nothing
+     */
     public long addMessage(long threadId, int senderId, String body, String attachmentUrl) throws Exception {
         String text = body != null ? body.trim() : "";
         String attach = attachmentUrl != null ? attachmentUrl.trim() : "";
@@ -169,6 +228,8 @@ public class SupportChatDAO {
             try (PreparedStatement ps = conn.prepareStatement(insert)) {
                 ps.setLong(1, threadId);
                 ps.setInt(2, senderId);
+                // body is NOT NULL, so an attachment-only message stores a single space rather than
+                // failing the constraint.
                 ps.setString(3, text.isEmpty() ? " " : text);
                 if (withAttachment) ps.setString(4, attach);
                 long msgId;
@@ -192,6 +253,10 @@ public class SupportChatDAO {
         }
     }
 
+    /**
+     * Full transcript of a thread, oldest first. The join through {@code roles} gives each message
+     * its sender's role, which is how the UI decides whether to render a message as staff or user.
+     */
     public List<Map<String, Object>> listMessages(long threadId) throws Exception {
         String sql =
             "SELECT m.id, m.thread_id, m.sender_id, m.body, m.attachment_url, m.created_at, "
@@ -223,6 +288,7 @@ public class SupportChatDAO {
         return out;
     }
 
+    /** Marks a thread resolved. The transcript is kept; only the status changes. */
     public boolean closeThread(long threadId) throws Exception {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -232,6 +298,7 @@ public class SupportChatDAO {
         }
     }
 
+    /** Formats a nullable SQL timestamp as an ISO-8601 string for the JSON payload. */
     private static String instant(Timestamp ts) {
         Instant i = ts != null ? ts.toInstant() : null;
         return i != null ? i.toString() : null;

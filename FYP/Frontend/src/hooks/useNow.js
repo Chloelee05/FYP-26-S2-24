@@ -1,3 +1,5 @@
+// Used by AuctionCard and CountdownTimer, and by anything else that has to redraw as
+// time passes. Pair it with timeRemaining or timeRemainingWithDays from utils/helpers.
 import { useEffect, useState } from 'react';
 
 /**

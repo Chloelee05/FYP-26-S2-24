@@ -18,6 +18,14 @@ import java.io.IOException;
  * GET  /api/order-messages            — conversations for the current user
  * GET  /api/order-messages/{orderId}  — messages for one order (buyer or seller only)
  * POST /api/order-messages/{orderId}  — send a message (params: body)
+ *
+ * <p>Behind AuthFilter. The rule that matters is participation: every read and write calls
+ * {@link OrderMessageDAO#isParticipant} first, so only the buyer and the seller on that order
+ * can see or add to the thread. Message text goes through {@link SecurityUtil#sanitize} before
+ * storage, because it is rendered back into the other party's page.</p>
+ *
+ * <p>This is buyer to seller conversation about a specific order. Tickets raised with the
+ * platform go to {@code SupportApiServlet} instead.</p>
  */
 @WebServlet("/api/order-messages/*")
 public class OrderMessageApiServlet extends ApiBase {
@@ -26,6 +34,10 @@ public class OrderMessageApiServlet extends ApiBase {
     private final OrderDAO orderDAO = new OrderDAO();
     private final UserDAO userDAO = new UserDAO();
 
+    /**
+     * With no order id in the path, lists the caller's conversations for the inbox view. With an
+     * id, returns that thread, but only after the participation check; a non-participant gets 403.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -44,6 +56,11 @@ public class OrderMessageApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/order-messages/{orderId} with a {@code body} parameter. Sends one message to the
+     * other party on that order and notifies them. The sender is taken from the session, so a
+     * message cannot be posted under someone else's name.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -54,8 +71,11 @@ public class OrderMessageApiServlet extends ApiBase {
         try {
             if (!messageDAO.isParticipant(orderId, userId)) { forbidden(resp); return; }
 
+            // Sanitised before storage because the text is shown in the recipient's page, so raw
+            // markup here would be a stored XSS against the other party.
             String body = SecurityUtil.sanitize(param(req, "body"));
             if (body == null || body.isBlank()) { badRequest(resp, "Message body is required."); return; }
+            // Over-long text is truncated rather than rejected, so a long message still sends.
             if (body.length() > 2000) body = body.substring(0, 2000);
 
             long msgId = messageDAO.addMessage(orderId, userId, body);
@@ -64,6 +84,7 @@ public class OrderMessageApiServlet extends ApiBase {
             // Notify the other party.
             int[] parties = orderDAO.partiesAndAuction(orderId); // [buyer, seller, auction]
             if (parties != null) {
+                // Whichever of the two the sender is not.
                 int recipient = (parties[0] == userId) ? parties[1] : parties[0];
                 String senderName = senderName(userId);
                 NotificationService.notifyOrderMessage(parties[2], recipient, senderName);
@@ -75,6 +96,7 @@ public class OrderMessageApiServlet extends ApiBase {
         }
     }
 
+    /** Display name for the notification. Falls back to "A user" so a lookup failure cannot lose the alert. */
     private String senderName(int userId) {
         try {
             User u = userDAO.getUserById(userId);

@@ -24,6 +24,12 @@ import java.util.concurrent.TimeUnit;
  * runs 10 seconds after each previous pass finishes. {@code scheduleWithFixedDelay} (not
  * {@code AtFixedRate}) is what guarantees passes cannot overlap when one runs long because
  * it is pacing a full batch.</p>
+ *
+ * <p>Why an outbox at all: a Telegram send is a call out to another company's server and can
+ * take seconds or fail outright. Doing that inside a bid or an order request would make the
+ * user wait on it and would tie the notification to whether the HTTP request survived. Instead
+ * the request only writes a row into {@code telegram_outbox} and returns, and this worker
+ * delivers it afterwards, retrying rows that did not go through.</p>
  */
 @WebListener
 public class TelegramOutboxListener implements ServletContextListener {
@@ -34,6 +40,7 @@ public class TelegramOutboxListener implements ServletContextListener {
     private ScheduledExecutorService scheduler;
     private final TelegramOutboxWorker worker = new TelegramOutboxWorker();
 
+    /** Starts the single daemon sender thread when the web application comes up. */
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -45,6 +52,8 @@ public class TelegramOutboxListener implements ServletContextListener {
                 INITIAL_DELAY_SECONDS, FIXED_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
+    /** Stops the sender on undeploy. Undelivered rows stay in the outbox and go out after the
+     *  next startup, which is the main benefit of queueing in the database. */
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
         if (scheduler != null) {
@@ -52,6 +61,7 @@ public class TelegramOutboxListener implements ServletContextListener {
         }
     }
 
+    /** One pass: hand control to the worker, which claims a batch of pending rows and sends them. */
     private void runOutboxPass() {
         try {
             worker.runOnce();

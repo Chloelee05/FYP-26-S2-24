@@ -21,8 +21,12 @@ import java.sql.SQLException;
  * {@link SellerRatingResult#NOT_AUCTION_OWNER}, which the servlet maps to 403.</p>
  *
  * <p><b>IDOR prevention:</b> The buyer being rated ({@code reviewee_user_id}) is resolved
- * from {@code auction_details.winner_id} inside the transaction — never taken from the
+ * from {@code auction_details.winner_id} inside the transaction, never taken from the
  * request.</p>
+ *
+ * <p>Writes {@code user_reviews} and reads {@code auction}, {@code auction_details} and
+ * {@code orders}. Called by the rating API servlet once a sale has settled. Ratings feed the
+ * aggregate scores that {@link RatingDAO} and {@link SellerProfileDAO} report.</p>
  */
 public class ReviewDAO {
 
@@ -43,14 +47,19 @@ public class ReviewDAO {
     }
 
     /**
-     * Inserts a 1–5 star rating for the winning buyer of a finished auction.
+     * Inserts a 1 to 5 star rating for the winning buyer of a finished auction.
      *
      * <p>All preconditions (status, ownership, winner, duplicate) are verified within
      * a single transaction so every DB read is consistent with the eventual insert.</p>
      *
+     * <p>Requiring a COMPLETED order as well as a FINISHED auction is deliberate: a seller should
+     * not be able to rate a buyer who has won but not yet paid.</p>
+     *
      * @param auctionId auction the seller owns (parsed as {@code long} by the servlet)
      * @param sellerId  seller submitting the rating (read from session, never from request)
-     * @param score     star score; must be 1–5 (validated by servlet before this call)
+     * @param score     star score; must be 1 to 5 (validated by servlet before this call)
+     * @param comment   optional free text, stored as SQL NULL when blank so the UI can tell an
+     *                  empty comment apart from an unwritten one
      */
     public SellerRatingResult insertSellerRating(long auctionId, int sellerId, int score, String comment) {
         Connection conn = null;
@@ -60,6 +69,8 @@ public class ReviewDAO {
 
             // Promote a time-expired auction to FINISHED (+ resolve winner) so the
             // status/winner checks below see consistent state. No-op if already final.
+            // Auctions are closed lazily on read rather than by a scheduler, so without this an
+            // auction whose clock has run out would still look ACTIVE and block the rating.
             com.auction.util.AuctionFinalizer.FinalizeResult finalizeResult =
                     com.auction.util.AuctionFinalizer.finalizeIfEnded(conn, auctionId);
 
@@ -120,7 +131,8 @@ public class ReviewDAO {
                 }
             }
 
-            // buyerId resolved from winner_id — never from the request (IDOR prevention)
+            // buyerId resolved from winner_id, never from the request (IDOR prevention). Without
+            // this a seller could post a rating against any user id they chose to send.
             String insertSql =
                     "INSERT INTO user_reviews "
                     + "(reviewer_user_id, reviewee_user_id, auction_id, rating, comment) "
@@ -139,6 +151,8 @@ public class ReviewDAO {
             }
 
             conn.commit();
+            // The won-auction notification is sent only after the commit, and only if this call is
+            // what actually finalized the auction, so a rolled-back attempt cannot notify a winner.
             if (finalizeResult.finalized && finalizeResult.winnerId > 0) {
                 com.auction.notification.NotificationService.notifyAuctionWonIfAbsent(auctionId, finalizeResult.winnerId);
             }
@@ -159,6 +173,10 @@ public class ReviewDAO {
         }
     }
 
+    /**
+     * True once the auction's order has reached COMPLETED. Runs on the caller's connection so it
+     * sees the same transaction snapshot as the surrounding checks.
+     */
     private static boolean isOrderCompleted(Connection conn, long auctionId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT 1 FROM orders WHERE auction_id = ? AND status = 'COMPLETED'")) {
@@ -167,6 +185,7 @@ public class ReviewDAO {
         }
     }
 
+    /** Outcome codes returned by {@link #insertBuyerRating}, mirroring the seller-side codes. */
     public enum BuyerRatingResult {
         SUCCESS,
         AUCTION_NOT_FOUND,
@@ -180,6 +199,18 @@ public class ReviewDAO {
         ALREADY_RATED
     }
 
+    /**
+     * The reverse direction: the winning buyer rates the seller of a finished auction. Same
+     * transactional shape as {@link #insertSellerRating}, without the comment field and without
+     * the completed-order requirement.
+     *
+     * <p>Note when reading this: the SELECT below projects {@code a.buyer_id} and
+     * {@code d.seller_id}, while the row mapping reads a {@code winner_id} column that this
+     * projection does not include. That mismatch is a known defect, not an intentional trick.</p>
+     *
+     * @param buyerId winning buyer from the session, checked against the auction row
+     * @param score   star score, validated by the servlet
+     */
     public BuyerRatingResult insertBuyerRating(long auctionId, int buyerId, int score) {
         Connection conn = null;
         try {
@@ -238,7 +269,7 @@ public class ReviewDAO {
                 }
             }
 
-            // buyerId resolved from winner_id — never from the request (IDOR prevention)
+            // Reviewee resolved from the auction row, never from the request (IDOR prevention).
             String insertSql =
                     "INSERT INTO user_reviews "
                             + "(reviewer_user_id, reviewee_user_id, auction_id, rating) "

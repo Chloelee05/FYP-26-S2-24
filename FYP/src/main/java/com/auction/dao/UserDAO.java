@@ -20,7 +20,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Account persistence: registration, login lookups, profile edits, admin listings and PDPA
+ * account closure. Owns the {@code users} table and joins {@code roles} and {@code user_status} for
+ * display. Closure additionally rewrites {@code auction}, {@code orders}, {@code telegram_links}
+ * and {@code telegram_outbox} in one transaction. Called by the auth, account and admin servlets.
+ *
+ * <p>Two security points worth knowing. {@link #getUserByEmail} selects the password hash because
+ * login has to compare it; {@link #getUserById} deliberately does not, so a session-driven profile
+ * read can never leak it. Phone and address are stored as AES-GCM ciphertext and this class passes
+ * them through untouched, leaving encryption and decryption to {@link SecurityUtil}.</p>
+ */
 public class UserDAO {
+    /** Whether the username is already registered. Used by the sign-up form's availability check. */
     public boolean checkUser(String username){
         try(Connection conn = DBUtil.connectDB()) {
 
@@ -37,6 +49,7 @@ public class UserDAO {
         }
     } //for username validation
 
+    /** Whether the email is already registered. Note this comparison is case-sensitive. */
     public boolean checkEmail(String email){
         try(Connection conn = DBUtil.connectDB()) {
 
@@ -53,6 +66,10 @@ public class UserDAO {
         }
     } // for email validation
 
+    /**
+     * Registers an account. The password on the model must already be the salted SHA-256 hash from
+     * {@link SecurityUtil}; this method never sees a plaintext password.
+     */
     public boolean insertUser(User user)
     {
         try(Connection conn = DBUtil.connectDB()) {
@@ -75,6 +92,10 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Moves an account between statuses (approve, suspend, reactivate) and stamps when it changed.
+     * That timestamp is what the admin suspension list orders on.
+     */
     public boolean updateStatus(int id, int status)
     {
         try(Connection conn = DBUtil.connectDB()) {
@@ -93,7 +114,9 @@ public class UserDAO {
     private static volatile Boolean canSellColumnPresent;
 
     /**
-     * Loads a user row for login (includes password hash).
+     * Loads a user row for login. This is the one read path that selects the password hash, because
+     * authentication has to compare against it. Email is matched case-insensitively so a member who
+     * types a capital letter can still sign in.
      */
     public User getUserByEmail(String email) {
         try (Connection conn = DBUtil.connectDB()) {
@@ -115,7 +138,8 @@ public class UserDAO {
     }
 
     /**
-     * Loads profile fields for the signed-in user (password column is not selected).
+     * Loads profile fields for the signed-in user. The password column is deliberately left out of
+     * the projection: nothing on a profile screen needs the hash, so it never enters the model.
      */
     public User getUserById(int id) {
         try (Connection conn = DBUtil.connectDB()) {
@@ -145,6 +169,10 @@ public class UserDAO {
      * True when the production/local schema has {@code users.can_sell}.
      * Deployed DBs that missed {@code migration_seller_capability.sql} still allow login;
      * {@link User#canSell()} falls back to the legacy SELLER role.
+     *
+     * <p>Probed once against {@code information_schema.columns} and cached in a volatile field
+     * under double-checked locking, since the schema cannot change while the app is running.
+     * Migrations are additive, so the column either exists from the start or never appears.</p>
      */
     private static boolean hasCanSellColumn(Connection conn) throws SQLException {
         Boolean cached = canSellColumnPresent;
@@ -166,7 +194,11 @@ public class UserDAO {
         }
     }
 
-    /** Package-private for row-mapping unit tests without touching {@link DBUtil}. */
+    /**
+     * Builds a {@link User} from a row. {@code includePassword} is what keeps the hash out of
+     * profile reads; only the login path passes true. Phone and address stay as ciphertext here.
+     * Package-private for row-mapping unit tests without touching {@link DBUtil}.
+     */
     static User mapUserFromResultSet(ResultSet rs, boolean includePassword) throws SQLException {
         User user = new User();
         user.setId(rs.getInt("id"));
@@ -221,6 +253,10 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Turns on two-factor sign-in. The secret arrives already encrypted, so the shared key is only
+     * ever handled by {@link SecurityUtil} and the plaintext never reaches the database.
+     */
     public boolean enableTwoFactor(String email, String encryptedSecret) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "UPDATE users SET two_factor_enabled = TRUE, two_factor_secret = ? WHERE email = ?";
@@ -233,6 +269,7 @@ public class UserDAO {
         }
     }
 
+    /** Turns two-factor off and clears the stored secret, so re-enabling issues a fresh one. */
     public boolean disableTwoFactor(String email) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "UPDATE users SET two_factor_enabled = FALSE, two_factor_secret = NULL WHERE email = ?";
@@ -244,6 +281,10 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Replaces the stored password. As with registration, the value must already be hashed by the
+     * caller; this method does no hashing of its own.
+     */
     public boolean updatePassword(String email, String hashedPassword) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "UPDATE users SET password = ? WHERE email = ?";
@@ -260,7 +301,7 @@ public class UserDAO {
     static final String LISTING_CANCEL_REASON =
             "Cancelled automatically: the seller closed their AuctionHub account.";
 
-    /** {@code orders.cancel_reason} — added to the CHECK by migration_account_closure.sql. */
+    /** {@code orders.cancel_reason}, added to the CHECK constraint by migration_account_closure.sql. */
     static final String ORDER_CANCEL_REASON = "ACCOUNT_CLOSED";
 
     /** {@code orders.refund_reason} raised on the departing seller's paid, undespatched sales. */
@@ -284,30 +325,30 @@ public class UserDAO {
      * Account closure, plus the clean-up that closure implies for the member's open business.
      *
      * <p>Anonymising the {@code users} row is not enough on its own. A departing seller's live
-     * listings kept running and stayed biddable, which meant members could go on bidding —
-     * and winning — against a seller who no longer exists and cannot despatch anything; their
-     * open orders were left dangling in the same way. All of it happens in the one transaction
-     * as the anonymisation, so the account cannot end up closed with its listings still live.</p>
+     * listings kept running and stayed biddable, which meant members could go on bidding, and
+     * winning, against a seller who no longer exists and cannot despatch anything. Their open
+     * orders were left dangling in the same way. All of it happens in the one transaction as the
+     * anonymisation, so the account cannot end up closed with its listings still live.</p>
      *
      * <p>The policy, per state:</p>
      * <ul>
-     *   <li><b>ACTIVE / PENDING listings</b> → CANCELLED with a reason naming the closure.
+     *   <li>ACTIVE and PENDING listings become CANCELLED with a reason naming the closure.
      *       Bids are left in place, as they are for a seller-initiated cancel: they are the
      *       audit trail of a real auction.</li>
-     *   <li><b>PENDING_PAYMENT orders</b>, on either side → CANCELLED. Nothing has been paid,
+     *   <li>PENDING_PAYMENT orders, on either side, become CANCELLED. Nothing has been paid,
      *       so nobody is out of pocket, and neither party is left holding an obligation to a
      *       counterparty who has gone.</li>
-     *   <li><b>PAID sales not yet despatched</b> → left PAID and flagged
+     *   <li>PAID sales not yet despatched stay PAID and are flagged
      *       {@code refund_status = 'REQUESTED'}. This is the case the buyer must never lose:
      *       they have paid a seller who has just vanished. Cancelling the order outright
      *       would make their money disappear with it, so instead the order enters the
      *       existing refund queue that {@code OrderDAO#adminResolveRefund} already services,
      *       where an admin approves the refund and the cancellation follows from that. An
      *       order that already carries a refund decision is left alone.</li>
-     *   <li><b>PAID orders already in transit, and the departing member's own paid
-     *       purchases</b> → not touched. The goods are moving; unwinding that is a support
-     *       matter, not something to guess at inside a DELETE. The counterparty is told.</li>
-     *   <li><b>COMPLETED orders</b> → not touched. They are finished history.</li>
+     *   <li>PAID orders already in transit, and the departing member's own paid purchases, are
+     *       not touched. The goods are moving; unwinding that is a support matter, not something
+     *       to guess at inside a DELETE. The counterparty is told.</li>
+     *   <li>COMPLETED orders are not touched. They are finished history.</li>
      * </ul>
      */
     public ClosureImpact closeAccount(int userId) {
@@ -327,6 +368,9 @@ public class UserDAO {
 
     /** Same as {@link #closeAccount(int)} but uses an existing connection (for unit tests). */
     ClosureImpact closeAccountWithConnection(Connection conn, int userId) throws SQLException {
+        // Identifying fields are overwritten with unique junk rather than nulled, because email and
+        // username carry uniqueness constraints and several closures would otherwise collide. The
+        // password is set to a random hash so the row can never be signed into again.
         String token = UUID.randomUUID().toString().replace("-", "");
         String shortTok = token.substring(0, Math.min(16, token.length()));
         String anonymizedEmail = "deleted_" + userId + "_" + shortTok + "@invalid.auction.local";
@@ -378,6 +422,8 @@ public class UserDAO {
      * @return the cancelled auction ids
      */
     private static List<Long> cancelOpenListings(Connection conn, int userId) throws SQLException {
+        // Postgres RETURNING gives back the ids the UPDATE actually touched, so the caller can
+        // notify about them without a second query and without a race against another writer.
         List<Long> ids = new ArrayList<>();
         String sql = "UPDATE auction SET status_id = ?, cancel_reason = ? "
                 + "WHERE seller_id = ? AND status_id IN (?, ?) "
@@ -405,6 +451,9 @@ public class UserDAO {
      */
     private static List<AffectedOrder> cancelUnpaidOrders(Connection conn, int userId)
             throws SQLException {
+        // Selected first so the counterparty and item title are captured before the status changes,
+        // then updated in a batch. FOR UPDATE OF o locks only the order rows, not the joined
+        // auction_details, which nothing here modifies.
         List<AffectedOrder> affected = new ArrayList<>();
         String select = "SELECT o.id, o.buyer_id, o.seller_id, d.title "
                 + "FROM orders o JOIN auction_details d ON d.id = o.auction_id "
@@ -442,13 +491,16 @@ public class UserDAO {
      * order now sits in the pending-refund queue an admin already works through
      * ({@code OrderDAO#adminResolveRefund}), so approving it performs the same
      * refund-and-cancel transition as any other approved refund. Orders that already carry a
-     * refund decision are skipped rather than overwritten — the buyer may have had one
-     * declined, and that outcome is not this method's to reverse.</p>
+     * refund decision are skipped rather than overwritten, because the buyer may have had one
+     * declined and that outcome is not this method's to reverse.</p>
      *
      * @return the flagged orders, each carrying the buyer who is owed the money
      */
     private static List<AffectedOrder> raiseRefundsOnUndespatchedSales(Connection conn, int userId)
             throws SQLException {
+        // "Not yet despatched" is a null shipping status or PREPARING. Anything further along means
+        // the parcel has left, which is the handover case instead. The UPDATE repeats the status
+        // and refund_status conditions so a concurrent change between the two statements loses.
         List<AffectedOrder> affected = new ArrayList<>();
         String select = "SELECT o.id, o.buyer_id, o.seller_id, d.title "
                 + "FROM orders o JOIN auction_details d ON d.id = o.auction_id "
@@ -479,10 +531,13 @@ public class UserDAO {
 
     /**
      * The paid orders closure deliberately leaves exactly as they are: sales already handed
-     * to a courier, and the departing member's own paid purchases. Read-only — the goods are
-     * in motion, and the right outcome depends on facts (did it arrive? was it as described?)
-     * that only the two people involved and support can establish. The counterparty is told
+     * to a courier, and the departing member's own paid purchases. Read only, because the goods
+     * are in motion and the right outcome depends on facts only the two people involved and
+     * support can establish: did it arrive, was it as described. The counterparty is told
      * so they are not left wondering why the other name went quiet.
+     *
+     * <p>Called before any of the write steps, so the list reflects the state closure found rather
+     * than the state closure created.</p>
      */
     private static List<AffectedOrder> listHandoverOrders(Connection conn, int userId)
             throws SQLException {
@@ -503,7 +558,10 @@ public class UserDAO {
         return affected;
     }
 
-    /** Maps an order row to the party that is <em>not</em> the departing member. */
+    /**
+     * Maps an order row to the party that is <em>not</em> the departing member. Which side that is
+     * is worked out by comparing the buyer id, since the member can be on either.
+     */
     private static AffectedOrder counterpartyOf(ResultSet rs, int departingUserId)
             throws SQLException {
         int buyerId = rs.getInt("buyer_id");
@@ -565,7 +623,7 @@ public class UserDAO {
         }
 
         public long getOrderId()             { return orderId; }
-        /** The other party on the order — the one still here, and the one to notify. */
+        /** The other party on the order, meaning the one still here and the one to notify. */
         public int getCounterpartyId()       { return counterpartyId; }
         /** True when the counterparty is the buyer, which decides where the alert links to. */
         public boolean isCounterpartyBuyer() { return counterpartyIsBuyer; }
@@ -597,6 +655,10 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Whether some other account already uses this username, compared case-insensitively.
+     * The id is excluded so a member re-saving their profile unchanged does not clash with itself.
+     */
     public boolean usernameTakenByOtherUser(String username, int excludeUserId) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT 1 FROM users WHERE LOWER(username) = LOWER(?) AND id <> ? LIMIT 1";
@@ -650,6 +712,7 @@ public class UserDAO {
         }
     }
 
+    /** Sets just the avatar, used by the upload endpoint so it need not resend the whole profile. */
     public boolean updateProfileImageUrl(int userId, String profileImageUrl) {
         try (Connection conn = DBUtil.connectDB()) {
             PreparedStatement ps = conn.prepareStatement(
@@ -670,8 +733,8 @@ public class UserDAO {
      * <p>The lookup columns are compared case-insensitively because the seed data spells
      * them {@code 'Admin'} / {@code 'Active'} while the enums and the rest of the code spell
      * them in upper case. A literal {@code r.role = 'ADMIN'} matched nothing in PostgreSQL,
-     * which silently swallowed every admin alert — pending registrations, reports and
-     * support messages — since the feature shipped.</p>
+     * which silently swallowed every admin alert since the feature shipped: pending registrations,
+     * reports and support messages all went nowhere.</p>
      */
     public List<Integer> listAdminUserIds() {
         List<Integer> ids = new ArrayList<>();
@@ -688,8 +751,15 @@ public class UserDAO {
         return ids;
     }
 
+    /**
+     * Every account for the admin user table, with the activity counts the table shows.
+     * Closed accounts are excluded: their fields are anonymised placeholders and there is nothing
+     * an admin can usefully do with them.
+     */
     public List<AdminUserSummary> listUsersForAdminTable() {
         try (Connection conn = DBUtil.connectDB()) {
+            // Bid and listing counts come from correlated subqueries rather than joins, because
+            // joining both tables and grouping would multiply the rows before counting them.
             String sql = "SELECT u.id, u.username, u.email, u.role_id, u.status_id, u.date_created"
                     + (hasCanSellColumn(conn) ? ", u.can_sell" : "")
                     + ", (SELECT COUNT(*)::int FROM bids b WHERE b.user_id = u.id) AS bid_count, "
@@ -723,14 +793,17 @@ public class UserDAO {
         }
     }
 
+    /** Members on the platform, excluding closed accounts. Shown on the admin dashboard. */
     public int countNonDeletedUsers() {
         return countOneInt("SELECT COUNT(*) FROM users WHERE status_id <> ?", Status.DELETED.getId());
     }
 
+    /** Approved, non-suspended accounts, which is a narrower figure than the count above. */
     public int countActiveUsers() {
         return countOneInt("SELECT COUNT(*) FROM users WHERE status_id = ?", Status.ACTIVE.getId());
     }
 
+    /** Newest sign-ups for the admin activity feed, closed accounts left out. */
     public List<NamedInstantEvent> recentRegistrations(int limit) {
         String sql = "SELECT username, date_created FROM users "
                 + "WHERE status_id <> ? "
@@ -739,6 +812,11 @@ public class UserDAO {
         return loadNamedInstantEvents(sql, Status.DELETED.getId(), limit);
     }
 
+    /**
+     * Currently suspended accounts, most recently suspended first. COALESCE falls back to the
+     * join date for rows suspended before {@code last_status_changed_at} was being written, which
+     * would otherwise sort as nulls and jump to one end of the list.
+     */
     public List<NamedInstantEvent> recentSuspensions(int limit) {
         String sql = "SELECT username, COALESCE(last_status_changed_at, date_created) AS ev "
                 + "FROM users "
@@ -748,6 +826,7 @@ public class UserDAO {
         return loadNamedInstantEventsByTwoParams(sql, Status.SUSPENDED.getId(), limit);
     }
 
+    /** Runs a two-parameter query whose event timestamp column is named {@code date_created}. */
     private List<NamedInstantEvent> loadNamedInstantEvents(String sql, int excludeDeleted, int limit) {
         try (Connection conn = DBUtil.connectDB()) {
             List<NamedInstantEvent> out = new ArrayList<>();
@@ -768,6 +847,7 @@ public class UserDAO {
         }
     }
 
+    /** The same shape as above, for queries that alias their timestamp column to {@code ev}. */
     private List<NamedInstantEvent> loadNamedInstantEventsByTwoParams(String sql, int statusId, int limit) {
         try (Connection conn = DBUtil.connectDB()) {
             List<NamedInstantEvent> out = new ArrayList<>();
@@ -788,6 +868,7 @@ public class UserDAO {
         }
     }
 
+    /** Runs a COUNT with one bound int and returns the single value, or zero. */
     private static int countOneInt(String sql, int intParam) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -803,6 +884,7 @@ public class UserDAO {
         return 0;
     }
 
+    /** A username paired with when something happened to it, for the admin activity feed. */
     public static final class NamedInstantEvent {
         private final String name;
         private final Instant at;
@@ -821,6 +903,10 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Every account as sparse {@link User} objects carrying only id, username, email and role.
+     * The password column is fetched by the {@code SELECT *} but never read into the model.
+     */
     public List<User> viewAllUsers(){
         try(Connection conn = DBUtil.connectDB()) {
             List<User> userList = new ArrayList<>();

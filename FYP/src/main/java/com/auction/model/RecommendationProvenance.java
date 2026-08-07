@@ -17,12 +17,25 @@ import java.util.List;
  */
 public final class RecommendationProvenance {
 
-    /** Stable identifier for the pipeline stage that produced the item. */
+    /**
+     * Stable identifier for the pipeline stage that produced the item.
+     *
+     * <p>The four generating arms run in sequence and top each other up: each is asked for
+     * candidates only until the requested number is filled, so a viewer with a rich history
+     * is served mostly by the earlier arms and a new visitor falls through to
+     * {@link #TRENDING}. An item is labelled with whichever arm contributed most to its
+     * score after hybrid re-ranking, not necessarily the arm that first proposed it.</p>
+     */
     public enum Reason {
+        /** Matched against what this viewer has recently searched for. */
         SEARCH_KEYWORD,
+        /** Bid on by people who bid on the same listings as the viewer. */
         PEER_BIDS,
+        /** Surfaced by cosine similarity over whole interaction histories. */
         SIMILAR_TASTE,
+        /** Shares a category with something the viewer has already engaged with. */
         SAME_CATEGORY,
+        /** Popular right now. The fallback arm, and the only one a new visitor gets. */
         TRENDING
     }
 

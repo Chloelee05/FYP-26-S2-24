@@ -1,3 +1,13 @@
+/*
+ * Admin side of support chat, at "/admin/chat". ADMIN only. The same conversations appear to
+ * the member at /support, so this is one thread seen from two ends.
+ * Reads the support thread list and the messages of the selected thread, POSTs a reply,
+ * marks a thread read when it is opened, and can close a thread.
+ * Both lists poll: threads every 10 seconds, the open conversation every 5, which is the
+ * pattern used on the other messaging pages since there is no websocket in this project.
+ * Closing a thread makes it read only on both sides; the composer is replaced by a notice
+ * and the server rejects any further message to it.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +17,8 @@ import usePolling from '../../hooks/usePolling';
 import ChatMessage from '../../components/ChatMessage';
 import SupportChatInput from '../../components/SupportChatInput';
 
+// An image only message has no text to preview, so the list would otherwise show a blank
+// line. The single space check catches messages the composer sent as whitespace.
 function threadPreview(t) {
   const body = (t.lastBody || '').trim();
   if (body && body !== ' ') return body;
@@ -29,6 +41,8 @@ export default function AdminChat() {
   const [searchParams] = useSearchParams();
   const [threads, setThreads] = useState([]);
   // ?thread= deep-links a conversation (e.g. from Reports); clicking the list takes over.
+  // pickedId is null until the admin clicks, so the query parameter wins on first render and
+  // is then ignored, which avoids having to rewrite the URL on every selection.
   const [pickedId, setPickedId] = useState(null);
   const selectedId = pickedId ?? (Number(searchParams.get('thread')) || null);
   const [messages, setMessages] = useState([]);
@@ -54,18 +68,25 @@ export default function AdminChat() {
     }
   }, [selectedId]);
 
+  // Thread list every 10 seconds so a new ticket appears without a refresh, open thread every
+  // 5 for the reply itself. The message poll is switched off when nothing is selected.
   usePolling(loadThreads, 10000);
   usePolling(loadMessages, 5000, Boolean(selectedId));
 
+  // Covers the deep-linked case: arriving with ?thread= never goes through selectThread, so
+  // the read receipt has to be sent from here as well.
   useEffect(() => {
     if (!selectedId) return;
     markSupportThreadRead(selectedId).catch(() => {});
   }, [selectedId]);
 
+  // Keeps the newest message in view after each poll or send.
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const selected = threads.find(t => t.id === selectedId);
 
+  // Refetches immediately rather than waiting for the next poll, and reloads the thread list
+  // too so the preview line and timestamp on the left move with the reply.
   const handleSend = async ({ body, attachmentUrl }) => {
     if (!selectedId) return;
     try {
@@ -90,6 +111,8 @@ export default function AdminChat() {
     }
   };
 
+  // The unread flag is cleared locally at the same time as the read receipt is sent, so the
+  // highlight disappears on click instead of after the next poll.
   const selectThread = (t) => {
     setPickedId(t.id);
     setMsg('');

@@ -1,3 +1,27 @@
+/*
+ * Auction detail page at "/auction/:id". Public: a guest can read everything, but the whole
+ * bidding column is replaced by a sign in prompt, so an unregistered visitor browses read
+ * only. A signed in member sees controls chosen by auction type, an admin gets none of the
+ * buyer controls, and the seller of this listing sees seller tools instead of a bid form.
+ *
+ * The page is the busiest in the app because it drives all three auction types from one
+ * component:
+ *   PRICE_UP (ascending, type 1): bid input with quick increment buttons, optional Buy It
+ *     Now, and auto bid where the server bids on the buyer's behalf up to a maximum.
+ *   DUTCH_AUCTION (type 2): no bidding. The price falls on a clock from the starting price
+ *     toward dutchFloorPrice and the first buyer to accept wins at the displayed figure.
+ *   BLIND (type 3): one sealed bid per buyer, minimum is the starting price. Competing
+ *     amounts are never shown to a buyer while the auction runs, only "Hidden until close".
+ *     Auto bid is not offered because there is no visible price to bid against, and the
+ *     server rejects it for this type anyway.
+ *
+ * Endpoints: GET auction detail, bids, questions and similar listings on mount; POST bid,
+ * accept Dutch price, buy it now, set or cancel auto bid, watchlist add/remove, ask
+ * question, seller reply, and declare winner.
+ *
+ * Live pricing is done by polling every 4 seconds rather than server sent events, because
+ * Cloudflare in front of the Render deployment closes long lived SSE connections.
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Heart, Share2, AlertCircle, ChevronLeft, Flag, CheckCircle2, Gavel, MessageCircleQuestion, Lock, Package, Check, Store, LayoutDashboard, LogIn, Wrench, Loader2 } from 'lucide-react';
@@ -43,15 +67,23 @@ export default function AuctionDetail() {
   const [auction, setAuction] = useState(null);
   const [bids, setBids] = useState([]);
   const [questions, setQuestions] = useState([]);
+  // Index into auction.images for the large gallery image.
   const [selectedImage, setSelectedImage] = useState(0);
+  // Raw text of the bid input. Shared by the ascending and the sealed bid forms, since only
+  // one of them is ever on screen.
   const [bidAmount, setBidAmount] = useState('');
+  // True from the moment a bid, Dutch accept or Buy It Now request is sent until it settles.
+  // Every one of those buttons is disabled while it is set, so a slow server response cannot
+  // be double clicked into two bids from the same person.
   const [bidPending, setBidPending] = useState(false);
+  // Timestamp until which the Place Bid button stays disabled after a successful bid.
   const [bidCooldownUntil, setBidCooldownUntil] = useState(0);
   const [autoBidMax, setAutoBidMax] = useState('');
   const [autoBidIncrement, setAutoBidIncrement] = useState('50');
   const [myAutoBid, setMyAutoBid] = useState(null);   // active auto-bid from server
   const [autoBidEditing, setAutoBidEditing] = useState(false); // edit mode toggle
   const [question, setQuestion] = useState('');
+  // Seller reply text keyed by question id, so several drafts can be open at once.
   const [replyDrafts, setReplyDrafts] = useState({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -69,6 +101,8 @@ export default function AuctionDetail() {
   // rather than needing an effect to reset the flag when the account changes.
   const watched = canBuy && watchedByMe;
 
+  // First load for this listing id. Detail, bids, questions and similar listings are fetched
+  // independently so a failure in one section does not blank the page.
   useEffect(() => {
     getAuctionDetail(id).then(r => {
       setAuction(r.data);
@@ -94,6 +128,10 @@ export default function AuctionDetail() {
   // Poll every 4s while the auction is open; stop once it closes so a closed
   // listing left open in a tab does not keep hitting the server forever.
   const isOpen = auction?.open === true;
+  // One poll tick. Promise.allSettled rather than Promise.all: if the bid list request fails
+  // the price still updates from the detail response. The signal comes from usePolling and
+  // aborts an in-flight tick when the component unmounts or the auction closes, which stops
+  // a late response from overwriting fresher state.
   const pollAuction = useCallback(async ({ signal }) => {
     const [detail, bidList] = await Promise.allSettled([
       getAuctionDetail(id, { signal }),
@@ -133,6 +171,8 @@ export default function AuctionDetail() {
     }
   };
 
+  // Watchlist toggle. Local state is flipped only after the server confirms, so the heart
+  // icon cannot show a saved state that was never stored.
   const handleToggleWatch = async () => {
     if (!user) { setError('Please log in to use your watchlist.'); return; }
     if (!canBuy) { setError('Admin accounts cannot use a watchlist.'); return; }
@@ -152,6 +192,8 @@ export default function AuctionDetail() {
     }
   };
 
+  // Skeleton in the real two column shape while the detail request is outstanding. Every
+  // derived value below dereferences auction, so this early return also guards them.
   if (!auction) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -180,6 +222,10 @@ export default function AuctionDetail() {
   const isScheduled = auction.startTime && now < new Date(auction.startTime).getTime();
 
   // Dutch descending clock, computed locally so the price animates between SSE frames.
+  // The server is still authoritative on what a buyer actually pays: this is a linear
+  // interpolation from startingPrice at startTime down to dutchFloorPrice at endTime, using
+  // the useNow() tick, so the figure keeps falling each second instead of jumping once every
+  // four seconds when the poll lands. It is clamped to the floor and never goes below it.
   const dutchClockPrice = () => {
     const start = Number(auction.startingPrice ?? 0);
     const floor = Number(auction.dutchFloorPrice ?? 0);
@@ -192,6 +238,8 @@ export default function AuctionDetail() {
     return Math.max(floor, start - (start - floor) * frac);
   };
 
+  // A running Dutch auction shows the falling clock price. Everything else, including a
+  // closed Dutch listing, shows the stored current bid.
   const displayPrice = isDutch && auction.open ? dutchClockPrice() : auction.currentBid;
   // Mirrors BidDAO.placeBid: a bid must be strictly greater than the current floor
   // (highest bid, or the starting price when there are none yet). Anything stricter
@@ -199,6 +247,8 @@ export default function AuctionDetail() {
   const bidFloor = auction.currentBid || auction.startingPrice || 0;
   // Smallest amount the server will take, at cent precision.
   const minBid = Math.round((bidFloor + 0.01) * 100) / 100;
+  // A sealed bid competes against amounts nobody can see, so the only floor that can be
+  // published is the starting price.
   const sealedMinBid = auction.startingPrice || 0;
   const reserveMet = auction.currentBid >= auction.reservePrice;
 
@@ -223,6 +273,11 @@ export default function AuctionDetail() {
   const BID_COOLDOWN_MS = 3000;
   const bidCooldownRemaining = Math.max(0, Math.ceil((bidCooldownUntil - now) / 1000));
 
+  // Ascending bid. Guards run in order: session, buyer capability, then the in-flight and
+  // cooldown checks that stop a double submit. The amount is stripped of anything that is
+  // not a digit or a dot so a pasted "$1,200" still parses, and it is checked against the
+  // same floor the server uses before a request is sent at all. On success the detail and
+  // bid list are re-read straight away rather than waiting for the next 4 second poll.
   const handlePlaceBid = async () => {
     if (!user) { setError('Please log in to place a bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot place bids.'); return; }
@@ -246,6 +301,10 @@ export default function AuctionDetail() {
     }
   };
 
+  // Enables or updates a proxy bid: the server keeps outbidding on the buyer's behalf by
+  // the chosen increment up to the maximum. Ascending listings only. The local myAutoBid is
+  // filled in from the submitted values so the summary panel appears immediately; the next
+  // poll replaces it with whatever the server actually stored.
   const handleAutoBid = async () => {
     if (!user) { setError('Please log in to enable auto-bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot set auto-bid.'); return; }
@@ -261,6 +320,7 @@ export default function AuctionDetail() {
     }
   };
 
+  // Turns the proxy bid off. Bids it has already placed stand; only future ones stop.
   const handleCancelAutoBid = async () => {
     if (!window.confirm('Cancel your auto-bid for this auction?')) return;
     setError(''); setMessage('');
@@ -273,6 +333,10 @@ export default function AuctionDetail() {
     }
   };
 
+  // Dutch accept. No amount is sent: the server reads its own clock and closes the auction
+  // at that price, which is why two buyers accepting at once cannot both win. bidPending
+  // matters most here, because a duplicate click during a slow response would be a second
+  // attempt to buy an item that is already sold.
   const handleAcceptDutch = async () => {
     if (!user) { setError('Please log in to accept this price.'); return; }
     if (!canBuy) { setError('Admin accounts cannot accept a Dutch price.'); return; }
@@ -291,6 +355,8 @@ export default function AuctionDetail() {
     }
   };
 
+  // Buy It Now ends an ascending auction immediately at the fixed price. Confirmed first
+  // because it commits the buyer to a purchase with no further step.
   const handleBuyItNow = async () => {
     if (!user) { setError('Please log in to Buy It Now.'); return; }
     if (!canBuy) { setError('Admin accounts cannot use Buy It Now.'); return; }
@@ -310,6 +376,9 @@ export default function AuctionDetail() {
     }
   };
 
+  // Seller only. Creates the order for the highest bidder and notifies them. early=true ends
+  // a still running auction there and then, so it asks for confirmation first; early=false
+  // is the normal finalisation of an auction that has already reached its end time.
   const handleDeclareWinner = async (early = false) => {
     setError(''); setMessage('');
     if (early && !window.confirm('End this auction now and declare the current highest bidder as winner?')) return;
@@ -324,6 +393,10 @@ export default function AuctionDetail() {
     }
   };
 
+  // Blind auction. One sealed bid per buyer, so there is no cooldown to apply: the server
+  // refuses a second submission. The floor is the starting price rather than the current
+  // bid, since the current bid is exactly the number a blind auction must not reveal. Only
+  // the detail is re-read afterwards, not the bid list, because the list stays hidden.
   const handleSealedBid = async () => {
     if (!user) { setError('Please log in to submit a sealed bid.'); return; }
     if (!canBuy) { setError('Admin accounts cannot submit a sealed bid.'); return; }
@@ -345,6 +418,8 @@ export default function AuctionDetail() {
     }
   };
 
+  // Public question to the seller. Shown to everyone once posted, so buyers can read answers
+  // that were already given.
   const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!user) { setError('Please log in to ask a question.'); return; }
@@ -361,6 +436,8 @@ export default function AuctionDetail() {
     }
   };
 
+  // Seller answering one question. Only that question's draft is cleared, and the list is
+  // re-read so the answer renders from the stored record rather than from local state.
   const handleReply = async (questionId) => {
     const text = (replyDrafts[questionId] ?? '').trim();
     if (!text) { setError('Enter a reply first.'); return; }
@@ -380,6 +457,8 @@ export default function AuctionDetail() {
   // buyer/seller account keeps the BUYER role while selling.
   const isListingSeller = Boolean(user) && Number(user.id) === Number(auction.sellerId);
 
+  // Each auction type gets its own badge colour, and the same accent/purple pairing is
+  // reused on the price figure and the action button so the format reads at a glance.
   const typeBadgeClass = isDutch ? 'badge-accent' : isBlind ? 'badge-purple' : 'badge-info';
 
   const serviceListing = isService(auction.listingKind);
@@ -683,6 +762,11 @@ export default function AuctionDetail() {
               </div>
             )}
 
+            {/* One chain decides the whole bidding column, checked in this order: auction
+                closed or not yet started, then guest, then owner of the listing, and only
+                after that does the auction type pick which form to show. Putting the access
+                checks first means a guest or a seller never sees a form the server would
+                reject. */}
             {!auction.open ? (
               isScheduled ? (
                 <div className="card p-6 text-center">
@@ -776,6 +860,8 @@ export default function AuctionDetail() {
                       className="input-field pl-8 text-base font-semibold tabular-nums"
                     />
                   </div>
+                  {/* Quick increments are added to the current bid, not to whatever is
+                      already typed, so tapping two of them does not stack. */}
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     {[50, 100, 250].map(inc => (
                       <button
@@ -789,6 +875,9 @@ export default function AuctionDetail() {
                     ))}
                   </div>
                   <Feedback message={message} error={error} />
+                  {/* Disabled both while a bid is in flight and during the cooldown, and the
+                      label says which of the two is happening so the buyer is not left
+                      guessing why the button stopped working. */}
                   <button
                     onClick={handlePlaceBid}
                     disabled={bidPending || bidCooldownRemaining > 0}
@@ -818,7 +907,9 @@ export default function AuctionDetail() {
                   </div>
                 )}
 
-                {/* Auto-Bid */}
+                {/* Auto-Bid. Only rendered inside the isStandard branch: a Dutch auction has
+                    no competing bids to react to and a blind auction hides the price, so
+                    neither offers it. */}
                 <div className="card p-6">
                   <h3 className="section-title text-base mb-3">Auto-Bid</h3>
 
@@ -902,7 +993,8 @@ export default function AuctionDetail() {
                 </div>
               </>
             ) : isDutch ? (
-              /* Dutch: accept current clock price */
+              /* Dutch: accept current clock price. The button label carries the live figure
+                 from the local clock, so it keeps ticking down while the buyer hesitates. */
               <div className="card p-6">
                 <h3 className="section-title text-base mb-2">Buy at Current Price</h3>
                 <p className="text-xs text-ink-500 mb-4 leading-relaxed">
@@ -919,7 +1011,9 @@ export default function AuctionDetail() {
                 </button>
               </div>
             ) : auction.mySealedBid ? (
-              /* Blind: sealed bid already submitted */
+              /* Blind, already bid. The buyer is shown their own amount, which is safe,
+                 while every other sealed amount stays hidden. The form is replaced rather
+                 than disabled because a second bid is not allowed at all. */
               <div className="card p-6">
                 <h3 className="section-title text-base mb-3">Sealed Bid Submitted</h3>
                 <div className="rounded-xl bg-purple-50 ring-1 ring-inset ring-purple-200 px-4 py-3 mb-3">

@@ -1,3 +1,9 @@
+<%--
+  Shared navigation bar for the signed-in account pages. Statically included by the JSPs under
+  views/account. Reads the session directly rather than taking request attributes, so it can be
+  dropped into any page without the servlet preparing anything for it.
+  Legacy JSP layout fragment; the SPA has its own navigation component.
+--%>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">

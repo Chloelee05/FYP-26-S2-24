@@ -1,3 +1,14 @@
+/*
+ * Catalogue browse and search at "/search". Public, so a guest can filter and page through
+ * listings without an account. Calls GET /api/search for the results and /api/categories to
+ * fill the category picker.
+ * Filter state is split on purpose: the keyword and category live in the URL query string,
+ * because the navbar search box and the category tiles on the landing page link straight
+ * here and a filtered search should be shareable. The sidebar filters are component state.
+ * Price and location are debounced, and each new search aborts the previous request so a
+ * slow earlier response cannot land on top of newer results.
+ * Paging is "load more": page 2 is appended to page 1 rather than replacing it.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, SlidersHorizontal, X, SearchX, AlertCircle, MapPin } from 'lucide-react';
@@ -72,9 +83,13 @@ export default function Search() {
   const q = searchParams.get('q') || '';
   const category = searchParams.get('category') || '';
 
+  // Price range, condition, location, end window and sort. Not in the URL, so changing one
+  // does not add a history entry per keystroke.
   const [sidebar, setSidebar] = useState(EMPTY_SIDEBAR);
   const [categories, setCategories] = useState([]);
+  // Separate from the main loading flag: appending a page must not blank the grid.
   const [loadingMore, setLoadingMore] = useState(false);
+  // Mobile only. The same filter panel is rendered in a drawer on small screens.
   const [showFilters, setShowFilters] = useState(false);
 
   // Price and location are typed, so they settle before searching — otherwise every
@@ -98,6 +113,9 @@ export default function Search() {
   // separately it could outlive the search it belonged to: a "load more" that landed after
   // the filters had moved on left the counter on page 2 over a fresh page 1, and the button
   // that would have fetched the rest disappeared because page was no longer below totalPages.
+  // Keeping page inside the results object makes the two impossible to desync: they are only
+  // ever written in the same setData call, so a page number always describes the list next
+  // to it. That is the whole reason there is no separate useState for the page number here.
   const [data, setData] = useState({ forQuery: null, results: [], page: 1, totalPages: 1, error: '' });
   const { results, page, totalPages, error } = data;
   const loading = data.forQuery !== query;
@@ -133,6 +151,9 @@ export default function Search() {
     return () => controller.abort();
   }, [query]);
 
+  // Appends the next page. The forQuery guard in both callbacks is what keeps the results
+  // and the page counter honest: if the filters changed while this request was in flight,
+  // the response is discarded rather than appended to a list it does not belong to.
   const handleLoadMore = () => {
     const nextPage = page + 1;
     setLoadingMore(true);
@@ -158,6 +179,9 @@ export default function Search() {
   // Read-side view of every filter, so the panel below does not care where each lives.
   const filters = { q, category, ...sidebar };
 
+  // Single entry point for every filter change. Keyword and category are written to the URL,
+  // with replace:true so the back button does not have to step through each tweak; the rest
+  // go to sidebar state.
   const update = (key, val) => {
     if (key === 'q' || key === 'category') {
       const next = pruneParams({ q, category, [key]: val });
@@ -167,14 +191,20 @@ export default function Search() {
     setSidebar(f => ({ ...f, [key]: val }));
   };
 
+  // Clears the keyword and every filter but keeps the chosen sort order, since sort is a
+  // display preference rather than something that narrows the results.
   const clearAll = () => {
     setSearchParams({}, { replace: true });
     setSidebar(f => ({ ...EMPTY_SIDEBAR, sortBy: f.sortBy }));
   };
 
+  // Drives the chip row and the badge on the mobile Filters button. Sort is excluded for
+  // the same reason it survives clearAll.
   const activeCount = ['category', 'minPrice', 'maxPrice', 'condition', 'location', 'endWithin']
     .filter(k => filters[k]).length;
 
+  // Built once and rendered twice: in the desktop sidebar and in the mobile drawer. Both
+  // read the same state, so a filter set on one is already set on the other.
   const filterPanel = (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

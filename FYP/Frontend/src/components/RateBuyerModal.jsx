@@ -1,3 +1,11 @@
+/**
+ * Lets a seller rate the buyer of a completed sale. Opened from My sales. Props: `order`
+ * supplies the auction and the buyer's name, `onClose` closes the dialog, `onRated` lets
+ * the page refresh so the button disappears.
+ *
+ * The mirror of the buyer rating the seller on the auction page, so both sides of a
+ * finished deal build a reputation. The star score is required, the comment is not.
+ */
 import { useState } from 'react';
 import { Star } from 'lucide-react';
 import { rateBuyer } from '../api/seller';

@@ -1,7 +1,18 @@
+/**
+ * Small formatting helpers shared across the whole SPA: money, dates, countdown labels,
+ * avatar initials, role badges and entity decoding.
+ *
+ * They live here so that a price on a card, on the detail page and in an order list are
+ * all produced by the same function. Money is always USD, which is what the backend
+ * stores, while dates render in the en-SG format the project uses.
+ */
+
+/** Every amount in the app goes through this, so prices read the same on every surface. */
 export function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
+/** Date only, no time. For a live auction use timeRemaining below instead. */
 export function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-SG', { year: 'numeric', month: 'short', day: 'numeric' });
 }
@@ -36,6 +47,7 @@ export function timeRemainingWithDays(endTime, now = Date.now()) {
   return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
 }
 
+/** Up to two letters for the avatar fallback shown when a member has no profile photo. */
 export function getInitials(name = '') {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
@@ -48,10 +60,13 @@ const ROLE_LABELS = {
   ADMIN: { label: 'Admin', className: 'badge bg-red-50 text-red-700 ring-red-200' },
 };
 
+/** Label and badge classes for a role, falling back to the raw value for anything unmapped. */
 export function getRoleDisplay(role) {
   return ROLE_LABELS[role] ?? { label: role || 'User', className: 'badge bg-ink-100 text-ink-600 ring-ink-200' };
 }
 
+// Category endpoints have returned both an array and an error object over the life of the
+// project, so callers get a safe array either way, with unnamed rows dropped.
 export function normalizeCategories(data) {
   return Array.isArray(data) ? data.filter(c => c?.name) : [];
 }

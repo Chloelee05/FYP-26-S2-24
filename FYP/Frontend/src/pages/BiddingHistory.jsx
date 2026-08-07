@@ -1,3 +1,11 @@
+/*
+ * Every auction the account has bid on, at "/bidding-history". Behind ProtectedRoute, any
+ * signed in account. Reads GET /api/bidding-history.
+ * One row per auction, not per bid: the raw response has each individual bid, so the page
+ * keeps only the highest one per auction. Rows are tagged active, won or lost from the
+ * auction status plus the won flag, and a won row offers a link to rate the seller unless
+ * that has already been done.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Star, Package, Gavel, Check } from 'lucide-react';
@@ -23,6 +31,8 @@ export default function BiddingHistory() {
   const [history, setHistory] = useState([]);
   const [filter, setFilter] = useState('all');
 
+  // A bidder usually has several bids on the same auction. Collapsing to the highest per
+  // auction is what makes the list read as "auctions I am in" rather than a raw bid log.
   useEffect(() => {
     getBiddingHistory()
       .then(r => {

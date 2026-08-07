@@ -23,6 +23,12 @@ import java.util.List;
  *
  * <p><b>SCRUM-218:</b> Duplicate-name detection ({@link #nameExists}/{@link #nameExistsExcluding}),
  * {@code display_order}, and {@code slug} are all managed here.</p>
+ *
+ * <p>Reads and writes {@code categories} and reads {@code auction_details} for the usage counts.
+ * Called by the admin category management API and by the seller and buyer facing dropdowns.
+ * Worth knowing when reading the queries: {@code auction_details} stores the category as a
+ * <em>name string</em>, not a foreign key, so every link between the two tables is a
+ * case-insensitive name match rather than a join on an id.</p>
  */
 public class CategoryDAO {
 
@@ -35,6 +41,9 @@ public class CategoryDAO {
      * Ordered by {@code display_order ASC, id ASC}. Used by the admin UI.
      */
     public List<Category> listAll() {
+        // LEFT JOIN plus COUNT(ad.id) gives each category its listing count while still returning
+        // categories nobody has used. Counting the joined column rather than * is what makes an
+        // unused category come back as 0 instead of 1, since COUNT ignores nulls.
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
                 + "c.is_deleted, c.created_at, "
                 + "COUNT(ad.id)::int AS auction_count "
@@ -50,6 +59,8 @@ public class CategoryDAO {
      * Used by seller/buyer-facing dropdowns.
      */
     public List<Category> listActive() {
+        // Same shape as listAll with the soft-delete filter added, so a retired category disappears
+        // from pickers while its historical listings keep their category text.
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
                 + "c.is_deleted, c.created_at, "
                 + "COUNT(ad.id)::int AS auction_count "
@@ -109,7 +120,10 @@ public class CategoryDAO {
     // Duplicate-name checks (SCRUM-218)
     // -------------------------------------------------------------------------
 
-    /** {@code true} if any category (including deleted) already uses this name (case-insensitive). */
+    /**
+     * {@code true} if any category (including deleted) already uses this name (case-insensitive).
+     * Soft-deleted rows count, because their name is still tied to existing listings.
+     */
     public boolean nameExists(String name) {
         return checkExists("SELECT 1 FROM categories WHERE LOWER(name) = LOWER(?) LIMIT 1", name);
     }
@@ -132,7 +146,10 @@ public class CategoryDAO {
         }
     }
 
-    /** {@code true} if any category already uses this slug (case-sensitive). */
+    /**
+     * {@code true} if any category already uses this slug. Case-sensitive, unlike the name checks,
+     * because the slug goes straight into a URL and is generated in lower case already.
+     */
     public boolean slugExists(String slug) {
         return checkExists("SELECT 1 FROM categories WHERE slug = ? LIMIT 1", slug);
     }
@@ -169,6 +186,8 @@ public class CategoryDAO {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, name);
+            // A blank description is stored as SQL NULL rather than an empty string, so the admin
+            // list can test one condition for "no description".
             ps.setString(2, description != null && !description.isBlank() ? description : null);
             ps.setInt(3, displayOrder);
             ps.setString(4, slug);
@@ -192,6 +211,8 @@ public class CategoryDAO {
      * @return {@code true} if exactly one row was updated
      */
     public boolean update(int id, String name, String description, int displayOrder, String slug) {
+        // The is_deleted = FALSE condition means editing a retired category is a no-op rather than
+        // an error. Renaming one would also break the name match its old listings rely on.
         String sql = "UPDATE categories SET name = ?, description = ?, display_order = ?, slug = ? "
                 + "WHERE id = ? AND is_deleted = FALSE";
         try (Connection conn = DBUtil.connectDB();
@@ -237,6 +258,9 @@ public class CategoryDAO {
      * Used to enforce the restrict-delete policy: if {@code count > 0}, deletion is blocked.
      */
     public int countAuctions(int id) {
+        // The join is on lowercased names because auction_details.category holds the category name
+        // as text. There is no foreign key to enforce this, which is exactly why deletion has to be
+        // guarded in application code: dropping the row would orphan the listings' category label.
         String sql = "SELECT COUNT(*)::int FROM auction_details ad "
                 + "JOIN categories c ON LOWER(ad.category) = LOWER(c.name) "
                 + "WHERE c.id = ?";
@@ -258,6 +282,7 @@ public class CategoryDAO {
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /** Shared body of {@link #softDelete} and {@link #restore}: flips {@code is_deleted}. */
     private boolean updateDeletedFlag(int id, boolean deleted) {
         String sql = "UPDATE categories SET is_deleted = ? WHERE id = ?";
         try (Connection conn = DBUtil.connectDB();
@@ -270,6 +295,7 @@ public class CategoryDAO {
         }
     }
 
+    /** Runs a single-parameter existence probe and reports whether it matched a row. */
     private boolean checkExists(String sql, String param) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -282,6 +308,7 @@ public class CategoryDAO {
         }
     }
 
+    /** Runs a parameterless category query and maps every row. Shared by the two list methods. */
     private List<Category> loadList(String sql) {
         List<Category> out = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();

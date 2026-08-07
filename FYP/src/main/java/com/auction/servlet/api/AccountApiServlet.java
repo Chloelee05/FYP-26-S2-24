@@ -28,6 +28,17 @@ import java.util.regex.Pattern;
  * GET  /api/account/reviews     — reviews about this user
  * GET  /api/account/payment-methods  — saved cards / PayPal / bank accounts
  * POST /api/account/payment-methods  — action=add|update|delete|default
+ *
+ * <p>Backs the Account Settings page in the SPA. Every route here is behind AuthFilter and
+ * every one of them works on {@code sessionUserId} only: no route takes a user id as a
+ * parameter, so there is no way to address another member's profile, cards or transactions
+ * through this servlet.</p>
+ *
+ * <p>PDPA-relevant, because this is where personal data is written. Phone and address are held
+ * as AES-GCM ciphertext and decrypted only for the owner, card and bank numbers are stored
+ * encrypted with just a brand and last four digits kept in the clear for display, and account
+ * deletion is a soft close that anonymises the row rather than dropping it, so completed
+ * orders and reviews stay intact for the counterparties.</p>
  */
 @WebServlet("/api/account/*")
 public class AccountApiServlet extends ApiBase {
@@ -67,12 +78,17 @@ public class AccountApiServlet extends ApiBase {
         this.notificationDAO = new NotificationDAO();
     }
 
-    /** Test hook */
+    /** Test hooks: the DAOs are built in the constructor, so tests swap in stubs through these. */
     public void setUserDAO(UserDAO userDAO)                   { this.userDAO    = userDAO; }
     public void setProfileActivityDAO(ProfileActivityDAO dao) { this.actDAO     = dao; }
     public void setPaymentMethodDAO(PaymentMethodDAO pm)      { this.paymentDAO = pm; }
     public void setNotificationDAO(NotificationDAO dao)       { this.notificationDAO = dao; }
 
+    /**
+     * Routes the read side of /api/account/*. Requires a session and takes the user id from it,
+     * so each sub-resource returns only the caller's own data. An unknown sub-path falls through
+     * to the full profile rather than erroring, which keeps a bare GET /api/account working.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -88,6 +104,11 @@ public class AccountApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Routes the write side of /api/account/*. Requires a session. Unlike the GET side an
+     * unknown sub-path gives 404, because a mistyped write must not be mistaken for a
+     * successful one.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -144,7 +165,13 @@ public class AccountApiServlet extends ApiBase {
         ok(resp, body);
     }
 
-    /** POST /api/account/payment-methods  action=add|update|delete|default */
+    /**
+     * POST /api/account/payment-methods  action=add|update|delete|default
+     *
+     * <p>One endpoint for four verbs, chosen by the {@code action} parameter, with {@code add}
+     * as the default. Every DAO call is scoped by {@code userId}, so an id belonging to another
+     * member matches no row and comes back as 404 rather than touching their data.</p>
+     */
     private void handlePaymentMethodWrite(HttpServletRequest req, HttpServletResponse resp, int userId)
             throws IOException {
         String action = param(req, "action");
@@ -226,6 +253,11 @@ public class AccountApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Edits a stored card: holder name and expiry only. Sending {@code cardNumber} is refused
+     * outright rather than ignored, so the member is never told the card was updated when the
+     * number they typed went nowhere.
+     */
     private void updateCard(HttpServletRequest req, HttpServletResponse resp, int userId, long id)
             throws IOException {
         if (param(req, "cardNumber") != null) {
@@ -247,6 +279,7 @@ public class AccountApiServlet extends ApiBase {
         okMsg(resp, "Card updated.");
     }
 
+    /** Edits a linked PayPal account. The email is the whole record, so it is the only editable field. */
     private void updatePaypal(HttpServletRequest req, HttpServletResponse resp, int userId, long id)
             throws IOException {
         String email = paypalEmail(req, resp);
@@ -257,6 +290,7 @@ public class AccountApiServlet extends ApiBase {
         okMsg(resp, "PayPal account updated.");
     }
 
+    /** Edits a stored bank account: holder name and bank name. The account number is fixed, as with cards. */
     private void updateBankTransfer(HttpServletRequest req, HttpServletResponse resp, int userId, long id)
             throws IOException {
         if (param(req, "accountNumber") != null) {
@@ -274,6 +308,11 @@ public class AccountApiServlet extends ApiBase {
         okMsg(resp, "Bank account updated.");
     }
 
+    /**
+     * Saves a new card. The number is reduced to digits and length-checked (13 to 19 covers
+     * the real card networks) before being handed to the DAO, which encrypts it and keeps only
+     * the last four in the clear. {@code makeDefault} promotes it to the preferred method.
+     */
     private void addCard(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
             throws IOException {
         String holder = param(req, "cardHolder");
@@ -322,6 +361,7 @@ public class AccountApiServlet extends ApiBase {
         return new Integer[] { month, year };
     }
 
+    /** Links a PayPal account. Only the email is held: no PayPal credentials are stored on the platform. */
     private void addPaypal(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
             throws IOException {
         String email = paypalEmail(req, resp);
@@ -344,6 +384,10 @@ public class AccountApiServlet extends ApiBase {
         return email;
     }
 
+    /**
+     * Saves a bank account for transfers. The length window is wider than for cards, 4 to 20
+     * digits, because account number formats vary by country.
+     */
     private void addBankTransfer(HttpServletRequest req, HttpServletResponse resp, int userId, boolean makeDefault)
             throws IOException {
         String holder   = param(req, "accountHolder");
@@ -362,11 +406,16 @@ public class AccountApiServlet extends ApiBase {
         okMsg(resp, "Bank account added.");
     }
 
+    /** Parses an id parameter, returning null rather than throwing when it is absent or not a number. */
     private Long parseLong(String s) {
         if (s == null) return null;
         try { return Long.parseLong(s); } catch (NumberFormatException e) { return null; }
     }
 
+    /**
+     * GET /api/account. The owner's own profile, with the encrypted fields decrypted and the
+     * rating summary and transaction list folded in so the settings page loads in one call.
+     */
     private void handleProfile(HttpServletResponse resp, int userId) throws IOException {
         User user = userDAO.getUserById(userId);
         if (user == null) { error(resp, 404, "User not found."); return; }
@@ -389,6 +438,8 @@ public class AccountApiServlet extends ApiBase {
             if (user.getAddressEncrypted() != null)
                 address = SecurityUtil.decrypt(user.getAddressEncrypted());
         } catch (Exception ignored) {}
+        // A decryption failure, for example a row written under a different key, leaves the
+        // field null instead of failing the page. The plaintext is only ever sent to the owner.
 
         body.put("phone",   phone);
         body.put("address", address);
@@ -397,12 +448,18 @@ public class AccountApiServlet extends ApiBase {
             body.put("rating",       actDAO.getRatingSummary(userId));
             body.put("transactions", actDAO.listTransactions(userId, TxFilter.ALL));
         } catch (Exception e) {
+            // Activity data is supplementary, so the profile still renders without it.
             body.put("rating",       null);
             body.put("transactions", java.util.Collections.emptyList());
         }
         ok(resp, body);
     }
 
+    /**
+     * GET /api/account/transactions. The {@code filter} parameter selects ALL, PURCHASE or SALE
+     * and is parsed into an enum, so an unrecognised value falls back to a safe default instead
+     * of reaching the query.
+     */
     private void handleTransactions(HttpServletRequest req, HttpServletResponse resp, int userId)
             throws IOException {
         TxFilter filter = TxFilter.fromParam(param(req, "filter"));
@@ -509,6 +566,13 @@ public class AccountApiServlet extends ApiBase {
         return SecurityUtil.encrypt(raw.trim());
     }
 
+    /**
+     * POST /api/account/delete with {@code confirm=DELETE}. Closes the caller's own account.
+     * The literal confirmation string is required so the request cannot be triggered by
+     * accident. {@code closeAccount} soft deletes: the row is anonymised and marked DELETED
+     * rather than removed, which keeps order and review history readable for the other party.
+     * The session is invalidated once it commits.
+     */
     private void handleDelete(HttpServletRequest req, HttpServletResponse resp, int userId)
             throws IOException {
         String confirm = param(req, "confirm");
@@ -580,6 +644,7 @@ public class AccountApiServlet extends ApiBase {
         }
     }
 
+    /** First path segment after /api/account, or "" for a bare request. Used to pick the handler. */
     private String sub(HttpServletRequest req) {
         String p = req.getPathInfo();
         if (p == null || p.equals("/")) return "";

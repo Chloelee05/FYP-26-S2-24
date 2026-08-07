@@ -1,5 +1,23 @@
+/**
+ * Everything a buyer or a guest does with a listing: browse and search, read a detail
+ * page, bid, watch, ask questions, rate and report. Used by Home, Search, AuctionDetail,
+ * Watchlist, BiddingHistory and AuctionCard.
+ *
+ * The reads near the top of the file are public and work for a guest. Anything that
+ * writes (bidding, watchlist, questions, ratings, reports) needs a session, which the
+ * shared axios instance carries as a JSESSIONID cookie plus a bearer token, and the
+ * servlet rejects the call with 401 if there is none.
+ *
+ * The three auction types share these endpoints. POST /api/bid does the work for all of
+ * them and reads the auction type from the database: an ascending (PRICE_UP) listing
+ * sends a bidAmount, a Dutch listing sends none because the server computes the current
+ * clock price itself, and Buy It Now sends action=BUY_NOW. A blind listing takes a
+ * bidAmount like an ascending one, but the server never reveals the competing amounts
+ * until the auction closes.
+ */
 import api from './config';
 
+// Servlets read url-encoded fields, so object payloads become URLSearchParams.
 const form = (obj) => {
   const p = new URLSearchParams();
   Object.entries(obj).forEach(([k, v]) => { if (v != null) p.append(k, v); });
@@ -7,10 +25,12 @@ const form = (obj) => {
 };
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
-// Public platform stats (landing page): live counts, fee schedule, testimonials
+// GET /api/stats. Public platform stats (landing page): live counts, fee schedule, testimonials
 export const getPlatformStats = () => api.get('/stats');
 
-// Public landing page copy, admin-editable: a flat { contentKey: text } map.
+// GET /api/landing-content. Public landing page copy, admin-editable: a flat
+// { contentKey: text } map read from the landing_content table rather than hardcoded,
+// so an admin can reword the hero and the card call to action without a redeploy.
 // Fails soft server-side — an empty object means "use the built-in defaults".
 export const getLandingContent = () => api.get('/landing-content');
 
@@ -32,7 +52,9 @@ export const searchAuctions = (params, config) => {
   }
   return api.get('/search', { ...config, params });
 };
+/** GET /api/categories. Active categories for the browse sidebar and the create form. */
 export const getCategories   = ()       => api.get('/categories');
+/** GET /api/auction/tags. Tag vocabulary used by the search filters. */
 export const getTags         = ()       => api.get('/auction/tags');
 
 // Personalised recommendations (collaborative filtering; trending fallback).
@@ -44,6 +66,7 @@ export const getRecommendations = (limit) => api.get('/recommendations', { param
 export const getTrendingAuctions = (limit) =>
   api.get('/recommendations/trending', { params: limit ? { limit } : {} });
 
+/** GET /api/featured. Listings a seller or an admin has paid to promote. */
 export const getFeaturedListings = (limit = 8) => api.get('/featured', { params: { limit } });
 
 // "Buyers who bid on this also bid on…" (auction detail page)
@@ -103,29 +126,52 @@ export const recordRecommendationClick = (auctionId, keyword, reasonCode) =>
 
 // Auction detail. Both take an optional axios config so the 4s price poll on the
 // detail page can abort in-flight requests when it tears down.
+//
+// GET /api/auction/{id} returns the listing plus its type. For a Dutch listing the
+// currentPrice in the payload is the clock price at the moment the server answered,
+// which is why the poll exists and why the card and the detail page agree.
 export const getAuctionDetail = (id, config) => api.get(`/auction/${id}`, config);
+/** GET /api/auction/{id}/bids. On a blind listing the server withholds rival amounts until close. */
 export const getAuctionBids   = (id, params, config) => api.get(`/auction/${id}/bids`, { ...config, params });
+/** GET /api/auction/{id}/questions. Public buyer questions with any seller replies. */
 export const getAuctionQuestions = (id) => api.get(`/auction/${id}/questions`);
 
 // Bidding
+/**
+ * POST /api/bid with auctionId and bidAmount. Used by ascending (PRICE_UP) and blind
+ * listings. The server validates the amount against the increment and the reserve, so a
+ * bid rejected there comes back as an error rather than being filtered in the browser.
+ * Requires a session.
+ */
 export const placeBid = (auctionId, bidAmount) =>
   api.post('/bid', form({ auctionId, bidAmount }), F);
 
-// Dutch auction: accept the current descending clock price (server computes the amount)
+// Dutch auction: accept the current descending clock price (server computes the amount).
+// POST /api/bid with only an auctionId. Sending no amount is what tells the servlet to
+// price the acceptance itself, so a stale price on screen cannot be bought at.
 export const acceptDutchPrice = (auctionId) =>
   api.post('/bid', form({ auctionId }), F);
 
-// Buy It Now (standard ascending auctions with a BIN price)
+// Buy It Now (standard ascending auctions with a BIN price).
+// POST /api/bid with action=BUY_NOW; the server closes the listing at the BIN price.
 export const buyItNow = (auctionId) =>
   api.post('/bid', form({ auctionId, action: 'BUY_NOW' }), F);
 
+/**
+ * POST /api/auto-bid with action=SET. The server bids on the user's behalf up to
+ * maxAmount. Ascending listings only: a Dutch listing has no rival to outbid, and a
+ * blind listing has nothing visible to react to, so the detail page hides the control
+ * for both.
+ */
 export const setAutoBid = (auctionId, maxAmount, note, bidIncrement) =>
   api.post('/auto-bid', form({ auctionId, action: 'SET', maxAmount, note, bidIncrement }), F);
 
+/** POST /api/auto-bid with action=CANCEL. Stops the proxy bidding, keeps bids already placed. */
 export const cancelAutoBid = (auctionId) =>
   api.post('/auto-bid', form({ auctionId, action: 'CANCEL' }), F);
 
-// Watchlist
+// Watchlist. All four need a session; the two writes go to the same endpoint and are
+// told apart by the `action` field.
 export const getWatchlist = () => api.get('/watchlist');
 
 /** Whether one auction is on the caller's watchlist — avoids fetching the whole list. */
@@ -136,17 +182,21 @@ export const addToWatchlist = (auctionId) =>
 export const removeFromWatchlist = (auctionId) =>
   api.post('/watchlist', form({ auctionId, action: 'remove' }), F);
 
-// Bidding history (buyer)
+// Bidding history (buyer). GET /api/bidding-history, scoped server-side to the signed-in
+// account. `params` carries the paging and status filters the page offers.
 export const getBiddingHistory = (params) => api.get('/bidding-history', { params });
 
-// Q&A
+// Q&A. POST /api/question/ask posts a public question on a listing; the seller answers
+// through seller.replyToQuestion.
 export const askQuestion = (auctionId, text) =>
   api.post('/question/ask', form({ auctionId, text }), F);
 
-// Rating / reporting
+// Rating / reporting.
+// POST /api/rate leaves a 1 to 5 star review on the seller of an auction the caller won.
 export const rateSeller = (auctionId, score, comment) =>
   api.post('/rate', form({ auctionId, score, comment }), F);
 
+/** GET /api/rate/check. Whether this account already rated the seller, so the button hides. */
 export const checkSellerRated = (auctionId) =>
   api.get('/rate/check', { params: { auctionId } });
 
@@ -157,14 +207,17 @@ export const updateMyReview = (reviewId, score, comment) =>
 export const deleteMyReview = (reviewId) =>
   api.post('/rate/delete', form({ reviewId }), F);
 
+/** POST /api/report. Flags a listing for admin moderation (see ReportModal). */
 export const reportListing = (auctionId, description) =>
   api.post('/report', form({ auctionId, description }), F);
 
+/** POST /api/report/user. Flags an account rather than a listing. */
 export const reportUser = ({ reportedId, reason }) =>
   api.post('/report/user', form({ reportedId, reason }), F);
 
-// Reports the current user has submitted (with status + admin reply)
+// GET /api/report/mine. Reports the current user has submitted (with status + admin reply)
 export const getMyReports = () => api.get('/report/mine');
 
-// Seller public profile
+// GET /api/seller/{id}. Public seller profile: rating, review sample and listing counts.
+// Readable by a guest, unlike everything else under /api/seller.
 export const getSellerProfile = (sellerId) => api.get(`/seller/${sellerId}`);

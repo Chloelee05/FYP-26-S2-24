@@ -1,3 +1,16 @@
+/*
+ * New listing form at "/seller/create". Behind ProtectedRoute with requireSeller, so an
+ * account that has not switched selling on is offered the activation gate first.
+ * Loads categories and tags on mount, then POSTs the listing to the seller create endpoint
+ * and goes to My listings. Photos are uploaded by ImageUploader before submit, so the form
+ * only sends the resulting URLs.
+ * Which price fields appear depends on the chosen auction type: type 1 (ascending) offers an
+ * optional reserve and Buy It Now, type 2 (Dutch) swaps the reserve for a floor price the
+ * clock falls to, and type 3 (blind) takes only the starting price since there is nothing
+ * for a reserve or an instant purchase to interact with.
+ * Preview renders the same data as a modal so the seller can check the listing before it
+ * goes live. Nothing is saved by previewing.
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createAuction } from '../../api/seller';
@@ -31,6 +44,8 @@ const STRATEGIES = [
   { id: '3', label: 'Blind (Public / Sealed Bid)', help: 'Each buyer submits one hidden bid; amounts stay secret until the auction ends, then the highest wins.' },
 ];
 
+// A datetime-local input has no timezone. Constructing a Date treats it as local time and
+// toISOString then converts to UTC, which is what the server stores.
 const toIso = (datetimeLocal) =>
   datetimeLocal ? new Date(datetimeLocal).toISOString() : null;
 
@@ -49,11 +64,15 @@ export default function CreateAuction() {
     auctionType: '1', quantity: '1', costPrice: '', dutchFloorPrice: '',
     startPrice: '', maxPrice: '', buyItNowPrice: '', startDate: '', endDate: '',
   });
+  // Filled by ImageUploader once each file has been uploaded, so the create request carries
+  // URLs rather than file data.
   const [imageUrls, setImageUrls] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
+  // Categories are required, so an empty list is surfaced as a warning rather than leaving
+  // the seller with a select they cannot use and no explanation.
   useEffect(() => {
     getCategories()
       .then(r => {
@@ -69,6 +88,9 @@ export default function CreateAuction() {
     }).catch(() => {});
   }, []);
 
+  // Validates locally before the request, in the order a seller would notice the problem:
+  // category, photos, starting price, then the rules specific to the chosen auction type.
+  // The server checks all of this again; doing it here just gives a clearer message.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.category) {
@@ -102,6 +124,9 @@ export default function CreateAuction() {
     }
     setError(''); setLoading(true);
     try {
+      // Fields that do not apply to the chosen type are sent as undefined rather than empty
+      // strings, so the server stores NULL instead of a zero that would later be read as a
+      // real floor or a real Buy It Now price.
       await createAuction({
         auctionName:     form.auctionName,
         auctionDetails:  form.auctionDetails,
@@ -332,6 +357,8 @@ export default function CreateAuction() {
             </div>
           </div>
 
+          {/* Dutch needs a floor for the clock to descend to. Every other type gets an
+              optional reserve instead: the amount below which the seller will not sell. */}
           {form.auctionType === '2' ? (
             <div>
               <label className="field-label">Floor (Low) Price ($) *</label>
@@ -349,6 +376,8 @@ export default function CreateAuction() {
             </div>
           )}
 
+          {/* Buy It Now is ascending only. A Dutch price already falls to a level buyers can
+              accept, and a blind auction has no visible price to undercut. */}
           {form.auctionType === '1' && (
             <div>
               <label className="field-label">

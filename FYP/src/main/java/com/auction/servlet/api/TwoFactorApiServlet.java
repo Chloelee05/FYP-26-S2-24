@@ -20,6 +20,15 @@ import java.util.Map;
  * POST /api/2fa/setup                          — generates TOTP secret, returns URI + secret
  * POST /api/2fa/confirm       params: otpCode  — verifies first code and persists secret to DB
  * POST /api/2fa/disable       params: otpCode  — verifies code and clears 2FA from DB
+ *
+ * <p>Two different second factors live here. Login verification uses the emailed one-time code
+ * that {@code AuthApiServlet} generated, while setup, confirm and disable manage a TOTP
+ * authenticator app secret through {@link TotpUtil}. The stored secret is encrypted with
+ * {@link SecurityUtil} before it goes into {@code users}.</p>
+ *
+ * <p>/verify-login is reachable without a full session, because the caller only holds the
+ * pending token issued at login; the other three sit behind AuthFilter. Disabling requires the
+ * account password, so somebody at an unattended browser cannot quietly remove the protection.</p>
  */
 @WebServlet("/api/2fa/*")
 public class TwoFactorApiServlet extends ApiBase {
@@ -30,9 +39,10 @@ public class TwoFactorApiServlet extends ApiBase {
         this.userDAO = new UserDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setUserDAO(UserDAO userDAO) { this.userDAO = userDAO; }
 
+    /** Routes the four 2FA actions by path segment. All are POST because each one changes state. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
@@ -47,7 +57,16 @@ public class TwoFactorApiServlet extends ApiBase {
     }
 
     // ── verify-login ──────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/2fa/verify-login with {@code otpCode}. Second half of the login for an account
+     * with 2FA on. The caller sends the pending token from {@code AuthApiServlet}; if the code
+     * matches, the same session object is upgraded in place into a real login and the identity
+     * fields are returned exactly as an ordinary login would return them.
+     */
     private void handleVerifyLogin(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // Only a session explicitly marked as awaiting 2FA may be upgraded here, so an ordinary
+        // token cannot be pushed through this route.
         AuthSession session = authSession(req);
         if (session == null || !Boolean.TRUE.equals(session.getAttribute("awaitingTwoFactor"))) {
             error(resp, 401, "No pending 2FA verification.");
@@ -72,6 +91,8 @@ public class TwoFactorApiServlet extends ApiBase {
         User user = userDAO.getUserById(userId);
         if (user == null) { serverError(resp, "User not found."); return; }
 
+        // Clear the pending markers and the stored code before granting the session, so the same
+        // code cannot be replayed, then fill in the attributes a logged-in session needs.
         session.removeAttribute("awaitingTwoFactor");
         session.removeAttribute("pendingUserId");
         session.removeAttribute("pendingUserEmail");
@@ -98,6 +119,12 @@ public class TwoFactorApiServlet extends ApiBase {
     }
 
     // ── setup ─────────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/2fa/setup. Generates a TOTP secret and returns it with an otpauth URI the SPA
+     * renders as a QR code. The secret is only held on the session at this point; nothing is
+     * written to the database until /confirm proves the authenticator app actually works.
+     */
     private void handleSetup(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -114,6 +141,12 @@ public class TwoFactorApiServlet extends ApiBase {
     }
 
     // ── confirm ───────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/2fa/confirm with {@code otpCode}. Checks the first code from the authenticator
+     * against the pending secret and only then encrypts and stores it. Requiring a working code
+     * first is what stops a member locking themselves out with a QR they never scanned.
+     */
     private void handleConfirm(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);
@@ -141,6 +174,12 @@ public class TwoFactorApiServlet extends ApiBase {
     }
 
     // ── disable ───────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/2fa/disable. Despite the documented {@code otpCode} parameter this route
+     * actually re-checks the account {@code password}, then clears the stored secret. Turning
+     * off a security control needs proof of identity beyond holding the session.
+     */
     private void handleDisable(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         AuthSession session = authSession(req);

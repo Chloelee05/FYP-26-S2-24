@@ -30,6 +30,13 @@ import java.util.logging.Logger;
  *
  * <p><b>No PII in logs:</b> Only {@code auctionId}, {@code buyerId}, and {@code score}
  * are logged.</p>
+ *
+ * <p>Legacy JSP flow; the SPA posts to {@code /api/rate} in {@code RateApiServlet}. Note that
+ * {@link BuyerRateSellerServlet} covers the same ground through {@code ReviewDAO}, so there are
+ * two rating paths in the codebase and this is the older one built on {@link RatingDAO}.</p>
+ *
+ * <p>The eligibility rules (auction finished, caller actually won it, not already rated) all
+ * live in the DAO, because each of them is a question about database state.</p>
  */
 @WebServlet("/protected/rate-seller")
 public class RateSellerServlet extends HttpServlet {
@@ -46,6 +53,11 @@ public class RateSellerServlet extends HttpServlet {
         this.ratingDAO = ratingDAO;
     }
 
+    /**
+     * Records a rating. Expects {@code auctionId} and {@code score}, where the score must be a
+     * whole number from 1 to 5; the range is enforced here rather than trusting the star widget.
+     * The seller being rated is never sent by the client, it is looked up from the auction.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {

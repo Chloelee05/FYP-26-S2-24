@@ -32,6 +32,13 @@ import java.util.logging.Logger;
  *
  * <p><b>No PII in logs:</b> Only {@code auctionId}, {@code sellerId}, and {@code score}
  * are logged.</p>
+ *
+ * <p>Legacy JSP flow; the SPA posts to {@code /api/rate} in {@code RateApiServlet}. This is the
+ * counterpart of {@link BuyerRateSellerServlet}: same shape, opposite direction, and the two
+ * together let both sides of a finished auction rate each other.</p>
+ *
+ * <p>Because one account can both buy and sell, {@code RbacUtil.isSeller} passes on the
+ * {@code canSell} capability flag rather than requiring a distinct seller account.</p>
  */
 @WebServlet("/protected/seller/rate-buyer")
 public class SellerRateBuyerServlet extends HttpServlet {
@@ -48,6 +55,11 @@ public class SellerRateBuyerServlet extends HttpServlet {
         this.reviewDAO = reviewDAO;
     }
 
+    /**
+     * Records the seller's rating of the winning buyer. Expects {@code auctionId} and a
+     * {@code score} from 1 to 5. The buyer being rated is resolved from the auction's winner in
+     * the DAO, so a seller cannot aim a rating at some unrelated account.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {

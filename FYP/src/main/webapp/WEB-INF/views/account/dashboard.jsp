@@ -1,3 +1,10 @@
+<%--
+  Signed-in user's account dashboard: profile details, the public-preview panel with masked
+  name, email, phone and address, the transaction list with its totals, and the ratings and
+  reviews about this user. Rendered by AccountManagementServlet (/protected/account), which
+  is behind AuthFilter.
+  Legacy JSP flow; the SPA builds the same page from /api/account/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

@@ -13,12 +13,17 @@ import java.util.List;
  * Data-access layer for buyer questions and seller replies on auction listings (SCRUM-62).
  *
  * <p><b>IDOR prevention:</b> {@code askerId} and {@code sellerId} are always supplied by the
- * servlet from the session — never from request parameters naming another user. Seller ownership
+ * servlet from the session, never from request parameters naming another user. Seller ownership
  * for replies is verified by joining {@code auction_questions} to {@code auction} inside the
  * DAO.</p>
  *
  * <p><b>Self-question guard:</b> A buyer who is the auction's seller cannot ask a question on
  * their own listing ({@link QuestionResult#SELF_QUESTION}).</p>
+ *
+ * <p>Reads and writes {@code auction_questions}, and reads {@code auction} and {@code users}.
+ * Called by the Q&amp;A API servlet from the auction detail page. Asker usernames are masked
+ * through {@link SecurityUtil#maskUsername} before leaving the DAO, since the Q&amp;A block is
+ * public and PDPA does not allow exposing full identities to anonymous visitors.</p>
  */
 public class QuestionDAO {
 
@@ -79,6 +84,8 @@ public class QuestionDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
+            // Everything below runs in one transaction so the seller id, end time and moderation
+            // state that the guards test are the same values that hold when the insert lands.
             int sellerId;
             Timestamp dateEnd;
             String moderationState;
@@ -102,6 +109,8 @@ public class QuestionDAO {
                 return QuestionResult.SELF_QUESTION;
             }
 
+            // Q&A closes with the auction. A suspended listing is also treated as closed, so a
+            // moderated item cannot keep collecting public questions.
             if (!"active".equalsIgnoreCase(moderationState)
                     || dateEnd == null || !dateEnd.after(new Timestamp(System.currentTimeMillis()))) {
                 conn.rollback();
@@ -141,6 +150,9 @@ public class QuestionDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
+            // The join to auction is how the real owner is found. The reply endpoint only knows a
+            // question id, so ownership has to be derived from the question's auction rather than
+            // taken on trust from the caller.
             long auctionId;
             int ownerSellerId;
             String existingAnswer;
@@ -172,6 +184,9 @@ public class QuestionDAO {
                 return QuestionResult.ALREADY_ANSWERED;
             }
 
+            // The answer_text condition repeats the already-answered check inside the UPDATE. That
+            // makes the write conditional at the database level, so two replies submitted at the
+            // same time cannot both succeed: the second matches zero rows and is rejected.
             String updateSql =
                     "UPDATE auction_questions "
                     + "SET answer_text = ?, answered_at = CURRENT_TIMESTAMP "
@@ -195,6 +210,10 @@ public class QuestionDAO {
         }
     }
 
+    /**
+     * Builds one Q&amp;A entry. The asker's username is masked here rather than in the servlet, so
+     * every read path out of this DAO is masked by construction.
+     */
     private static AuctionQuestion mapRow(ResultSet rs) throws SQLException {
         Timestamp created = rs.getTimestamp("created_at");
         Timestamp answered = rs.getTimestamp("answered_at");

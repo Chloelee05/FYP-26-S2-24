@@ -15,28 +15,34 @@ import java.util.Map;
 
 /**
  * The management half of "manage database of products, services, customers, auction
- * transactions" (Stakeholder #3b). Moderation — flag, remove, ban, approve — already
+ * transactions" (Stakeholder #3b). Moderation, meaning flag, remove, ban and approve, already
  * existed elsewhere; this adds the record-correction operations that "manage" implies,
  * and writes every one of them to {@code admin_audit_log}.
+ *
+ * <p>Reads and writes {@code auction_details}, {@code orders} and {@code users}, always
+ * alongside an insert into {@code admin_audit_log}; also reads {@code auction} and {@code bids}.
+ * Called by the admin management API. Every mutating method runs inside
+ * {@code DBUtil.runInTransaction} so the change and its audit entry commit together: an edit that
+ * left no trail would be indistinguishable from tampering.</p>
  *
  * <h2>Where the line is drawn</h2>
  * <p>An admin here may correct <em>descriptive</em> data and <em>lifecycle</em> state, and
  * may not touch <em>money</em> or <em>ownership</em>:</p>
  * <ul>
- *   <li><b>Allowed</b> — a listing's title, description, category and product/service
+ *   <li><b>Allowed:</b> a listing's title, description, category and product/service
  *       kind. These are the fields a moderator finds wrong, and today the only remedy is
  *       removing the whole listing, which punishes the seller for a typo.</li>
- *   <li><b>Refused</b> — a listing's starting price, reserve, Buy-It-Now or quantity. Bids
+ *   <li><b>Refused:</b> a listing's starting price, reserve, Buy-It-Now or quantity. Bids
  *       are offers against a published price; editing it mid-auction rewrites the contract
  *       buyers already bid into. The seller owns those fields.</li>
- *   <li><b>Allowed</b> — correcting an order's lifecycle status, with a mandatory reason,
+ *   <li><b>Allowed:</b> correcting an order's lifecycle status, with a mandatory reason,
  *       so a payment that completed out-of-band or a stuck delivery can be reconciled.</li>
- *   <li><b>Refused</b> — an order's amount. That is the settled sale value and feeds
+ *   <li><b>Refused:</b> an order's amount. That is the settled sale value and feeds
  *       platform revenue; an admin editing it would falsify the platform's own books.</li>
- *   <li><b>Refused</b> — hard deletion of a listing or an order. Both are financial
+ *   <li><b>Refused:</b> hard deletion of a listing or an order. Both are financial
  *       history. Listings deactivate via {@code moderation_state = 'removed'}; a customer
  *       deactivates to the existing {@code Deleted} status.</li>
- *   <li><b>Refused</b> — creating listings, orders or customers. An admin owns no
+ *   <li><b>Refused:</b> creating listings, orders or customers. An admin owns no
  *       inventory, orders derive from auction outcomes, and account creation already has a
  *       registration-and-approval path.</li>
  * </ul>
@@ -54,6 +60,11 @@ public class AdminManagementDAO {
      */
     private static final List<String> LISTING_KINDS = ListingKind.names();
 
+    /**
+     * Result of a management operation. UNCHANGED is distinct from SUCCESS so the API can tell an
+     * admin that their submission matched what was already stored, rather than logging a no-op
+     * edit into the audit trail.
+     */
     public enum Outcome { SUCCESS, NOT_FOUND, INVALID, UNCHANGED }
 
     // ── Listings: content correction ─────────────────────────────────────────
@@ -62,6 +73,8 @@ public class AdminManagementDAO {
     public Map<String, Object> getListingContent(long auctionId) {
         String sql = "SELECT d.id, d.title, d.description, d.category, d.listing_kind, "
                    + "  a.moderation_state, u.username AS seller_username, "
+                   // The bid count is shown next to the form so a moderator can see they are about
+                   // to edit a listing people have already bid on.
                    + "  (SELECT COUNT(*) FROM bids b WHERE b.auction_id = a.auction_id) AS bid_count "
                    + "FROM auction_details d "
                    + "JOIN auction a ON a.auction_id = d.id "
@@ -107,9 +120,13 @@ public class AdminManagementDAO {
                 Map<String, String> before = readListingFields(conn, auctionId);
                 if (before == null) return Outcome.NOT_FOUND;
 
+                // Omitted kind or blank category means "leave it alone", so the stored value is
+                // carried forward instead of being nulled by a partial form submission.
                 String newKind = kind != null ? kind : before.get("listing_kind");
                 String newCategory = isBlank(category) ? before.get("category") : category.trim();
 
+                // Each audit() writes one row per field that actually differs and reports whether
+                // it wrote. If none did, the submission changed nothing and the UPDATE is skipped.
                 boolean changed = false;
                 changed |= audit(conn, adminId, "LISTING", auctionId, "EDIT_CONTENT",
                         "title", before.get("title"), title.trim(), reason);
@@ -161,6 +178,11 @@ public class AdminManagementDAO {
         }
     }
 
+    /**
+     * The four editable fields as they stand right now, read on the caller's transaction so the
+     * before-values written to the audit log match what the UPDATE is about to overwrite.
+     * Returns null when the listing does not exist.
+     */
     private Map<String, String> readListingFields(Connection conn, long auctionId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT title, description, category, listing_kind FROM auction_details WHERE id = ?")) {
@@ -209,6 +231,10 @@ public class AdminManagementDAO {
                 audit(conn, adminId, "ORDER", orderId, "CORRECT_STATUS",
                         "status", current, target, reason);
 
+                // The CASE WHEN blocks stamp whichever timestamp the target status implies, and the
+                // COALESCE inside each one keeps an existing timestamp if the order already passed
+                // through that state. Moving PAID to COMPLETED must not rewrite the original
+                // paid_at. The same target string is bound five times, once per CASE.
                 String sql =
                     "UPDATE orders SET status = ?, "
                   + "  paid_at = CASE WHEN ? IN ('PAID','COMPLETED') "
@@ -279,6 +305,8 @@ public class AdminManagementDAO {
 
     /** True while the account still has a live listing or an order that has not settled. */
     public boolean hasLiveCommitments(Connection conn, int userId) throws Exception {
+        // One round trip returning a single boolean: true if the user is selling something still
+        // running, or is either side of an order that has not reached COMPLETED or CANCELLED.
         String sql =
             "SELECT (EXISTS (SELECT 1 FROM auction a WHERE a.seller_id = ? "
           + "                AND a.moderation_state = 'active' AND a.date_end > now())) "
@@ -330,6 +358,7 @@ public class AdminManagementDAO {
         List<Map<String, Object>> rows = new ArrayList<>();
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+            // Clamped rather than trusted, so a caller-supplied limit cannot ask for the whole log.
             ps.setInt(1, Math.max(1, Math.min(500, limit)));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -370,7 +399,10 @@ public class AdminManagementDAO {
         return out;
     }
 
-    /** Auction id to product/service kind, so the moderation table can show the column. */
+    /**
+     * Auction id to product/service kind, so the moderation table can show the column.
+     * Loaded in one pass and joined in Java, avoiding a per-row lookup from the listings page.
+     */
     public Map<Long, String> listingKinds() {
         Map<Long, String> out = new LinkedHashMap<>();
         try (Connection conn = DBUtil.connectDB();
@@ -384,6 +416,7 @@ public class AdminManagementDAO {
         return out;
     }
 
+    /** Shortens a logged value for the audit table; a full description would flood the row. */
     private static String truncate(String v) {
         if (v == null) return null;
         return v.length() <= 200 ? v : v.substring(0, 200) + "…";

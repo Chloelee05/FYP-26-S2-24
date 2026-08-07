@@ -14,6 +14,15 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Legacy JSP sign-up page. Renders the registration form and creates the account row on POST.
+ * The SPA registers through {@code /api/auth/register} in {@code AuthApiServlet} instead.
+ *
+ * <p>Validation runs entirely server-side through {@link InputValidator}, and the password is
+ * stored only as a salted SHA-256 hash from {@link SecurityUtil}. Uniqueness of the username
+ * and the email is checked against {@link UserDAO} before the insert. Every failure path
+ * redisplays the same form with the typed values kept, except the passwords.</p>
+ */
 @WebServlet("/register")
 public class RegisterServlet extends HttpServlet {
 
@@ -25,15 +34,22 @@ public class RegisterServlet extends HttpServlet {
         userDAO = new UserDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setUserDAO(UserDAO userDAO) {
         this.userDAO = userDAO;
     }
 
+    /** Shows the empty registration form. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
     }
 
+    /**
+     * Validates username, email, password, confirmation and the terms checkbox in that order,
+     * stopping at the first problem, then inserts the account. The email is lower-cased before
+     * both the duplicate check and the insert so addresses stay case-insensitive.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String username = req.getParameter("username");
@@ -113,12 +129,14 @@ public class RegisterServlet extends HttpServlet {
         req.getRequestDispatcher(VIEW_REGISTER).forward(req, resp);
     }
 
+    /** Sets the error banner and repopulates the form fields for the redisplay. */
     private void errorHandler(HttpServletRequest req, String message, String username, String email,
                               String confirmPassword) {
         req.setAttribute("Error", message);
         stickyForm(req, username, email, confirmPassword);
     }
 
+    /** Puts the submitted values back on the request so the user does not retype everything. */
     private void stickyForm(HttpServletRequest req, String username, String email, String confirmPassword) {
         req.setAttribute("username", username);
         req.setAttribute("email", email);

@@ -50,10 +50,16 @@ public final class TokenStore {
         return session;
     }
 
+    /** Drops a token, which is what logout does. */
     public void remove(String token) {
         if (token != null) sessions.remove(token);
     }
 
+    /**
+     * 32 random bytes from {@link SecureRandom}, URL-safe Base64 encoded. The token is the
+     * only thing standing between a request and an account, so it has to be unguessable;
+     * an ordinary {@code Random} would be predictable from earlier outputs.
+     */
     private String newToken() {
         byte[] buf = new byte[32];
         random.nextBytes(buf);

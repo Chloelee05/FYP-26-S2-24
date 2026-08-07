@@ -1,3 +1,10 @@
+<%--
+  Profile edit form. Rendered by EditProfileServlet (/protected/account/edit) with the current
+  values in the "form*" attributes, and again by UpdateProfileServlet when a save is rejected,
+  that time holding the submitted values and an "error" message. Posts to
+  /protected/account/update. Phone and address are decrypted by the servlet for these fields.
+  Legacy JSP flow; the SPA edits a profile through /api/account/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

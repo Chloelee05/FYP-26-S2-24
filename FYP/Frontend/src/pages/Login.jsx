@@ -1,3 +1,13 @@
+/*
+ * Sign in page at "/login". Public and outside MainLayout, so there is no navbar or footer:
+ * AuthLayout supplies the split screen with the marketing panel instead.
+ * Two ways in, email and password through AuthContext.login (POST /api/auth/login), or a Google
+ * credential through POST /api/oauth/login. Either way the outcome routes three ways: an
+ * account with 2FA on goes to /2fa-verify with the masked email passed in router state, an
+ * ADMIN lands on /admin, everyone else on the landing page.
+ * Only the email address is remembered between visits, in localStorage. The session token
+ * itself stays in sessionStorage and dies with the tab.
+ */
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, CheckCircle2, AlertCircle, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
@@ -23,6 +33,7 @@ export default function Login() {
   const { login, setUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Set by the redirect from Register, so the success banner survives the navigation.
   const justRegistered = searchParams.get('registered') === '1';
   const rememberedEmail = localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? '';
   const [rememberEmail, setRememberEmail] = useState(Boolean(rememberedEmail));
@@ -30,10 +41,16 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Reported by GoogleSignInButton. The whole divider and button block is hidden when the
+  // Google script cannot load or no client id is configured, rather than showing a dead button.
   const [googleAvailable, setGoogleAvailable] = useState(true);
 
+  // Copy, cut and paste are blocked on the password box so a password is not left sitting on
+  // the shared clipboard of a public machine.
   const blockPasswordClipboard = (e) => e.preventDefault();
 
+  // Google path. It bypasses 2FA because Google has already done the second factor, so the
+  // session is set here directly instead of going through AuthContext.login.
   const handleGoogleCredential = async (credential) => {
     setError('');
     try {
@@ -47,6 +64,9 @@ export default function Login() {
     }
   };
 
+  // Password sign in. login() returns either the session or a requires2fa marker; the masked
+  // email is forwarded in router state so the verify page can say where the code went
+  // without putting the full address in the URL.
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');

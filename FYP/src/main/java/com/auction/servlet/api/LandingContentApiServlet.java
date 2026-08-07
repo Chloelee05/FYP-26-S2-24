@@ -26,6 +26,7 @@ import java.util.Map;
 @WebServlet("/api/landing-content")
 public class LandingContentApiServlet extends ApiBase {
 
+    /** One minute is short enough that an admin edit shows up quickly even if the invalidation is missed. */
     private static final long CACHE_TTL_MS = 60_000;
 
     /** Shared with the admin write servlet, which invalidates it on save. */
@@ -34,7 +35,7 @@ public class LandingContentApiServlet extends ApiBase {
 
     private LandingContentDAO landingContentDAO = new LandingContentDAO();
 
-    /** Test hook */
+    /** Test hook: lets a unit test inject a stub DAO in place of the real database read. */
     public void setLandingContentDAO(LandingContentDAO dao) { this.landingContentDAO = dao; }
 
     /** Called after an admin edit so the next request re-reads the database. */
@@ -43,6 +44,11 @@ public class LandingContentApiServlet extends ApiBase {
         cachedAt = 0;
     }
 
+    /**
+     * Serves GET /api/landing-content. No parameters and no authentication. Answers from the
+     * static cache when it is still fresh, otherwise re-reads {@code landing_content} and
+     * refills the cache. Returns a flat map of copy key to text.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Map<String, String> body = cached;

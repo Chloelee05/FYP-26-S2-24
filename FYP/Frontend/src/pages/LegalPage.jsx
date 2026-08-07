@@ -1,3 +1,13 @@
+/*
+ * One component serving five public policy routes: /terms, /privacy, /payments, /cookies and
+ * /adchoice, all listed in LEGAL_PATHS in App.jsx and linked from the footer and the
+ * registration form. No API calls; the text is the DOCS map below, keyed by pathname, and an
+ * unknown path renders nothing so the "*" route can take over.
+ * The privacy and cookies entries are the user facing statement of the PDPA behaviour the
+ * code implements: encrypted personal fields, hashed passwords, masked bidder identities,
+ * a tab scoped session token, and deletion that erases personal data while keeping
+ * anonymised transaction records.
+ */
 import { Link, useLocation } from 'react-router-dom';
 import { FileText, ShieldCheck, CreditCard, Cookie, Megaphone, ChevronLeft } from 'lucide-react';
 
@@ -133,6 +143,8 @@ export default function LegalPage() {
   const { pathname } = useLocation();
   const doc = DOCS[pathname];
 
+  // Only the five paths registered in App.jsx can reach here, so an unmatched path means a
+  // route was added without its copy. Rendering nothing is safer than crashing on undefined.
   if (!doc) return null;
 
   const { icon: Icon, title, intro, sections } = doc;

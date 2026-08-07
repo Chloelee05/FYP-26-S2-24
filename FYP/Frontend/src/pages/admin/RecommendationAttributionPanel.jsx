@@ -10,7 +10,13 @@ import { apiErrorMessage } from '../../utils/apiError';
  * accounts behind them. The endpoint enforces the ADMIN role server side, so this
  * component never becomes a data leak if it is rendered somewhere else by mistake.
  *
- * Drop it into an admin page as <RecommendationAttributionPanel />.
+ * Drop it into an admin page as <RecommendationAttributionPanel />. Currently rendered at the
+ * bottom of AdminAnalytics, so it lives under "/admin/analytics".
+ *
+ * Two views from one endpoint, GET recommendation attribution. With no argument it returns
+ * the overview: most clicked recommended listings and most searched keywords. Passing an
+ * auction id returns the per event detail for that listing, which is what a click on a row
+ * loads. Signed-out visitors are counted as well, and appear without a username.
  */
 export default function RecommendationAttributionPanel() {
   const [overview, setOverview] = useState(null);
@@ -24,6 +30,9 @@ export default function RecommendationAttributionPanel() {
       .catch(err => setError(apiErrorMessage(err, 'Could not load recommendation attribution.')));
   }, []);
 
+  // Drills into one listing. selected is set before the request so the Back button and the
+  // heading are correct while the detail is still loading; detail is cleared first so the
+  // previous listing's rows are not shown under the new title.
   const openAuction = async (auction) => {
     setError('');
     setSelected(auction);

@@ -15,6 +15,19 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
+/**
+ * Applies ban and unban actions to a user account, then redirects back to the admin user table
+ * with a flash message. The write-side companion to {@link AdminUsersServlet}.
+ *
+ * <p>Legacy JSP admin console behind {@code AdminFilter}; the SPA performs the same action
+ * through {@code /api/admin/*} in {@code AdminApiServlet}.</p>
+ *
+ * <p>Three guards apply before anything changes. An admin cannot act on their own account,
+ * which is what stops someone locking themselves out. Admin accounts cannot be banned from this
+ * screen at all. And each action checks the current status first, so banning an already banned
+ * user is refused rather than quietly repeated. Successful actions are logged with the admin id,
+ * the target id and a sanitized username, forming the audit trail.</p>
+ */
 @WebServlet("/admin/users/action")
 public class AdminManageUserServlet extends HttpServlet {
 
@@ -26,15 +39,22 @@ public class AdminManageUserServlet extends HttpServlet {
         userDAO = new UserDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setUserDAO(UserDAO userDAO) {
         this.userDAO = userDAO;
     }
 
+    /** This endpoint only accepts posts, so a typed URL is sent back to the user table. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.sendRedirect(req.getContextPath() + "/admin/users");
     }
 
+    /**
+     * Performs one moderation action. Expects {@code action}, one of "suspend", "active" or
+     * "unban", and {@code userid}. Ends with a redirect in every case so the browser cannot
+     * repeat the action on refresh; the outcome travels back as a flash message.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);

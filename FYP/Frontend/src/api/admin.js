@@ -1,5 +1,17 @@
+/**
+ * Every call the admin console makes. Used only by the pages under src/pages/admin.
+ *
+ * All of these assume a signed-in account whose role is ADMIN. The check is server side:
+ * each /api/admin/* servlet rejects a non-admin session with 403, so hiding the admin
+ * routes in ProtectedRoute is convenience rather than the actual control.
+ *
+ * Most write endpoints are one POST per resource with an `action` field naming the
+ * operation, which is why banUser and approveUser both post to /api/admin/users. The two
+ * download helpers ask axios for a blob because the response is a file rather than JSON.
+ */
 import api from './config';
 
+// Servlets read url-encoded fields, so object payloads become URLSearchParams.
 const form = (obj) => {
   const p = new URLSearchParams();
   Object.entries(obj).forEach(([k, v]) => { if (v != null) p.append(k, v); });
@@ -8,15 +20,22 @@ const form = (obj) => {
 const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 
 // Dashboard & analytics
+/** GET /api/admin/dashboard. Headline counts for the admin landing page. */
 export const getAdminDashboard = () => api.get('/admin/dashboard');
+/** GET /api/admin/analytics. Time series behind the charts. */
 export const getAdminAnalytics = () => api.get('/admin/analytics');
+/** GET /api/admin/analytics/report. Returns a downloadable file, hence responseType blob. */
 export const downloadAdminReport = (type) =>
   api.get(`/admin/analytics/report?type=${type}`, { responseType: 'blob' });
 
 // Database management
+/** GET /api/admin/database/status. Connection state, table counts and last backup time. */
 export const getDatabaseStatus = () => api.get('/admin/database/status');
+/** GET /api/admin/database/backup. Streams an SQL dump back as a blob. */
 export const downloadDatabaseBackup = () =>
   api.get('/admin/database/backup', { responseType: 'blob' });
+// POST /api/admin/database/restore. The body is the raw SQL text rather than form fields,
+// so this call sets text/plain instead of the url-encoded type the rest of the file uses.
 export const restoreDatabaseBackup = (sqlText) =>
   api.post('/admin/database/restore', sqlText, {
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
@@ -35,7 +54,8 @@ export const emailAllSellerAnalytics = () =>
 export const getAdminAuditLog = (limit = 100) =>
   api.get('/admin/audit-log', { params: { limit } });
 
-// Users
+// Users. GET lists every account; the writes all POST to the same endpoint and differ
+// only in the `action` field, matching how AdminUserServlet dispatches them.
 export const getAdminUsers = () => api.get('/admin/users');
 export const banUser     = (userid) => api.post('/admin/users', form({ action: 'suspend', userid }), F);
 export const unbanUser   = (userid) => api.post('/admin/users', form({ action: 'unban',   userid }), F);
@@ -46,7 +66,9 @@ export const rejectUser  = (userid) => api.post('/admin/users', form({ action: '
 export const deactivateUser = (userid, reason) =>
   api.post('/admin/users', form({ action: 'deactivate', userid, reason }), F);
 
-// Listings
+// Listings. Same one-endpoint-many-actions shape: FLAG marks a listing for review,
+// REMOVE takes it out of the public browse, RESTORE puts it back, and FEATURE promotes it
+// for a number of days.
 export const getAdminListings  = () => api.get('/admin/listings');
 export const flagListing    = (auctionId) => api.post('/admin/listings', form({ action: 'FLAG',    auctionId }), F);
 export const removeListing  = (auctionId) => api.post('/admin/listings', form({ action: 'REMOVE',  auctionId }), F);
@@ -65,7 +87,8 @@ export const editListingContent = (auctionId, { title, description, category, li
 export const setListingKind = (auctionId, listingKind, reason) =>
   api.post('/admin/listings', form({ action: 'SET_KIND', auctionId, listingKind, reason }), F);
 
-// Categories
+// Categories. Deleting is a soft delete, which is why there is a matching RESTORE:
+// listings already filed under a category keep pointing at the row.
 export const getAdminCategories = () => api.get('/admin/categories');
 export const createCategory = (data) =>
   api.post('/admin/categories', form({ ...data, action: 'CREATE' }), F);
@@ -87,7 +110,9 @@ export const resetLandingContentField = (key) =>
 export const resetLandingContentGroup = (group) =>
   api.post('/admin/landing-content', form({ action: 'RESET', group }), F);
 
-// Reports
+// Reports. `type` distinguishes a listing report from an account report, since the two
+// live in separate tables but share one moderation queue. replyToReport builds its params
+// by hand rather than through form() so an empty reply still reaches the server as a field.
 export const getAdminReports  = () => api.get('/admin/reports');
 export const resolveReport    = (reportId, type) => api.post('/admin/reports', form({ reportId, type, action: 'resolve' }), F);
 export const dismissReport    = (reportId, type) => api.post('/admin/reports', form({ reportId, type, action: 'dismiss' }), F);

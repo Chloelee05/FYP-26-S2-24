@@ -6,6 +6,9 @@
  * appear on the seller's create and edit forms, in the seller's own listing table, on the
  * public auction page and in admin listing management. They live here so those five surfaces
  * cannot disagree about what a service is called or how a legacy row with no kind is read.
+ *
+ * The listing kind is independent of the auction type: a service can just as well be sold
+ * through an ascending, a Dutch or a blind auction.
  */
 
 /** The values the backend accepts, in the order the forms offer them. */

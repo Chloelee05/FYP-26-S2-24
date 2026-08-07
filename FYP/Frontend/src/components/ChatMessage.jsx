@@ -1,7 +1,16 @@
+/**
+ * One message bubble, shared by both chat surfaces: order chat with the other party
+ * (OrderMessageModal) and admin support (SupportChatWidget).
+ *
+ * Props: `message` is a row with senderId, senderName, body, optional attachmentUrl and
+ * createdAt; `currentUserId` decides which side the bubble sits on; `peerLabel` names the
+ * other party when the server did not send a display name.
+ */
 import { publicPath } from '../utils/appBase';
 
 /** Telegram-style bubble — own messages right, others left. */
 export default function ChatMessage({ message, currentUserId, peerLabel = 'Support' }) {
+  // Compared as numbers because the id arrives as a string from some endpoints.
   const isMe = Number(message.senderId) === Number(currentUserId);
   const time = message.createdAt
     ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

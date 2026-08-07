@@ -17,11 +17,33 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** JDBC-based PostgreSQL backup export and restore for admin database management. */
+/**
+ * JDBC-based PostgreSQL backup export and restore for admin database management.
+ *
+ * <p>Everything is done over plain JDBC rather than by shelling out to {@code pg_dump},
+ * because the hosted instance the project deploys to has no PostgreSQL client binaries and
+ * the admin page has to work there.</p>
+ *
+ * <p>A backup is data only: {@link #exportSql()} walks every public table and writes one
+ * INSERT per row. It emits no schema, so a restore assumes the tables already exist, which
+ * they will because the migrations under {@code db/} create them. Restore is correspondingly
+ * narrow: {@link #restoreSql(String)} accepts INSERT statements and nothing else, so an
+ * uploaded file cannot drop a table or alter a user even though it is being run by an
+ * administrator.</p>
+ *
+ * <p>Two details make the round trip actually work, and both are easy to get wrong. Tables
+ * with identity columns need an explicit override clause on insert, and their sequences
+ * have to be pushed forward afterwards; see {@link #exportTable} and
+ * {@link #resyncIdentitySequences}.</p>
+ */
 public final class DatabaseBackupUtil {
 
     private DatabaseBackupUtil() { }
 
+    /**
+     * Table inventory with row counts, for the admin page to show what a backup would
+     * contain before one is taken.
+     */
     public static Map<String, Object> status() throws Exception {
         Map<String, Object> out = new LinkedHashMap<>();
         try (Connection conn = DBUtil.connectDB()) {
@@ -42,6 +64,15 @@ public final class DatabaseBackupUtil {
         return out;
     }
 
+    /**
+     * Renders the whole database as a downloadable SQL file: a header comment, then every
+     * table's rows as INSERT statements, wrapped in a single transaction so a restore
+     * either applies completely or not at all.
+     *
+     * <p>Built in memory as one string, which is fine at this project's data volume and
+     * keeps the export a single method. The parser in {@link #parseInserts(String)} is
+     * written against exactly this layout.</p>
+     */
     public static byte[] exportSql() throws Exception {
         StringBuilder sb = new StringBuilder();
         sb.append("-- AuctionHub database backup\n");
@@ -74,6 +105,18 @@ public final class DatabaseBackupUtil {
         public int getRowsInserted() { return rowsInserted; }
     }
 
+    /**
+     * Applies an uploaded backup file.
+     *
+     * <p>The file is parsed and validated in full first, then every statement runs in one
+     * transaction, so a file that fails part way through leaves the database as it was
+     * rather than half restored. Identity sequences are resynchronised inside the same
+     * transaction, before the commit.</p>
+     *
+     * @throws IllegalArgumentException when the file contains anything other than INSERT
+     *         statements, which is the guard that keeps a restore from being a way to run
+     *         arbitrary SQL
+     */
     public static RestoreResult restoreSql(String sql) throws Exception {
         // Validate the whole file before opening a connection, so a bad backup is
         // refused without a transaction ever being started.
@@ -138,6 +181,7 @@ public final class DatabaseBackupUtil {
         return inserts;
     }
 
+    /** Drops blank lines, comments and BEGIN/COMMIT from the front of a chunk. */
     private static String stripLeadingNonStatementLines(String chunk) {
         String[] lines = chunk.split("\n", -1);
         int i = 0;
@@ -186,6 +230,11 @@ public final class DatabaseBackupUtil {
         return false;
     }
 
+    /**
+     * Every table in the public schema, sorted by name. Read from JDBC metadata rather
+     * than a hardcoded list, so a table added by a later migration is backed up without
+     * this class being touched. PostgreSQL's own catalogue tables are skipped.
+     */
     private static List<String> listTables(Connection conn) throws SQLException {
         List<String> tables = new ArrayList<>();
         DatabaseMetaData meta = conn.getMetaData();
@@ -199,6 +248,7 @@ public final class DatabaseBackupUtil {
         return tables;
     }
 
+    /** Exact row count. The table name comes from JDBC metadata, never from user input. */
     private static long countRows(Connection conn, String table) throws SQLException {
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM \"" + table + "\"")) {
@@ -206,6 +256,14 @@ public final class DatabaseBackupUtil {
         }
     }
 
+    /**
+     * Appends one INSERT per row of {@code table}, naming the columns explicitly so a
+     * restore does not depend on column order.
+     *
+     * <p>Each statement ends with {@code ON CONFLICT DO NOTHING}, which makes a restore
+     * repeatable: running the same backup twice adds nothing the second time instead of
+     * failing on duplicate keys.</p>
+     */
     private static void exportTable(Connection conn, String table, StringBuilder sb) throws SQLException {
         // 14 of this schema's tables key off GENERATED ALWAYS identity columns, and
         // PostgreSQL refuses an explicit value for one unless the INSERT says so. Without
@@ -233,6 +291,8 @@ public final class DatabaseBackupUtil {
         }
     }
 
+    /** Whether the table has a GENERATED ALWAYS identity column, which decides whether the
+     *  INSERT needs an OVERRIDING SYSTEM VALUE clause. */
     private static boolean hasAlwaysIdentity(Connection conn, String table) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns "
                    + "WHERE table_schema = 'public' AND table_name = ? "
@@ -278,6 +338,12 @@ public final class DatabaseBackupUtil {
         }
     }
 
+    /**
+     * Renders one column value as a SQL literal. Numbers and booleans go in bare, anything
+     * else is quoted with embedded quotes doubled. Binary columns are written as NULL with
+     * a comment, since this format has no way to carry bytes and the schema does not rely
+     * on any.
+     */
     private static String sqlLiteral(Object v) {
         if (v == null) return "NULL";
         if (v instanceof Number || v instanceof Boolean) return v.toString();
@@ -287,6 +353,17 @@ public final class DatabaseBackupUtil {
         return "'" + v.toString().replace("'", "''") + "'";
     }
 
+    /**
+     * Splits the file into statement-sized chunks by ending a chunk at any line whose last
+     * character is a semicolon.
+     *
+     * <p>Line-based rather than character-based, which is what makes it safe against a text
+     * value containing a semicolon: {@code exportTable} writes each row as one line, so a
+     * semicolon inside quoted text is never the last character of its line. A value
+     * containing a real newline splits into two chunks here, which is why
+     * {@link #hasEmbeddedStatementSeparator(String)} still checks quoting properly rather
+     * than trusting this pass.</p>
+     */
     private static List<String> splitStatements(String sql) {
         List<String> out = new ArrayList<>();
         StringBuilder cur = new StringBuilder();

@@ -18,6 +18,11 @@ import java.util.UUID;
 /**
  * POST /api/account/upload-photo — multipart file upload for profile photo.
  * Saves to {webapp}/uploads/profile/ and updates profile_image_url in DB.
+ *
+ * <p>Behind AuthFilter, and it only ever writes to the caller's own row: the user id comes from
+ * the session, so nobody can replace another member's photo. The uploaded bytes are written
+ * under the directory served by {@link UploadedFileServlet}, which is why only image types are
+ * accepted and the stored filename is generated rather than taken from the client.</p>
  */
 @WebServlet("/api/account/upload-photo")
 public class ProfilePhotoApiServlet extends ApiBase {
@@ -33,11 +38,17 @@ public class ProfilePhotoApiServlet extends ApiBase {
 
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024L;
 
+    /**
+     * Serves POST /api/account/upload-photo. The request body is the raw image bytes and the
+     * content type names the format. Saves the file, points the user's row at it, deletes the
+     * previous upload, and returns {@code {"profileImageUrl": ...}}.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         int userId = sessionUserId(req);
 
+        // Allow-list of image types, checked before anything is written to disk.
         String contentType = req.getContentType();
         if (contentType == null) contentType = "";
         String mime = contentType.split(";")[0].trim().toLowerCase();
@@ -52,6 +63,8 @@ public class ProfilePhotoApiServlet extends ApiBase {
             return;
         }
 
+        // A random name with an extension derived from the vetted mime type. The client never
+        // influences the path, so an upload cannot overwrite another member's photo.
         String ext = extensionFor(mime);
         String filename = UUID.randomUUID() + ext;
 
@@ -68,7 +81,8 @@ public class ProfilePhotoApiServlet extends ApiBase {
 
         String imageUrl = "/uploads/" + UPLOAD_SUBDIR + "/" + filename;
 
-        // Delete previous profile photo if it was also an uploaded file
+        // Delete previous profile photo if it was also an uploaded file. The prefix check keeps
+        // this from touching an OAuth avatar URL, which is remote and not ours to delete.
         try {
             com.auction.model.User current = userDAO.getUserById(userId);
             if (current != null) {
@@ -88,6 +102,7 @@ public class ProfilePhotoApiServlet extends ApiBase {
         ok(resp, Collections.singletonMap("profileImageUrl", imageUrl));
     }
 
+    /** File extension for a vetted mime type. PNG is the default because the type was already allow-listed. */
     private static String extensionFor(String mime) {
         switch (mime) {
             case "image/jpeg": return ".jpg";

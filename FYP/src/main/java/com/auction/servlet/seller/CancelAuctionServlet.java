@@ -22,14 +22,29 @@ import java.io.IOException;
  *   - Session user must be the owning seller
  *
  * Bids are intentionally preserved for audit; only the status changes.
+ *
+ * <p>Legacy JSP flow; the SPA cancels through {@code /api/seller/*} in
+ * {@code SellerApiServlet}. Keeping the bids matters: a seller who cancels an auction that
+ * already had bidders leaves a record of who bid and how much, which an admin can look at if
+ * the cancellation is disputed.</p>
+ *
+ * <p>Once cancelled, the auction is skipped by {@code AuctionExpiryListener}, since that sweep
+ * only finalises auctions still in ACTIVE.</p>
  */
 @WebServlet("/seller/cancel-auction")
 public class CancelAuctionServlet extends HttpServlet {
 
     private SellerAuctionDAO dao = new SellerAuctionDAO();
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setDao(SellerAuctionDAO dao) { this.dao = dao; }
 
+    /**
+     * Cancels one auction. Expects {@code auction_id} and an optional {@code cancel_reason},
+     * which is capped and sanitized because an admin may read it later. Ownership and the
+     * cancellable-status rule are both decided in the DAO, and either failing comes back as the
+     * same 403, so the response does not reveal whether the auction exists.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {

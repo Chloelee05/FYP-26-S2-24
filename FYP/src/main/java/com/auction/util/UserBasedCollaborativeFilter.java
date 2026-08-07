@@ -16,6 +16,21 @@ import java.util.Set;
  * the seeded defaults: the live values are the {@code w_bid} / {@code w_watchlist} /
  * {@code w_browse} rows of {@code recommendation_settings}, which
  * {@code RecommendationDAO.loadInteractionVectors} reads on every ranking pass.</p>
+ *
+ * <h2>How the similarity works</h2>
+ * <p>Each user is described by a vector: one number per auction they have interacted with,
+ * the number being the weight of the strongest interaction. Two users are compared by
+ * cosine similarity, which measures whether their vectors point in the same direction
+ * rather than how long they are. In plain terms it asks how much of two people's attention
+ * fell on the same listings, and it deliberately ignores how much attention each of them
+ * paid overall. That matters here because activity varies enormously: a member who has bid
+ * on two hundred listings should not come out similar to everybody simply by having touched
+ * more things. The result runs from 0 for no overlap up to 1 for identical taste, and only
+ * peers scoring above zero (and above the admin-set threshold) contribute.</p>
+ *
+ * <p>Each qualifying peer then votes for the auctions they interacted with and the target
+ * user has not, weighted by how similar that peer is. A strong endorsement from a close
+ * match therefore counts for more than the same endorsement from a distant one.</p>
  */
 public final class UserBasedCollaborativeFilter {
 
@@ -25,6 +40,14 @@ public final class UserBasedCollaborativeFilter {
 
     private UserBasedCollaborativeFilter() {}
 
+    /**
+     * Ranks up to {@code limit} auctions for {@code targetUserId} from the interaction
+     * vectors of everyone else, considering every peer with any overlap at all.
+     *
+     * @param userVectors every user's interaction vector, keyed by user id
+     * @param exclude     auctions to leave out on top of the ones the target has already
+     *                    interacted with, which are always excluded
+     */
     public static List<Long> rankAuctionIds(
             int targetUserId,
             Map<Integer, Map<Long, Double>> userVectors,
@@ -73,6 +96,7 @@ public final class UserBasedCollaborativeFilter {
             return List.of();
         }
 
+        // Never recommend something the target has already bid on, watched or viewed.
         Set<Long> excludeAll = new HashSet<>(exclude == null ? Set.of() : exclude);
         excludeAll.addAll(target.keySet());
 
@@ -81,10 +105,14 @@ public final class UserBasedCollaborativeFilter {
         for (Map.Entry<Integer, Map<Long, Double>> peer : userVectors.entrySet()) {
             if (peer.getKey() == targetUserId) continue;
             double sim = cosine(target, peer.getValue());
+            // Zero similarity means no shared listings at all, so this peer's history says
+            // nothing about the target's taste.
             if (sim <= 0 || sim < minSimilarity) continue;
             for (Map.Entry<Long, Double> item : peer.getValue().entrySet()) {
                 if (excludeAll.contains(item.getKey())) continue;
                 if (eligible != null && !eligible.contains(item.getKey())) continue;
+                // Each peer's interest in an item counts in proportion to how similar that
+                // peer is, and several peers backing the same item add up.
                 scores.merge(item.getKey(), sim * item.getValue(), Double::sum);
             }
         }
@@ -128,10 +156,22 @@ public final class UserBasedCollaborativeFilter {
     /** Fallback weight used when {@code recommendation_settings} has no {@code w_browse} row. */
     public static double weightBrowse()    { return W_BROWSE; }
 
+    /**
+     * Cosine similarity between two interaction vectors, from 0 for no shared listings to
+     * 1 for identical taste.
+     *
+     * <p>The dot product sums the weights of the auctions both users touched, so it grows
+     * with genuine overlap. Dividing by both vector lengths cancels out sheer volume of
+     * activity, which is what stops a very busy account from looking similar to everyone.
+     * Vectors are sparse maps rather than arrays, since only a handful of the platform's
+     * auctions appear in any one user's history.</p>
+     */
     static double cosine(Map<Long, Double> a, Map<Long, Double> b) {
         if (a.isEmpty() || b.isEmpty()) return 0;
 
         double dot = 0, normA = 0, normB = 0;
+        // Only shared keys contribute to the dot product, so walk the shorter map and look
+        // each key up in the longer one rather than iterating over both in full.
         Map<Long, Double> smaller = a.size() <= b.size() ? a : b;
         Map<Long, Double> larger  = a.size() <= b.size() ? b : a;
 
@@ -139,6 +179,7 @@ public final class UserBasedCollaborativeFilter {
             Double other = larger.get(e.getKey());
             if (other != null) dot += e.getValue() * other;
         }
+        // Vector lengths, which need every entry and not just the shared ones.
         for (double v : a.values()) normA += v * v;
         for (double v : b.values()) normB += v * v;
         if (normA == 0 || normB == 0) return 0;

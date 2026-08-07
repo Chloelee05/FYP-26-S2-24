@@ -1,3 +1,8 @@
+/**
+ * Star rating, used both to display a score (seller cards, review lists) and to pick one
+ * (RateBuyerModal and the rate seller form). Props: `value` is the filled count, `max`
+ * the total, `size` the icon size, and passing `onChange` is what makes it interactive.
+ */
 import { Star } from 'lucide-react';
 
 /**
@@ -7,6 +12,8 @@ import { Star } from 'lucide-react';
 export default function StarRating({ value = 0, max = 5, onChange, size = 20 }) {
   const interactive = typeof onChange === 'function';
 
+  // Announced as a radiogroup when it can be changed and as a single image when it
+  // cannot, so a screen reader is not offered five buttons that do nothing.
   return (
     <div className={`inline-flex items-center ${interactive ? 'gap-1' : 'gap-0.5'}`} role={interactive ? 'radiogroup' : 'img'} aria-label={`${value} out of ${max} stars`}>
       {Array.from({ length: max }, (_, i) => {

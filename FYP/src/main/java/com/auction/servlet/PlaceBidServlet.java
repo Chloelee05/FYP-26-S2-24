@@ -35,6 +35,15 @@ import java.util.logging.Logger;
  * <p><b>No PII in logs (SCRUM-295):</b> Only {@code auctionId}, {@code buyerId},
  * and the bid amount are logged. Session tokens, emails, and passwords are never
  * passed to {@link Logger}.</p>
+ *
+ * <p>Legacy JSP flow. The SPA posts to {@code /api/bid} in {@code BidApiServlet}, and both
+ * routes end up in the same {@link BidDAO#placeBid} transaction, so the auction rules are
+ * enforced in one place regardless of which front end the bid came from.</p>
+ *
+ * <p>This servlet is deliberately thin. It only checks that the caller is a buyer and that the
+ * numbers parse; whether the auction is still open, whether the bid beats the current price,
+ * and whether the bidder is the seller are all decided inside the DAO transaction against live
+ * rows, because those answers can change between the page load and the submit.</p>
  */
 @WebServlet("/protected/bid")
 public class PlaceBidServlet extends HttpServlet {
@@ -55,6 +64,13 @@ public class PlaceBidServlet extends HttpServlet {
         this.bidDAO = bidDAO;
     }
 
+    /**
+     * Places one bid. Expects {@code auctionId} and {@code bidAmount} from the form.
+     * Malformed ids get a 400 because they indicate a broken or hostile client, while a rejected
+     * amount gets a flash message and a redirect back to the auction, because that is an ordinary
+     * mistake a person makes. Ends by redirecting to the listing either way, which also means a
+     * browser refresh cannot resubmit the bid.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -131,6 +147,10 @@ public class PlaceBidServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/auction/" + auctionId);
     }
 
+    /**
+     * Parks an error message in the session and redirects to the auction page, which reads and
+     * clears it. Used instead of an error status for problems the bidder can simply correct.
+     */
     private void storeErrorAndRedirect(HttpSession session, HttpServletRequest req,
                                        HttpServletResponse resp, long auctionId, String msg)
             throws IOException {

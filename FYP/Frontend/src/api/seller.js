@@ -1,3 +1,16 @@
+/**
+ * What a member does with their own listings: create, edit, cancel, relist, promote,
+ * answer questions and read their sales analytics. Used by the seller pages.
+ *
+ * All of these need a session whose account has the `canSell` capability. Selling is a
+ * capability on the ordinary member account rather than a separate role, so a buyer who
+ * has never sold gets EnableSellingGate first and these calls only fire afterwards. The
+ * server also checks that the auction being changed belongs to the caller.
+ *
+ * This file's form() differs from the one in the other API modules: it appends an array
+ * as repeated fields with the same name, which is how imageUrls and deleteImageIds reach
+ * request.getParameterValues() on the servlet side.
+ */
 import api from './config';
 
 const form = (obj) => {
@@ -19,42 +32,57 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 export const getSellerAuctions = (params, config) =>
   api.get('/seller/auctions', { params, ...config });
 
-// Get auction data for edit form
+// GET /api/seller/{auctionId}/edit. Get auction data for edit form. Refused unless the
+// listing belongs to the caller.
 export const getAuctionForEdit = (auctionId) => api.get(`/seller/${auctionId}/edit`);
 
-// Upload a single auction listing image, returns { imageUrl }
+// POST /api/auction/upload-image. Upload a single auction listing image, returns { imageUrl }.
+// The File object is sent as the raw request body with its own MIME type, not as multipart
+// form data, so the servlet can stream it straight to disk. Images are uploaded first and
+// their returned URLs are then submitted with the listing.
 export const uploadAuctionImage = (file) => {
   return api.post('/auction/upload-image', file, {
     headers: { 'Content-Type': file.type },
   });
 };
 
-// Create auction (imageUrls is optional array of pre-uploaded URL strings)
+// POST /api/seller/create. `data` carries the title, description, category, listingKind,
+// auction type (PRICE_UP, DUTCH_AUCTION or BLIND), pricing and end date.
+// imageUrls is an optional array of pre-uploaded URL strings.
 export const createAuction = (data) => api.post('/seller/create', form(data), F);
 
-// Cancel / relist auction
+// POST /api/seller/cancel. Withdraws a live listing. The reason is stored and sent to
+// anyone who had already bid, which is why it is not optional in the UI.
 export const cancelAuction = (auctionId, reason) =>
   api.post('/seller/cancel', form({ auctionId, reason }), F);
 
+// POST /api/seller/relist. Opens a fresh listing from an unsold one, keeping its details.
 export const relistAuction = (auctionId) =>
   api.post('/seller/relist', form({ auctionId }), F);
 
-// Feature own listing (flat fee, simulated billing)
+// POST /api/seller/feature. Feature own listing for `days` (flat fee, simulated billing).
+// An admin can also feature a listing through admin.featureListing, without the fee.
 export const featureOwnAuction = (auctionId, days) =>
   api.post('/seller/feature', form({ auctionId, days }), F);
 
-// Edit auction (deleteImageIds and newImageUrls are optional arrays)
+// POST /api/seller/edit (deleteImageIds and newImageUrls are optional arrays).
+// What may be changed narrows once bidding has started, since a bid is an offer against
+// the published terms; the server is what enforces that.
 export const editAuction = (data) => api.post('/seller/edit', form(data), F);
 
-// Reply to a buyer question
+// POST /api/question/reply. Reply to a buyer question. Both the question and the reply
+// are public on the listing page.
 export const replyToQuestion = (questionId, text) =>
   api.post('/question/reply', form({ questionId, text }), F);
 
-// Rate the winning buyer of a finished auction
+// POST /api/seller/rate-buyer. Rate the winning buyer of a finished auction. The mirror
+// of auction.rateSeller, so both sides of a completed sale can rate each other.
 export const rateBuyer = (auctionId, score, comment) =>
   api.post('/seller/rate-buyer', form({ auctionId, score, comment }), F);
 
-// Seller performance analytics
+// Seller performance analytics for the signed-in seller. GET reads the figures; POST to
+// the same path emails them, which is the seller-initiated twin of the admin's
+// admin.emailSellerAnalytics.
 export const getSellerAnalytics = () => api.get('/seller/analytics');
 export const emailSellerAnalytics = () => api.post('/seller/analytics', form({}), F);
 

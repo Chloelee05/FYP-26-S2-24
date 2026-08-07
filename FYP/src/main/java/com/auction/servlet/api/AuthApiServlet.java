@@ -35,6 +35,19 @@ import java.util.logging.Logger;
  * POST /api/auth/forgot-password  params: identifier (email)
  * POST /api/auth/reset-password   params: identifier, otp, newPassword, confirmNewPassword
  * POST /api/auth/change-password  params: currentPassword, newPassword, confirmPassword
+ *
+ * <p>Entry point for the whole login lifecycle, called by the React SPA. Every path except
+ * change-password is public and sits outside AuthFilter, which is why this class does its own
+ * defending: {@link LoginAttemptLimiter} caps failed logins per email address, passwords are
+ * only ever compared through {@link SecurityUtil} salted SHA-256 hashing, and the
+ * forgot-password reply is identical whether or not the account exists so the endpoint cannot
+ * be used to enumerate users.</p>
+ *
+ * <p>Collaborators: {@link UserDAO} for the {@code users} table, {@link OtpStore} for
+ * short-lived reset and two-factor codes, {@link OtpMailer} for delivering them, and
+ * {@link TokenStore} which issues the bearer token the SPA sends on every later request.
+ * Lockout threshold and cooldown are read from {@code platform_settings} so an admin can
+ * retune them without a redeploy.</p>
  */
 @WebServlet("/api/auth/*")
 public class AuthApiServlet extends ApiBase {
@@ -53,13 +66,18 @@ public class AuthApiServlet extends ApiBase {
         this.platformSettingsDAO = new PlatformSettingsDAO();
     }
 
-    /** Test hook */
+    /** Test hook: the DAOs and stores are created in the constructor, so tests replace them here. */
     public void setUserDAO(UserDAO userDAO)  { this.userDAO  = userDAO; }
     public void setOtpStore(OtpStore otpStore) { this.otpStore = otpStore; }
     /** Test hook — swap in a fresh limiter so tests never share the process-wide singleton. */
     public void setLoginAttemptLimiter(LoginAttemptLimiter loginAttemptLimiter) { this.loginAttemptLimiter = loginAttemptLimiter; }
     public void setPlatformSettingsDAO(PlatformSettingsDAO platformSettingsDAO) { this.platformSettingsDAO = platformSettingsDAO; }
 
+    /**
+     * Routes POST /api/auth/* to the handler named by the path segment. All auth actions are
+     * POST because they change state and must not end up in browser history or server logs
+     * as a URL. An unrecognised path gives 404 rather than falling through to login.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
@@ -77,6 +95,17 @@ public class AuthApiServlet extends ApiBase {
     }
 
     // ── Login ─────────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/login with {@code email} and {@code password}. On success returns the
+     * bearer token plus the user's identity, or, when two-factor is on, a short-lived
+     * {@code pendingToken} and {@code requires2fa} flag that the SPA carries to
+     * {@code TwoFactorApiServlet} instead of a real session.
+     *
+     * <p>Order matters here: lockout is checked first, then the password, then account status.
+     * Failures answer 401 with one generic message so an attacker cannot tell a wrong password
+     * from an unknown email; only the lockout returns a distinguishable 429.</p>
+     */
     private void handleLogin(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String email    = param(req, "email");
         String password = req.getParameter("password");
@@ -111,6 +140,8 @@ public class AuthApiServlet extends ApiBase {
         // Correct password: reset the failure count even if a status check below still
         // blocks the login, since brute-force protection is only about guessing the password.
         loginAttemptLimiter.recordSuccess(accountKey);
+        // Account status gates below. Each one gets its own wording because the user has already
+        // proved they own the account, so telling them why they cannot get in is not a leak.
         if (user.getStatusId() == Status.SUSPENDED.getId()) {
             error(resp, 403, "Your account has been suspended.");
             return;
@@ -128,6 +159,7 @@ public class AuthApiServlet extends ApiBase {
             return;
         }
 
+        // Two-factor path: the password was right but no usable session is issued yet.
         if (user.isTwoFactorEnabled()) {
             String otp = otpStore.generateAndStore(user.getEmail().toLowerCase());
 
@@ -140,9 +172,13 @@ public class AuthApiServlet extends ApiBase {
                     return;
                 }
             } else {
+                // Local development without SMTP: log the code so the login can still be completed.
                 LOG.warning("SMTP not configured — 2FA OTP for " + user.getEmail() + ": " + otp);
             }
 
+            // The pending session is not a login. It carries no userId or role, so AuthFilter and
+            // every ApiBase guard reject it; only the two-factor verify step will trade it for a
+            // real session. Five minutes is deliberately short.
             AuthSession pending = TokenStore.getInstance().create();
             pending.setMaxInactiveInterval(5 * 60);
             pending.setAttribute("awaitingTwoFactor", true);
@@ -153,12 +189,18 @@ public class AuthApiServlet extends ApiBase {
             Map<String, Object> twoFaBody = new LinkedHashMap<>();
             twoFaBody.put("requires2fa",  true);
             twoFaBody.put("pendingToken", pending.getToken());
+            // Masked for PDPA: the screen shows something like j***n@e***.com, enough for the user
+            // to recognise their own inbox without printing the full address.
             twoFaBody.put("maskedEmail",  SecurityUtil.maskEmail(user.getEmail()));
+            // Only ever returned when dev mode is switched on, so a demo can proceed without SMTP.
             if (DevMode.isEnabled()) twoFaBody.put("devOtp", otp);
             ok(resp, twoFaBody);
             return;
         }
 
+        // Normal login. Thirty minutes of inactivity ends the session. canSell is copied in here
+        // because seller authorisation reads the capability flag, not the role, now that one
+        // account can both buy and sell.
         AuthSession session = TokenStore.getInstance().create();
         session.setMaxInactiveInterval(60 * 30);
         session.setAttribute("userId",           user.getId());
@@ -182,17 +224,35 @@ public class AuthApiServlet extends ApiBase {
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/logout. Deletes the token server side so it cannot be replayed even if a
+     * copy survives in the browser. Only this tab's token is removed, so other tabs logged in
+     * as other users stay signed in. Always answers 200, including for an already dead token.
+     */
     private void handleLogout(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         TokenStore.getInstance().remove(bearerToken(req));
         okMsg(resp, "Logged out.");
     }
 
     // ── Register ──────────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/register with {@code username}, {@code email}, {@code password},
+     * {@code confirmPassword} and {@code termsAccept}. Validates against
+     * {@link InputValidator}, rejects a duplicate email or username with 409, stores the
+     * password only as a salted hash, and creates the account in PENDING status.
+     *
+     * <p>No session is issued: the new account cannot sign in until an admin approves it, and
+     * the admins are notified off the request thread.</p>
+     */
     private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String username        = param(req, "username");
         String email           = param(req, "email");
         String password        = req.getParameter("password");
         String confirmPassword = req.getParameter("confirmPassword");
+        // Accepts both spellings: "on" is what a plain HTML checkbox posts, "true" is what the
+        // React form sends as JSON-ish form data.
         boolean termsAccept    = "on".equalsIgnoreCase(req.getParameter("termsAccept"))
                               || "true".equalsIgnoreCase(req.getParameter("termsAccept"));
 
@@ -242,10 +302,20 @@ public class AuthApiServlet extends ApiBase {
         }
 
         okMsg(resp, "Account created. An administrator will review and approve it before you can sign in.");
+        // Notified after the response is written, since fanning out email and Telegram alerts to
+        // the admins must not make the user wait on registration.
         NotificationService.notifyAdminsPendingRegistration(username);
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/forgot-password with {@code identifier}, the account email. Generates a
+     * one-time code, stores it in {@link OtpStore} and emails it.
+     *
+     * <p>The reply is the same "if that account exists" message whether the email is registered
+     * or not, so the endpoint cannot be used to test which addresses have accounts.</p>
+     */
     private void handleForgot(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String identifier = param(req, "identifier");
         if (identifier == null) { badRequest(resp, "Email is required."); return; }
@@ -256,6 +326,7 @@ public class AuthApiServlet extends ApiBase {
 
         User user = userDAO.getUserByEmail(identifier);
         if (user == null) {
+            // No such account: return the success wording anyway and send nothing.
             okMsg(resp, "If that account exists, an OTP has been sent.");
             return;
         }
@@ -267,6 +338,8 @@ public class AuthApiServlet extends ApiBase {
                 OtpMailer.sendPasswordResetCode(identifier, otp);
             } catch (MessagingException e) {
                 LOG.warning("Failed to send reset email to " + identifier + ": " + e.getMessage());
+                // The code was stored but never delivered, so drop it. Leaving it live would keep
+                // a valid reset code sitting on the server that nobody can legitimately use.
                 otpStore.invalidate(identifier);
                 serverError(resp, "Could not send reset email. Check server SMTP settings.");
                 return;
@@ -282,6 +355,12 @@ public class AuthApiServlet extends ApiBase {
     }
 
     // ── Reset Password ────────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/reset-password with {@code identifier}, {@code otp}, {@code newPassword}
+     * and {@code confirmNewPassword}. The OTP is the only proof of ownership, so it is checked
+     * before anything is written and burned immediately afterwards, making the code single use.
+     */
     private void handleReset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String identifier      = param(req, "identifier");
         String otp             = param(req, "otp");
@@ -299,6 +378,7 @@ public class AuthApiServlet extends ApiBase {
         if (!otpStore.verify(identifier.toLowerCase(), otp)) {
             error(resp, 400, "Invalid or expired OTP."); return;
         }
+        // Burn the code as soon as it verifies, so a replay of the same request fails.
         otpStore.invalidate(identifier.toLowerCase());
         boolean updated = userDAO.updatePassword(identifier.toLowerCase(), SecurityUtil.hashPassword(newPassword));
         if (!updated) { serverError(resp, "Failed to update password."); return; }
@@ -306,6 +386,13 @@ public class AuthApiServlet extends ApiBase {
     }
 
     // ── Change Password ───────────────────────────────────────────────────────
+
+    /**
+     * POST /api/auth/change-password with {@code currentPassword}, {@code newPassword} and
+     * {@code confirmPassword}. The only authenticated route in this servlet. The current
+     * password is re-verified even though the caller holds a valid session, so someone who
+     * walks up to an unlocked browser cannot take the account over.
+     */
     private void handleChangePassword(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         int userId = sessionUserId(req);
@@ -333,6 +420,8 @@ public class AuthApiServlet extends ApiBase {
         boolean updated = userDAO.updatePassword(user.getEmail(), SecurityUtil.hashPassword(newPassword));
         if (!updated) { serverError(resp, "Failed to update password."); return; }
 
+        // Force a fresh login on the new password. If the old one had leaked, whoever held it
+        // would otherwise keep riding this session.
         TokenStore.getInstance().remove(bearerToken(req));
         okMsg(resp, "Password changed. Please log in again.");
     }

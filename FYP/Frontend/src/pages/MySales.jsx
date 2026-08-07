@@ -1,3 +1,13 @@
+/*
+ * Seller order list at "/sales". Behind ProtectedRoute with requireSeller, so an account
+ * without the selling capability is shown the enable selling gate instead. It is the mirror
+ * of MyPurchases: the same GET /api/orders response, filtered to rows where role is "seller".
+ * The seller drives the order forward from here. advanceOrderShipping steps the delivery
+ * state one stage at a time, and a refund request is approved or declined here rather than
+ * by an admin. Rating the buyer becomes available once the order is complete.
+ * Rows are grouped into lifecycle tabs from utils/orders, and the current view can be
+ * exported to CSV for the seller's own records.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -14,7 +24,11 @@ import OrderMessageModal from '../components/OrderMessageModal';
 import RateBuyerModal from '../components/RateBuyerModal';
 import { apiErrorMessage } from '../utils/apiError';
 
-/** True when the order is waiting on something the seller has to do. */
+/**
+ * True when the order is waiting on something the seller has to do: a refund to answer, a
+ * shipping step to advance, or a buyer left unrated. Tints the row so a busy list still
+ * shows where the work is.
+ */
 function needsMyAction(o) {
   if ((o.refundStatus || '').toUpperCase() === 'REQUESTED') return true;
   if (o.status === 'PAID' && nextShippingAction(o)) return true;
@@ -25,6 +39,8 @@ function needsMyAction(o) {
 /** Quotes a value for CSV — commas, quotes and newlines all survive the round trip. */
 const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
+// Builds the CSV in the browser and downloads it through a temporary blob URL, so no export
+// endpoint is needed. Exports the currently filtered view, not every order.
 function exportCsv(rows) {
   const header = ['Order ID', 'Listing', 'Buyer', 'Delivery', 'Earnings', 'Status', 'Ordered'];
   const body = rows.map(o => [
@@ -53,6 +69,7 @@ export default function MySales() {
   const [dateFilter, setDateFilter] = useState('all');
   const [message, setMessage] = useState('');
 
+  // Order a modal is open for, or null: messaging the buyer, and rating them.
   const [contactOrder, setContactOrder] = useState(null);
   const [rateOrder, setRateOrder] = useState(null);
 
@@ -96,12 +113,16 @@ export default function MySales() {
     });
   }, [orders, tab, query, dateFilter]);
 
+  // Moves the delivery one step along. The server decides what the next state is, which is
+  // why no target status is sent; nextShippingAction only supplies the button label.
   const handleAdvanceShipping = async (orderId) => {
     setMessage('');
     try { await advanceOrderShipping(orderId); loadOrders(); }
     catch (err) { setMessage(apiErrorMessage(err, 'Could not update shipping.')); }
   };
 
+  // Answers a buyer's refund request. Approving cancels the order outright, so both outcomes
+  // are confirmed first. A buyer who is unhappy with a decline can escalate through support.
   const handleResolveRefund = async (orderId, approve) => {
     if (!window.confirm(`Are you sure you want to ${approve ? 'approve' : 'decline'} this refund request?`)) return;
     setMessage('');
@@ -114,6 +135,8 @@ export default function MySales() {
     }
   };
 
+  // Sum of the rows on screen, so it tracks the tab and filters. This is the gross order
+  // amount before the platform commission, which is shown on the seller dashboard.
   const totalEarnings = visible.reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
 
   return (
@@ -276,6 +299,8 @@ export default function MySales() {
                       </td>
                       <td>
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Shipping is frozen while a refund is open: dispatching an item
+                              the seller may be about to refund helps nobody. */}
                           {shipAction && refund !== 'REQUESTED' && (
                             <button onClick={() => handleAdvanceShipping(o.id)} className="btn-primary btn-sm whitespace-nowrap">
                               <Truck size={12} /> {shipAction}

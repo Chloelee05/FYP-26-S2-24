@@ -20,6 +20,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * Renders the admin overview page: the headline metrics, a recent-activity feed, and short
+ * previews of the user and listing tables. Pulls counts and rows from {@link UserDAO} and
+ * {@link AuctionDAO}, then forwards to {@code /WEB-INF/views/admin/dashboard.jsp}.
+ *
+ * <p>Legacy JSP admin console, protected by {@code AdminFilter} rather than by a check in this
+ * class. The SPA admin dashboard reads the same figures from {@code /api/admin/*} in
+ * {@code AdminApiServlet}.</p>
+ */
 @WebServlet("/admin/dashboard")
 public class AdminDashboardServlet extends HttpServlet {
 
@@ -36,6 +45,11 @@ public class AdminDashboardServlet extends HttpServlet {
         this.auctionDAO = auctionDAO;
     }
 
+    /**
+     * Gathers everything the overview shows in one pass and forwards to the JSP.
+     * Only the first five users and five listings are handed over, since the dashboard shows a
+     * preview and the full tables have their own pages.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         ZoneId zone = ZoneId.systemDefault();
@@ -63,6 +77,13 @@ public class AdminDashboardServlet extends HttpServlet {
         req.getRequestDispatcher("/WEB-INF/views/admin/dashboard.jsp").forward(req, resp);
     }
 
+    /**
+     * Merges three separate event feeds (registrations, flagged listings, suspensions) into one
+     * chronological list, newest first, capped at twelve entries.
+     * Each source is queried for its own most recent six and the merge happens in memory,
+     * because the three live in different tables with no single query that would order them
+     * together. The severity string is what colours the row in the JSP.
+     */
     private List<DashboardActivityItem> buildActivity(Instant now, ZoneId zone) {
         List<SortableActivity> buf = new ArrayList<>();
         for (UserDAO.NamedInstantEvent e : userDAO.recentRegistrations(6)) {
@@ -100,6 +121,10 @@ public class AdminDashboardServlet extends HttpServlet {
         return out;
     }
 
+    /**
+     * Internal holder that keeps the raw timestamp alongside the display fields, so the three
+     * feeds can be sorted together before being converted to the view model.
+     */
     private static final class SortableActivity {
         private final Instant at;
         private final String severity;

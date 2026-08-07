@@ -1,3 +1,13 @@
+/*
+ * Leave a review for a seller, at "/rate-seller/:auctionId". Behind ProtectedRoute, reached
+ * from a won row in Bidding history or a completed order in My purchases.
+ * Loads the auction and the seller's public profile, and asks /api/rate/check whether this
+ * buyer has already rated this auction. Rating is one per buyer per completed order, so an
+ * account that has already reviewed sees a notice instead of the form. The server enforces
+ * the same rule, and it also checks the buyer actually won the auction.
+ * A comment is optional, but if one is written it must be at least 10 characters, which
+ * discourages a one word review that tells the next buyer nothing.
+ */
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft, CheckCircle2, Star, Package } from 'lucide-react';
@@ -20,9 +30,13 @@ export default function RateSeller() {
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Set from the server check on mount. Kept separate from submitted so the page can tell
+  // "you rated this earlier" apart from "thanks, that just went through".
   const [alreadyRated, setAlreadyRated] = useState(false);
   const [error, setError]     = useState('');
 
+  // The seller profile call is chained after the auction because the seller id only comes
+  // back with the auction detail. The rated check runs alongside, it does not depend on it.
   useEffect(() => {
     getAuctionDetail(auctionId)
       .then(r => {
@@ -36,6 +50,8 @@ export default function RateSeller() {
       .catch(() => {});
   }, [auctionId]);
 
+  // A star score is required, a comment is not. The length rule only applies once something
+  // has actually been typed, so leaving the box blank is still a valid review.
   const handleSubmit = async () => {
     if (!score) { setError('Please select a rating.'); return; }
     if (comment.trim() && comment.trim().length < 10) {

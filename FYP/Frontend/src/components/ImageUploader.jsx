@@ -1,3 +1,15 @@
+/**
+ * Picture picker for the seller's create and edit listing forms. Accepts a click or a
+ * drag and drop, and each file is uploaded to the server straight away rather than being
+ * held until the form is submitted, so the form only ever posts URL strings.
+ *
+ * The first thumbnail is the cover image, which is the one AuctionCard shows.
+ *
+ * A preview is drawn from URL.createObjectURL(file), which produces a blob: URL. That
+ * only renders if the backend Content Security Policy lists blob: under img-src. If the
+ * previews ever come up blank while the upload itself succeeds, the CSP header is where
+ * to look.
+ */
 import { useEffect, useRef, useState } from 'react';
 import { UploadCloud, X } from 'lucide-react';
 import { uploadAuctionImage } from '../api/seller';
@@ -31,6 +43,8 @@ export default function ImageUploader({ existingImages = [], onChange }) {
     uploadedRef.current.forEach(u => URL.revokeObjectURL(u.localUrl));
   }, []);
 
+  // Hand the parent form the two lists it submits with the listing. Called with the next
+  // values rather than reading state, because a state update is not visible yet here.
   const notify = (nextUploaded, nextDeletedIds) => {
     onChange(
       nextUploaded.map(u => u.serverUrl),
@@ -38,6 +52,9 @@ export default function ImageUploader({ existingImages = [], onChange }) {
     );
   };
 
+  // Upload each chosen image and keep two URLs per file: the blob: preview shown now, and
+  // the server URL the form will submit. Files are sent one at a time so a single failure
+  // reports itself without losing the ones that already went through.
   const handleFiles = async (files) => {
     setError('');
     const accepted = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -59,6 +76,8 @@ export default function ImageUploader({ existingImages = [], onChange }) {
     notify(nextUploaded, deletedIds);
   };
 
+  // Removing a saved image only queues its id: the row is not deleted until the parent
+  // form is submitted, so cancelling the edit leaves it in place.
   const removeExisting = (imageId) => {
     const nextKept = kept.filter(img => img.imageId !== imageId);
     const nextDeletedIds = [...deletedIds, imageId];
@@ -67,6 +86,8 @@ export default function ImageUploader({ existingImages = [], onChange }) {
     notify(uploaded, nextDeletedIds);
   };
 
+  // Dropping a just-uploaded image releases its blob: URL there and then, rather than
+  // leaving it for the unmount cleanup to find.
   const removeUploaded = (serverUrl) => {
     const removed = uploaded.find(u => u.serverUrl === serverUrl);
     if (removed) URL.revokeObjectURL(removed.localUrl);
@@ -80,6 +101,9 @@ export default function ImageUploader({ existingImages = [], onChange }) {
     handleFiles(e.dataTransfer.files);
   };
 
+  // Saved images first, then this session's uploads, so the thumbnail order matches the
+  // order the server will store them in and the cover badge lands on the right one.
+  // A saved image is served over HTTP through publicPath; a new one is still a blob: URL.
   const allImages = [
     ...kept.map(img => ({ key: img.imageId, src: publicPath(img.imageUrl), onRemove: () => removeExisting(img.imageId) })),
     ...uploaded.map(u => ({ key: u.serverUrl, src: u.localUrl, onRemove: () => removeUploaded(u.serverUrl) })),

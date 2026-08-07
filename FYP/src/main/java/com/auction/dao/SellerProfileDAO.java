@@ -23,11 +23,17 @@ import java.util.List;
  * Data-access layer for the public seller profile page (SCRUM-63).
  *
  * <p>Only users with the Seller role and Active status are returned by
- * {@link #getPublicProfile(long)} — buyers/admins/suspended accounts yield {@code null}
+ * {@link #getPublicProfile(long)}. Buyer, admin and suspended accounts yield {@code null}
  * so the servlet can respond with 404 without leaking role information.</p>
  *
  * <p>Reviewer names in {@link #getReviews(long, int, int)} are masked; raw emails and
  * encrypted PII columns are never selected.</p>
+ *
+ * <p>Reads {@code users}, {@code user_reviews}, {@code auction}, {@code auction_details},
+ * {@code bids}, {@code auction_images}, {@code watchlist} and {@code orders}. Called by the seller
+ * profile API servlet, which serves guests as well as signed-in users. Because the page is
+ * public, the listings query carries the blind-auction price guard and the seller's email is
+ * masked before it leaves the DAO.</p>
  */
 public class SellerProfileDAO {
 
@@ -39,7 +45,7 @@ public class SellerProfileDAO {
 
     private static final ZoneId ZONE = ZoneId.systemDefault();
 
-    /** Average rating + review count for a seller. */
+    /** Average rating and review count for a seller, returned together so the UI can show "4.6 (23)". */
     public static final class AvgRating {
         private final double average;
         private final int count;
@@ -61,6 +67,8 @@ public class SellerProfileDAO {
     public SellerPublicProfile getPublicProfile(long sellerId) {
         String sql =
                 "SELECT u.id, u.username, u.email, u.date_created, u.profile_image_url, "
+                // Live listing count as a scalar subquery, so the profile header can show it
+                // without a second round trip or a GROUP BY over the user row.
                 + "       (SELECT COUNT(*)::int FROM auction a "
                 + "        WHERE a.seller_id = u.id "
                 + "          AND a.moderation_state = 'active' "
@@ -81,6 +89,8 @@ public class SellerProfileDAO {
                 if (!rs.next()) return null;
 
                 Timestamp created = rs.getTimestamp("date_created");
+                // The profile is public, so the seller's address is masked (PDPA). Only enough
+                // survives to let a buyer recognise their own contact, e.g. "j***@gmail.com".
                 String rawEmail = rs.getString("email");
                 return new SellerPublicProfile(
                         rs.getLong("id"),
@@ -101,6 +111,8 @@ public class SellerProfileDAO {
      * @param sellerId seller user id
      */
     public AvgRating getAvgRating(long sellerId) {
+        // AVG over zero rows is NULL; COALESCE makes an unrated seller read as 0.0 rather than
+        // forcing the caller to distinguish null from zero.
         String sql =
                 "SELECT COALESCE(AVG(rating), 0) AS avg_rating, COUNT(*)::int AS review_count "
                 + "FROM user_reviews WHERE reviewee_user_id = ?";
@@ -111,6 +123,8 @@ public class SellerProfileDAO {
                 if (rs.next()) {
                     double avg = rs.getDouble("avg_rating");
                     int count = rs.getInt("review_count");
+                    // Round to one decimal only when there is something to round. Rounding is done
+                    // here rather than in SQL so the star widget always gets a value like 4.6.
                     if (count > 0) {
                         avg = BigDecimal.valueOf(avg).setScale(1, RoundingMode.HALF_UP).doubleValue();
                     }
@@ -136,12 +150,15 @@ public class SellerProfileDAO {
                 "SELECT r.rating, r.comment, r.created_at, u.username, d.title AS item_title "
                 + "FROM user_reviews r "
                 + "JOIN users u ON u.id = r.reviewer_user_id "
+                // LEFT JOIN so a review still shows even if its auction row has since been removed;
+                // item_title simply comes back null in that case.
                 + "LEFT JOIN auction_details d ON d.id = r.auction_id "
                 + "WHERE r.reviewee_user_id = ? "
                 + "ORDER BY r.created_at DESC "
                 + "LIMIT ? OFFSET ?";
 
         List<ProfileReviewRow> list = new ArrayList<>();
+        // Page numbers are 1-based in the API, so page 1 must map to offset 0.
         int offset = pageSize * (page - 1);
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -191,9 +208,13 @@ public class SellerProfileDAO {
     }
 
     /**
-     * Live listings for the public profile — moderation-visible auctions that have
-     * not ended yet, newest closing last, so buyers can browse what this seller has
+     * Live listings for the public profile: moderation-visible auctions that have
+     * not ended yet, soonest closing first, so buyers can browse what this seller has
      * on sale right now.
+     *
+     * <p>Each row carries a price, a thumbnail and a watcher count, all pulled as scalar
+     * subqueries against {@code bids}, {@code auction_images} and {@code watchlist} so the
+     * auction row is never duplicated by a join.</p>
      *
      * @param sellerId seller user id
      * @param limit    maximum rows (caller clamps)
@@ -201,10 +222,11 @@ public class SellerProfileDAO {
     public List<PublicListing> getActiveListings(long sellerId, int limit) {
         String sql =
                 "SELECT a.auction_id, d.title, d.category, a.date_end, "
-                // Blind auctions resolve to the entry price: this profile is public — an
-                // unauthenticated visitor can open any seller's page — and the WHERE clause
+                // Blind auctions resolve to the entry price. This profile is public, so an
+                // unauthenticated visitor can open any seller's page, and the WHERE clause
                 // below restricts it to listings that are still taking bids, so every sealed
-                // row here is one whose leading bid must not leave the server.
+                // row here is one whose leading bid must not leave the server. The same guard
+                // appears in SearchDAO, RecommendationDAO, FeaturedListingDAO and WatchlistDAO.
                 + "CASE WHEN a.auction_type = " + AuctionType.BLIND.getId()
                 + "       AND a.status_id = " + AuctionStatus.ACTIVE.getId()
                 + "     THEN d.starting_price "
@@ -276,6 +298,10 @@ public class SellerProfileDAO {
         return 0;
     }
 
+    /**
+     * Builds one review row. The reviewer's username is masked here, so no public read path out of
+     * this DAO can return a full identity.
+     */
     private static ProfileReviewRow mapReviewRow(ResultSet rs) throws Exception {
         Timestamp ts = rs.getTimestamp("created_at");
         LocalDate d = ts == null ? LocalDate.now() : ts.toInstant().atZone(ZONE).toLocalDate();

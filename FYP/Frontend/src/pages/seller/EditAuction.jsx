@@ -1,3 +1,14 @@
+/*
+ * Edit an existing listing at "/seller/auction/:id/edit". Behind ProtectedRoute with
+ * requireSeller, and the server additionally checks that the caller owns this auction.
+ * Reads the listing through the seller edit endpoint and saves with the matching update call.
+ * The central rule is bidCount: once a bid exists, everything that describes what is being
+ * offered is frozen (title, description, category, product or service, condition, photos),
+ * because changing it would alter the thing people have already bid on. The end time, the
+ * quantity in stock and the seller's private cost price stay editable, since those are the
+ * seller's own record keeping rather than part of the offer.
+ * Price and auction type are not editable here at all.
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getAuctionForEdit, editAuction } from '../../api/seller';
@@ -19,6 +30,8 @@ const KINDS = [
   { id: 'SERVICE', label: 'Service' },
 ];
 
+// A datetime-local input will not accept an ISO string with a timezone, so the stored UTC
+// value is rebuilt as local wall clock time in the exact format the input expects.
 const toLocalDatetime = (isoString) => {
   if (!isoString) return '';
   const d = new Date(isoString);
@@ -34,16 +47,22 @@ export default function EditAuction() {
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [categoryError, setCategoryError] = useState('');
+  // Drives hasBids below, which is what locks the descriptive half of the form.
   const [bidCount, setBidCount] = useState(0);
   const [form, setForm] = useState({
     title: '', description: '', category: '', listingKind: 'PRODUCT',
     itemCondition: '1', endDate: '', quantity: '1', costPrice: '',
   });
+  // Photos are tracked as three lists: what is already stored, what has been newly uploaded,
+  // and the ids the seller asked to remove. The save sends the last two and the server works
+  // out the result, so a half finished edit cannot lose an image.
   const [existingImages, setExistingImages] = useState([]);
   const [newImageUrls, setNewImageUrls] = useState([]);
   const [deleteImageIds, setDeleteImageIds] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // ImageUploader is only mounted once this is true, so it initialises with the real existing
+  // images instead of an empty list it would then have to reconcile.
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
@@ -244,6 +263,8 @@ export default function EditAuction() {
             />
           </div>
 
+          {/* Photos disappear entirely once bids exist rather than being shown disabled:
+              there is nothing useful a seller can do with a read only uploader. */}
           {!hasBids && (
             <div>
               <label className="field-label">Photos</label>

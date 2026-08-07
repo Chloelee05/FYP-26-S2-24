@@ -1,3 +1,16 @@
+/*
+ * Analytics and reports at "/admin/analytics". ADMIN only.
+ * Three separate jobs share this page. First, platform figures from GET /api/admin/analytics
+ * plus three downloadable text reports (user activity, revenue, moderation). Second, the
+ * per seller analytics report the admin can read on screen or email, which is a named project
+ * requirement. Third, the recommendation console: click-through metrics broken down by reason
+ * code, and the tunable parameters that the recommender reads on the next page load.
+ * Endpoints: admin analytics, admin report download, admin users (to fill the seller picker),
+ * seller analytics report, email one seller, email all sellers, and recommendation config
+ * get/save.
+ * The recommender numbers are observational, not a randomised A/B test, and the page says so
+ * next to the table rather than presenting the arms as if they were.
+ */
 import { useState, useEffect } from 'react';
 import { FileText, TrendingUp, ShieldAlert } from 'lucide-react';
 import {
@@ -30,6 +43,9 @@ const REPORTS = [
   { icon: ShieldAlert, label: 'Moderation Report', sub: 'Flags and bans summary', color: 'text-purple-600', bg: 'bg-purple-50', type: 'moderation', filename: 'moderation-report.txt' },
 ];
 
+// The report endpoints answer with a file rather than JSON, so the blob is turned into an
+// object URL and handed to a synthetic anchor click. The URL is revoked straight away to
+// avoid holding the file in memory for the life of the tab.
 function triggerBlobDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -50,6 +66,9 @@ export default function AdminAnalytics() {
   const [reportOnly, setReportOnly] = useState(false);
   const [recMetrics, setRecMetrics] = useState(null);
   const [recByReason, setRecByReason] = useState([]);
+  // Live copy of the recommender's tuning parameters. Seeded from the server on mount and
+  // written back by Save settings, so what is typed here changes what the landing page shows
+  // to every shopper on their next load.
   const [recForm, setRecForm] = useState({
     itemsShown: 8, similarityThreshold: 0.1, trendingWindowDays: 7,
     weightBid: 3, weightWatchlist: 2, weightBrowse: 1,
@@ -59,6 +78,8 @@ export default function AdminAnalytics() {
   });
   const [recSaving, setRecSaving] = useState(false);
 
+  // Three independent loads on mount. They are not chained, so a failure in one leaves the
+  // other two sections working rather than blanking the page.
   useEffect(() => {
     getAdminAnalytics().then(r => setData(r.data)).catch(() => {});
     getAdminUsers()
@@ -98,6 +119,8 @@ export default function AdminAnalytics() {
     { label: 'Featured Listing Fees', value: data.featuredListingRevenue != null ? `$${Number(data.featuredListingRevenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—', color: 'text-amber-700', bg: 'bg-amber-50' },
   ] : [];
 
+  // reportBusy holds the type of the report being generated, so only the button that was
+  // pressed shows a spinner and the other two stay usable.
   const handleDownloadReport = async (report) => {
     setReportBusy(report.type);
     setMsg('');
@@ -163,6 +186,8 @@ export default function AdminAnalytics() {
     }
   };
 
+  // Bulk send to every active selling account. Confirmed first because it is one action that
+  // mails a lot of people and there is no way to recall it.
   const handleEmailAllSellers = async () => {
     if (!window.confirm(`Email analytics reports to all ${sellers.length} active sellers?`)) return;
     setEmailBusy(true);

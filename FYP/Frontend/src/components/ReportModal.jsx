@@ -1,3 +1,13 @@
+/**
+ * Reports a listing to the admin moderation queue, opened from the auction detail page.
+ * Props: `auctionId` and `auctionTitle` identify what is being reported, `onClose` closes
+ * the dialog.
+ *
+ * The dialog handles its own success state through `done` rather than closing on submit,
+ * so the user gets confirmation that the report was actually filed. The reason and the
+ * details are joined into one description, matching what POST /api/report expects, and
+ * the admin then resolves or dismisses it from the reports page.
+ */
 import { useState } from 'react';
 import { Flag, CheckCircle2 } from 'lucide-react';
 import { reportListing } from '../api/auction';
@@ -18,8 +28,11 @@ export default function ReportModal({ auctionId, auctionTitle, onClose }) {
   const [details, setDetails] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Once true the form is swapped for the confirmation panel.
   const [done, setDone] = useState(false);
 
+  // A reason and at least ten characters of detail, since a report an admin cannot act on
+  // is worse than none. The character counter under the textarea reflects the same rule.
   const canSubmit = reason && details.trim().length >= 10 && !submitting;
 
   const handleSubmit = async (e) => {

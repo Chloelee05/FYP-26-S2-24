@@ -35,6 +35,14 @@ import java.util.logging.Logger;
  *   <li>Question and answer text sanitized via {@link SecurityUtil#sanitize(String)}.</li>
  * </ul>
  * </p>
+ *
+ * <p>Legacy JSP flow; the SPA uses {@code /api/question/*} in {@code QuestionApiServlet}.
+ * The two URL patterns on one servlet are what let the public read path stay outside
+ * {@code /protected/*} while the write path sits inside it and picks up {@code AuthFilter}.</p>
+ *
+ * <p>Q&amp;A text is free-form and ends up rendered on a public page, so it is the most obvious
+ * stored-XSS surface in the application. Every question and answer goes through
+ * {@link SecurityUtil#sanitize(String)} before it is stored.</p>
  */
 @WebServlet(urlPatterns = {"/auction-question", "/protected/auction-question"})
 public class AuctionQuestionServlet extends HttpServlet {
@@ -62,6 +70,8 @@ public class AuctionQuestionServlet extends HttpServlet {
         long auctionId = parseAuctionIdParam(req, resp);
         if (auctionId < 0) return;
 
+        // The questions are rendered by the auction detail page, so this endpoint exists only to
+        // validate the id and bounce the caller to the right anchor there.
         // Verify at least one question exists OR auction is reachable — lightweight existence check
         try {
             questionDAO.listByAuction(auctionId);
@@ -99,6 +109,11 @@ public class AuctionQuestionServlet extends HttpServlet {
     // ASK — buyer only
     // =========================================================================
 
+    /**
+     * Posts a buyer's question. Requires {@code auctionId} and {@code question}. The asker id
+     * comes from the session, and the "you cannot ask on your own auction" rule is decided in
+     * {@link QuestionDAO} where the seller id is read from the database.
+     */
     private void handleAsk(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
 
@@ -150,6 +165,12 @@ public class AuctionQuestionServlet extends HttpServlet {
     // REPLY — seller only, ownership checked in DAO
     // =========================================================================
 
+    /**
+     * Posts a seller's reply. Requires {@code auctionId}, {@code questionId} and {@code answer}.
+     * Being a seller is not enough: {@link QuestionDAO} checks that this seller owns the auction
+     * the question belongs to, and a mismatch comes back here as a 403 rather than a flash
+     * message, because it means someone tried to answer for another seller.
+     */
     private void handleReply(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
 
@@ -238,6 +259,7 @@ public class AuctionQuestionServlet extends HttpServlet {
         }
     }
 
+    /** Turns a DAO outcome into wording safe to show the user, with no internal detail in it. */
     public static String toMessage(QuestionResult result) {
         switch (result) {
             case AUCTION_NOT_FOUND:  return "Auction not found.";

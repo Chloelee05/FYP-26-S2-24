@@ -15,6 +15,10 @@ import java.util.Collections;
  * GET  /api/watchlist?auctionId=X  — {@code {"watching": true|false}} for one auction
  * POST /api/watchlist              — params: auctionId, action (add|remove)
  * Open to any signed-in non-admin account: selling does not remove the ability to watch.
+ *
+ * <p>The watchlist is a buyer's saved set of auctions. It also feeds the ending-soon
+ * notification and is one of the signals the recommendation pipeline reads. Both methods take
+ * the user id from the session, so a watchlist can only ever be read or changed by its owner.</p>
  */
 @WebServlet("/api/watchlist")
 public class WatchlistApiServlet extends ApiBase {
@@ -25,9 +29,13 @@ public class WatchlistApiServlet extends ApiBase {
         this.watchlistDAO = new WatchlistDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setWatchlistDAO(WatchlistDAO watchlistDAO) { this.watchlistDAO = watchlistDAO; }
 
+    /**
+     * GET /api/watchlist. With no parameters it returns the caller's whole watchlist. With
+     * {@code auctionId} it answers only {@code {"watching": true|false}} for that one listing.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
@@ -49,6 +57,12 @@ public class WatchlistApiServlet extends ApiBase {
         ok(resp, watchlistDAO.listByUser(userId));
     }
 
+    /**
+     * POST /api/watchlist with {@code auctionId} and {@code action} of add or remove; add is the
+     * default. Both directions are idempotent: adding twice reports "already on watchlist" and
+     * removing something that is not there still returns 200, so the star button can be clicked
+     * repeatedly without producing errors.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);

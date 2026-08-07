@@ -13,18 +13,31 @@ import java.util.Properties;
 
 /**
  * Sends the password-reset OTP over SMTP using {@link MailConfig}.
+ *
+ * <p>Every outgoing email in the system goes through the private {@code send} here, which
+ * reads the server, port, credentials and From address from {@link MailConfig}, that is
+ * from the {@code AUCTION_SMTP_HOST}, {@code AUCTION_SMTP_PORT}, {@code AUCTION_SMTP_USER},
+ * {@code AUCTION_SMTP_PASSWORD} and {@code AUCTION_MAIL_FROM} environment variables. All
+ * messages are plain text.</p>
+ *
+ * <p>Sending is synchronous and blocks for the whole SMTP conversation. That is acceptable
+ * for the OTP methods, where the user is waiting on the code anyway, but not for bulk
+ * notification mail: {@code NotificationService} therefore calls
+ * {@link #sendNotification} from a background thread rather than a request thread.</p>
  */
 public final class OtpMailer {
 
     private OtpMailer() {
     }
 
+    /** Password reset code. The five minute expiry matches {@link OtpStore}'s TTL. */
     public static void sendPasswordResetCode(String toEmail, String otp) throws MessagingException {
         send(toEmail, MailConfig.mailSubject(),
                 "Your AuctionHub password reset code is: " + otp + "\n\n"
                         + "This code expires in 5 minutes. If you did not request a reset, you can ignore this email.");
     }
 
+    /** Second factor at login, for accounts with email-based 2FA rather than an app. */
     public static void sendTwoFactorCode(String toEmail, String otp) throws MessagingException {
         send(toEmail, "AuctionHub login verification code",
                 "Your AuctionHub login verification code is: " + otp + "\n\n"
@@ -36,6 +49,19 @@ public final class OtpMailer {
         send(toEmail, subject, body);
     }
 
+    /**
+     * Builds a session from the current {@link MailConfig} values and sends one message.
+     *
+     * <p>A fresh session per send rather than a shared one, so a rotated credential or a
+     * changed host takes effect without a restart, and so nothing holds the SMTP password
+     * in a static field. The transport security branch is exclusive: implicit SSL wraps the
+     * connection from the start, STARTTLS upgrades it afterwards, and configuring both
+     * would be contradictory.</p>
+     *
+     * <p>The authenticator is only attached when authentication is on and a user is
+     * actually configured, since some relays reject an AUTH attempt they did not ask
+     * for.</p>
+     */
     private static void send(String toEmail, String subject, String body) throws MessagingException {
         Properties props = new Properties();
         String host = MailConfig.smtpHost();

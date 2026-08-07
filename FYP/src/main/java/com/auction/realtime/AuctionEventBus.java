@@ -38,6 +38,10 @@ public final class AuctionEventBus {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+    /**
+     * Private because the bus is a singleton. Starts the one heartbeat thread that drives
+     * {@link #tickSnapshots}; it is a daemon so it cannot keep the JVM alive on shutdown.
+     */
     private AuctionEventBus() {
         ScheduledExecutorService tick = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "sse-heartbeat");
@@ -48,14 +52,26 @@ public final class AuctionEventBus {
                 SNAPSHOT_TICK_SECONDS, SNAPSHOT_TICK_SECONDS, TimeUnit.SECONDS);
     }
 
+    /** The single bus shared by the SSE servlet and by every code path that changes an auction. */
     public static AuctionEventBus getInstance() {
         return INSTANCE;
     }
 
+    /**
+     * Registers an open SSE connection to receive events for one auction. Called by
+     * {@code AuctionEventServlet} after it starts async mode. The per-auction set is a
+     * concurrent set because subscribers arrive on request threads while the heartbeat
+     * thread iterates over them.
+     */
     public void subscribe(long auctionId, AsyncContext ctx) {
         subscribers.computeIfAbsent(auctionId, k -> ConcurrentHashMap.newKeySet()).add(ctx);
     }
 
+    /**
+     * Drops a connection, either because the browser disconnected or because a write failed.
+     * The auction key itself is removed once its last subscriber leaves, otherwise the map
+     * would grow one dead entry per auction ever viewed.
+     */
     public void unsubscribe(long auctionId, AsyncContext ctx) {
         Set<AsyncContext> set = subscribers.get(auctionId);
         if (set != null) {
@@ -80,6 +96,8 @@ public final class AuctionEventBus {
             return;
         }
 
+        // SSE wire format: an "event:" line naming the event, a "data:" line holding the JSON,
+        // then a blank line to mark the end of the frame. The browser EventSource parses this.
         String frame = "event: " + eventName + "\n" + "data: " + json + "\n\n";
         for (AsyncContext ctx : set) {
             if (!write(ctx, frame)) {
@@ -103,6 +121,11 @@ public final class AuctionEventBus {
         }
     }
 
+    /**
+     * Writes one frame to a subscriber. Returns false if the connection is gone, which is how
+     * {@link #publish} decides to prune it. {@code checkError} is needed because PrintWriter
+     * swallows IO errors instead of throwing.
+     */
     private boolean write(AsyncContext ctx, String payload) {
         try {
             PrintWriter writer = ctx.getResponse().getWriter();
@@ -114,6 +137,7 @@ public final class AuctionEventBus {
         }
     }
 
+    /** Ends an async request. Failures are ignored because the context is usually already dead. */
     private void complete(AsyncContext ctx) {
         try { ctx.complete(); } catch (Exception ignored) { }
     }

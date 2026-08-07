@@ -1,3 +1,10 @@
+/**
+ * Confirmation dialog for an action that has already succeeded, such as registering or
+ * saving settings. Props: `title`, `message`, `buttonLabel` and `onClose`.
+ *
+ * It hides Modal's header and draws its own centred tick, and it does not dismiss on a
+ * backdrop click, because `onClose` usually carries a consequence such as navigating on.
+ */
 import { Check } from 'lucide-react';
 import Modal from './Modal';
 

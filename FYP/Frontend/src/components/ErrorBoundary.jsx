@@ -1,3 +1,14 @@
+/**
+ * Wraps the routed content in App.jsx. Written as a class because getDerivedStateFromError
+ * and componentDidCatch have no hook equivalent.
+ *
+ * It only catches errors thrown while rendering. A rejected promise inside an event
+ * handler or an axios catch block does not reach it, which is what apiErrorMessage and
+ * the per-page error state are for.
+ *
+ * The panel shows the error text only under import.meta.env.DEV, so a production build
+ * does not put a stack trace in front of a user.
+ */
 import { Component } from 'react';
 import { AlertTriangle, RotateCcw, Home } from 'lucide-react';
 
@@ -21,6 +32,8 @@ export default class ErrorBoundary extends Component {
     console.error('Unhandled UI error:', error, info?.componentStack);
   }
 
+  // Clearing the error re-renders the children. This recovers from a transient failure;
+  // a component that throws every time will simply land back here.
   handleReset = () => this.setState({ error: null });
 
   render() {

@@ -1,3 +1,10 @@
+<%--
+  Search results page with the filter sidebar, sort control and pagination. Rendered by
+  SearchServlet (/search?q=), open to guests. The "query" and filter values echoed back into
+  the form have already been sanitized by the servlet. An invalid filter is dropped rather
+  than reported, so the page can show results with fewer filters than were submitted.
+  Legacy JSP page; the SPA searches through /api/search.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

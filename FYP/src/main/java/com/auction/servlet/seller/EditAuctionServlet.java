@@ -34,6 +34,15 @@ import java.util.stream.Collectors;
  *   - Session user is the owning seller
  *   - Auction status is ACTIVE or PENDING
  *   - No bids have been placed (bidCount == 0)
+ *
+ * <p>Legacy JSP flow; the SPA edits listings through {@code /api/seller/*} in
+ * {@code SellerApiServlet}. The zero-bid rule is the important business constraint: once
+ * anybody has bid, the description they bid against is fixed, otherwise a seller could swap
+ * the item out from under a live auction.</p>
+ *
+ * <p>The GET checks the preconditions to decide what form to show, and the POST checks them
+ * again inside the DAO transaction. That repetition is the TOCTOU guard noted above: a bid can
+ * arrive while the seller is typing.</p>
  */
 @MultipartConfig(
         fileSizeThreshold = 1024 * 1024,
@@ -48,6 +57,11 @@ public class EditAuctionServlet extends HttpServlet {
 
     private static final List<String> ALLOWED_EXTENSIONS = List.of(".jpg", ".jpeg", ".png", ".webp");
 
+    /**
+     * Resolves the {@code uploadDir} context parameter. Unlike {@code CreateAuctionServlet} this
+     * one does not create the directory, since by the time a listing is being edited the create
+     * path has already made it.
+     */
     @Override
     public void init() throws ServletException {
         dao = new SellerAuctionDAO();
@@ -55,11 +69,19 @@ public class EditAuctionServlet extends HttpServlet {
         if (uploadDir == null) throw new ServletException("uploadDir context param is not set");
     }
 
+    /** Injection points for unit tests, which need a stub DAO and a temporary upload directory. */
     public void setDao(SellerAuctionDAO dao) { this.dao = dao; }
     public void setUploadDir(String uploadDir) { this.uploadDir = uploadDir; }
 
     // ------------------------------------------------------------------ GET
 
+    /**
+     * Shows the edit form for {@code id}. The DAO is queried with both the auction id and the
+     * seller id, so a listing belonging to somebody else comes back as null and is answered with
+     * 403; the response does not distinguish "not yours" from "does not exist".
+     * An auction that already has bids still renders the form, but with an explanatory error
+     * instead of editable fields.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -114,6 +136,12 @@ public class EditAuctionServlet extends HttpServlet {
 
     // ------------------------------------------------------------------ POST
 
+    /**
+     * Saves the edit: new title and description, images to delete, images to add. Title and
+     * description are sanitized before storage because they are rendered on the public listing.
+     * If the DAO rejects the change on re-check, the images just uploaded are deleted again so
+     * a refused edit leaves no files behind.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -168,6 +196,8 @@ public class EditAuctionServlet extends HttpServlet {
 
     /** Returns the auction_id from query string or form param; writes error and returns -1 on failure. */
     private long resolveAuctionId(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // Two names because the GET arrives as ?id= from a link while the POST carries the
+        // hidden auction_id field, and the same helper serves both.
         String param = req.getParameter("id");
         if (param == null) param = req.getParameter("auction_id");
         if (param == null || param.isBlank()) {
@@ -182,6 +212,11 @@ public class EditAuctionServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Reads the checked {@code delete_image_ids}, or an empty list when none were ticked.
+     * Whether those images actually belong to this auction is checked in the DAO, alongside the
+     * ownership test, so a hand-edited id cannot delete another seller's photo.
+     */
     private List<Long> parseDeleteImageIds(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
         String[] raw = req.getParameterValues("delete_image_ids");
@@ -198,6 +233,11 @@ public class EditAuctionServlet extends HttpServlet {
         return ids;
     }
 
+    /**
+     * Writes any newly attached photos and returns their stored names, or null if one was
+     * rejected. Same two rules as the create path: the extension must be in the allowed list,
+     * and the stored name is a UUID rather than the client's filename.
+     */
     private List<String> processImages(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
         List<String> saved = new ArrayList<>();
@@ -233,6 +273,7 @@ public class EditAuctionServlet extends HttpServlet {
         return saved;
     }
 
+    /** Deletes photos written for an edit that is not going to be saved. */
     private void cleanupFiles(List<String> filenames) {
         for (String fn : filenames) {
             try { Files.deleteIfExists(Paths.get(uploadDir, fn)); } catch (IOException ignore) {}

@@ -1,3 +1,16 @@
+/*
+ * The seller's listings at "/seller/listings". Behind ProtectedRoute with requireSeller. This
+ * is also the page the enable selling gate leads to, so it is where a buyer account usually
+ * becomes a selling account.
+ * Reads a page of listings from the seller auctions endpoint. Filtering, searching, sorting
+ * and paging all happen server side: the bucket, the query and the sort go in the request, so
+ * a search covers every listing rather than the page currently on screen. Also reads orders,
+ * to work out which buyers have already been rated.
+ * Per listing actions: feature on the homepage for a fee, edit, remove one unit of stock,
+ * cancel with a reason, relist a finished or cancelled auction, and rate the buyer.
+ * Cancelling always collects a reason, which is stored on the auction and shown to every
+ * bidder who is notified.
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -93,6 +106,8 @@ export default function MyListings() {
   const [ratingScore, setRatingScore] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
   const [ratingLoading, setRatingLoading] = useState(false);
+  // Seeded from the orders response so a buyer rated on an earlier visit is not offered
+  // again, then added to locally as ratings are submitted here.
   const [ratedIds, setRatedIds] = useState(new Set()); // auctionIds already rated this session
   const [featuredIds, setFeaturedIds] = useState(new Set()); // featured this session
   const [actionError, setActionError] = useState('');
@@ -143,6 +158,8 @@ export default function MyListings() {
     return () => controller.abort();
   }, [viewKey, tab, debouncedQuery, sort, page]);
 
+  // Whether a buyer has been rated lives on the order, not on the listing row, so this runs
+  // once on mount to mark the finished listings that no longer need a rating prompt.
   useEffect(() => {
     getOrders()
       .then(r => {
@@ -158,6 +175,9 @@ export default function MyListings() {
 
   const tabCount = (key) => counts[key] ?? 0;
 
+  // Opens the end listing dialog. An outright cancellation is prefilled with the most common
+  // reason; removing a final unit starts blank, because "no bids received" would rarely be
+  // the truth in that case.
   const openEnd = (auction, lastUnit) => {
     setActionError('');
     setEnding({ auction, lastUnit });
@@ -175,6 +195,9 @@ export default function MyListings() {
     setRatingComment('');
   }, []);
 
+  // One handler for both ways a listing ends, since they collect the same reason and have the
+  // same outcome. Which endpoint is called depends on whether this started as a cancellation
+  // or as the removal of the final unit.
   const handleEndListing = async () => {
     if (!endReason.trim()) return;
     setEndLoading(true);
@@ -222,6 +245,8 @@ export default function MyListings() {
     }
   };
 
+  // Pays the featured listing fee to promote this auction on the landing page for 7 days. The
+  // id is remembered locally so the button cannot be pressed twice before the list reloads.
   const handleFeature = async (id) => {
     if (!window.confirm('Feature this listing on the homepage for 7 days for a $9.99 fee?')) return;
     try {
@@ -233,6 +258,8 @@ export default function MyListings() {
     }
   };
 
+  // The seller's half of the two way rating: the buyer rates the seller from My purchases,
+  // and the seller rates the buyer here once the auction has finished.
   const handleRateBuyer = async () => {
     if (!ratingScore) { alert('Please select a star rating.'); return; }
     setRatingLoading(true);
@@ -517,6 +544,10 @@ export default function MyListings() {
                         <Link to={`/auction/${auction.auctionId}`} className="p-2 rounded-lg text-ink-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="View">
                           <Eye size={16} />
                         </Link>
+                        {/* The action set is chosen by tab, because the moves that make
+                            sense differ completely: a running auction can be promoted,
+                            edited, reduced or cancelled, while a finished or cancelled one
+                            can only be relisted or, if it sold, have its buyer rated. */}
                         {tab === 'ACTIVE' && (
                           <>
                             <button

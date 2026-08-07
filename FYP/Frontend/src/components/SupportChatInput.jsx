@@ -1,3 +1,15 @@
+/**
+ * Message composer for the support chat: a text box plus one optional image. Used by
+ * SupportChatWidget and by the /support page.
+ *
+ * Props: `onSend({ body, attachmentUrl })` is called with the finished message, `disabled`
+ * locks the controls (a closed thread), `placeholder` sets the hint text.
+ *
+ * The image is uploaded as soon as it is picked, not when send is pressed, so the send
+ * only ever carries the URL the server gave back. The preview is a blob: URL, which needs
+ * blob: allowed under img-src in the backend Content Security Policy, and it is revoked
+ * whenever the attachment is cleared or replaced.
+ */
 import { useRef, useState } from 'react';
 import { ImagePlus, Send, X } from 'lucide-react';
 import { uploadSupportImage } from '../api/support';
@@ -6,11 +18,15 @@ import { apiErrorMessage } from '../utils/apiError';
 export default function SupportChatInput({ onSend, disabled, placeholder = 'Type a message…' }) {
   const fileRef = useRef(null);
   const [draft, setDraft] = useState('');
+  // Two URLs for the same picture: `preview` is the blob: URL shown as a thumbnail,
+  // `pendingUrl` is the server URL that actually travels with the message.
   const [preview, setPreview] = useState(null);
   const [pendingUrl, setPendingUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
+  // Releases the blob: URL and resets the file input, so picking the same file again
+  // still fires a change event.
   const clearAttachment = () => {
     if (preview) URL.revokeObjectURL(preview);
     setPreview(null);
@@ -40,6 +56,8 @@ export default function SupportChatInput({ onSend, disabled, placeholder = 'Type
     }
   };
 
+  // Either text or an image is enough to send. Blocked while an upload is still running,
+  // so a message cannot go out without the attachment it was written for.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (disabled || uploading) return;

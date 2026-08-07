@@ -19,6 +19,30 @@ import javax.crypto.spec.SecretKeySpec;
 /**
  * Central security helpers for the Online Auction Platform: password hashing,
  * field-level encryption, PDPA-oriented masking, and input sanitization.
+ *
+ * <p>Hashing and encryption are separate tools here because they answer different
+ * questions, and mixing them up is the usual mistake in this area. A password is
+ * <em>hashed</em>: the transformation is one way, so even the server cannot recover it,
+ * and a login works by hashing the attempt and comparing. A phone number or address is
+ * <em>encrypted</em>: the application genuinely has to display it back to its owner and to
+ * a seller arranging delivery, so the transformation has to be reversible. Encrypting
+ * passwords would mean a stolen key exposes every account; hashing an address would make
+ * it useless.</p>
+ *
+ * <p>Each password gets its own random salt, which is stored alongside the hash. Two users
+ * who happen to pick the same password therefore end up with different stored values, so
+ * an attacker cannot spot repeats or precompute a table of hashes once and reuse it across
+ * the whole database.</p>
+ *
+ * <p>Encryption uses AES-256 in GCM mode, which authenticates as well as encrypts:
+ * tampering with the stored ciphertext makes decryption fail rather than quietly returning
+ * different text. The key is derived from the {@code AUCTION_AES_SECRET} environment
+ * variable, so the secret is never in the repository.</p>
+ *
+ * <p>The masking methods exist for PDPA. Some screens have to identify a person without
+ * disclosing who they are: public bid history, the seller's view of a buyer, an alert on a
+ * phone's lock screen. Masking keeps just enough for the reader to recognise a name they
+ * already know while giving a stranger nothing usable.</p>
  */
 public final class SecurityUtil {
 
@@ -315,6 +339,7 @@ public final class SecurityUtil {
         }
     }
 
+    /** Digests the salt followed by the value, which is what makes the salt take effect. */
     private static byte[] sha256(byte[] salt, byte[] value) throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         md.update(salt);
@@ -322,6 +347,11 @@ public final class SecurityUtil {
         return md.digest();
     }
 
+    /**
+     * Turns the configured secret into a key of the exact length AES-256 requires. The
+     * secret is an arbitrary string, so it is run through SHA-256 to get 32 bytes rather
+     * than being truncated or padded to fit.
+     */
     private static SecretKey resolveAes256Key() throws NoSuchAlgorithmException {
         MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
         byte[] keyBytes = sha256.digest(aesSecret().getBytes(StandardCharsets.UTF_8));
@@ -345,6 +375,11 @@ public final class SecurityUtil {
         return PLACEHOLDER_AES_SECRET;
     }
 
+    /**
+     * The masking rule the email and username helpers share: keep the first and last
+     * character and hide the middle. Short tokens reveal less, because keeping both ends of
+     * a two-character name would not hide anything at all.
+     */
     private static String maskLocalToken(String token) {
         int len = token.length();
         if (len <= 1) {
@@ -356,6 +391,7 @@ public final class SecurityUtil {
         return token.charAt(0) + "***" + token.charAt(len - 1);
     }
 
+    /** Replaces the five characters that would otherwise be read as HTML markup. */
     private static String escapeHtml(String s) {
         StringBuilder sb = new StringBuilder(s.length() + 16);
         for (int i = 0; i < s.length(); i++) {

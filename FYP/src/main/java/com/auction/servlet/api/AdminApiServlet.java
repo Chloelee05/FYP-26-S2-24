@@ -54,6 +54,18 @@ import java.util.Map;
  * GET  /api/admin/sellers/analytics?sellerId=N   (read the report inline)
  * POST /api/admin/sellers/analytics-email
  * All require ADMIN role.
+ *
+ * <p>The whole admin console behind one servlet. Every request starts with
+ * {@code requireRole(req, resp, "ADMIN")}, checked here rather than by a filter, because
+ * {@code AdminFilter} only guards the legacy JSP paths under {@code /admin/*} and not
+ * {@code /api/*}. Miss that call in a new handler and the endpoint is open to any logged-in
+ * member, so it is the first line of both doGet and doPost.</p>
+ *
+ * <p>It touches most of the DAO layer: user approval and banning, listing moderation,
+ * categories, order and refund correction, reviews, the reporting queue, revenue analytics,
+ * recommendation tuning, and database backup and restore. Actions that change another
+ * member's account are written to the audit log through {@link AdminManagementDAO}, and an
+ * admin cannot act on their own account or on another admin.</p>
  */
 @WebServlet("/api/admin/*")
 public class AdminApiServlet extends ApiBase {
@@ -71,6 +83,11 @@ public class AdminApiServlet extends ApiBase {
     private final com.auction.dao.RatingDAO ratingDAO = new com.auction.dao.RatingDAO();
     private final com.auction.dao.RecommendationDAO recommendationDAO = new com.auction.dao.RecommendationDAO();
 
+    /**
+     * Routes every admin read. Multi-segment paths such as /database/status are matched first,
+     * then the single-segment ones fall through to the switch on the first path segment. The
+     * ADMIN check happens once here so no individual handler can be reached without it.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
@@ -116,6 +133,10 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Routes every admin write, with the same ADMIN gate as the read side. Each handler then
+     * reads its own {@code action} parameter to decide what to do to the named record.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
@@ -280,6 +301,7 @@ public class AdminApiServlet extends ApiBase {
         return (raw == null || raw.isBlank()) ? fallback : Integer.parseInt(raw.trim());
     }
 
+    /** Parses an optional decimal parameter, keeping {@code fallback} when it is absent. */
     private double optionalDouble(HttpServletRequest req, String name, double fallback) {
         String raw = param(req, name);
         return (raw == null || raw.isBlank()) ? fallback : Double.parseDouble(raw.trim());
@@ -304,6 +326,11 @@ public class AdminApiServlet extends ApiBase {
 
     // ── GET: dashboard ───────────────────────────────────────────────────────
 
+    /**
+     * GET /api/admin/dashboard. The headline counts, a recent activity feed and short previews of
+     * the user and listing tables, all in one call so the admin home page loads in a single round
+     * trip.
+     */
     private void handleDashboard(HttpServletResponse resp) throws IOException {
         Instant now  = Instant.now();
         ZoneId  zone = ZoneId.systemDefault();
@@ -329,6 +356,12 @@ public class AdminApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /**
+     * Merges three separate event feeds, registrations, flagged listings and suspensions, into
+     * one list ordered newest first and trimmed to 12. Each source is queried separately because
+     * they live in different tables, so the sort has to happen in Java. Returns a single
+     * placeholder row on a fresh install rather than an empty list, so the panel is never blank.
+     */
     private List<Map<String, Object>> buildActivity(Instant now, ZoneId zone) {
         List<Map<String, Object>> buf = new ArrayList<>();
         for (UserDAO.NamedInstantEvent e : userDAO.recentRegistrations(6)) {
@@ -348,6 +381,7 @@ public class AdminApiServlet extends ApiBase {
         List<Map<String, Object>> out = new ArrayList<>();
         for (int i = 0; i < Math.min(12, buf.size()); i++) {
             Map<String, Object> item = buf.get(i);
+            // Copy out only the display fields, which drops the raw timestamp used for sorting.
             Map<String, Object> clean = new LinkedHashMap<>();
             clean.put("severity",  item.get("severity"));
             clean.put("message",   item.get("message"));
@@ -364,6 +398,10 @@ public class AdminApiServlet extends ApiBase {
         return out;
     }
 
+    /**
+     * One activity row. {@code sev} is the badge colour the panel renders, and {@code _at} is the
+     * sort key that {@link #buildActivity} strips before the response is written.
+     */
     private static Map<String, Object> actItem(String sev, String msg, String time, Instant at) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("severity",  sev);
@@ -375,6 +413,11 @@ public class AdminApiServlet extends ApiBase {
 
     // ── GET: analytics ────────────────────────────────────────────────────────
 
+    /**
+     * GET /api/admin/analytics. Platform totals for the analytics page. Gross auction value and
+     * the platform's own revenue are reported separately, because commission and featured listing
+     * fees are what the platform actually earns.
+     */
     private void handleAnalytics(HttpServletResponse resp) throws IOException {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -394,6 +437,11 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * GET /api/admin/analytics/report?type=user-activity|revenue|moderation. Unlike everything
+     * else here this writes plain text with a Content-Disposition header, so the browser saves it
+     * as a file. An unknown type falls back to the user activity report.
+     */
     private void handleAnalyticsReport(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String type = param(req, "type");
         if (type == null) type = "user-activity";
@@ -484,6 +532,7 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /** GET /api/admin/database/status. Connection and table information for the backup page. */
     private void handleDatabaseStatus(HttpServletResponse resp) throws IOException {
         try {
             ok(resp, DatabaseBackupUtil.status());
@@ -492,6 +541,11 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * GET /api/admin/database/backup. Streams a SQL dump as a download. Sensitive by definition,
+     * since the file contains every table including password hashes, so it lives behind the same
+     * ADMIN gate as the rest of the console.
+     */
     private void handleDatabaseBackup(HttpServletResponse resp) throws IOException {
         try {
             byte[] data = DatabaseBackupUtil.exportSql();
@@ -504,6 +558,11 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/admin/database/restore. The request body is the SQL dump text. Replies with the
+     * statement and row counts rather than a bare acknowledgement, so a restore that parsed but
+     * inserted nothing is visible instead of looking like a success.
+     */
     private void handleDatabaseRestore(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         try {
             StringBuilder sb = new StringBuilder();
@@ -532,6 +591,7 @@ public class AdminApiServlet extends ApiBase {
     /** What actually happened to one seller's analytics report. */
     private enum MailOutcome { SENT, NOT_CONFIGURED, FAILED }
 
+    /** Pairs the outcome with the generated text, so a report can be shown inline when mail is off. */
     private static final class AnalyticsMailResult {
         final MailOutcome outcome;
         final String report;
@@ -576,6 +636,11 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/admin/sellers/analytics-email with either {@code sellerId} or {@code all=true}.
+     * Generates a seller's analytics report and emails it. The three outcomes are reported
+     * distinctly: sent, generated but not sent because SMTP is off, and failed.
+     */
     private void handleSellerAnalyticsEmail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String sellerIdStr = param(req, "sellerId");
         String sendAll = param(req, "all");
@@ -623,6 +688,10 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Sends the report to every active seller, counting the three outcomes so the admin sees how
+     * many went out and which sellers failed. Inactive and non-selling accounts are skipped.
+     */
     private void handleSellerAnalyticsEmailAll(HttpServletResponse resp) throws IOException {
         int sent = 0;
         int generatedOnly = 0;
@@ -660,6 +729,11 @@ public class AdminApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /**
+     * Generates one seller's report and tries to mail it. Returns the outcome rather than
+     * throwing, so the bulk send can carry on past a seller with no email address or a rejected
+     * message. The report text comes back either way.
+     */
     private AnalyticsMailResult emailSellerAnalytics(int sellerId, String username, String email) {
         String report;
         try {
@@ -683,6 +757,15 @@ public class AdminApiServlet extends ApiBase {
 
     // ── POST: user action ─────────────────────────────────────────────────────
 
+    /**
+     * POST /api/admin/users with {@code action} and {@code userid}. Handles suspend, unban,
+     * approve, reject and deactivate.
+     *
+     * <p>Two guards run before any action: an admin cannot change their own status, which stops
+     * the last admin locking themselves out, and no admin account can be acted on here, so admins
+     * cannot ban each other through the console. The current status is also checked, so a
+     * repeated click reports the state rather than silently re-applying it.</p>
+     */
     private void handleUserAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
         int adminId = ((Number) session.getAttribute("userId")).intValue();
@@ -794,6 +877,14 @@ public class AdminApiServlet extends ApiBase {
 
     // ── POST: listing action ──────────────────────────────────────────────────
 
+    /**
+     * POST /api/admin/listings with {@code action} and {@code auctionId}. The moderation verbs.
+     * FLAG marks a listing for review, REMOVE hides it from public view, RESTORE undoes that,
+     * FEATURE and UNFEATURE control paid promotion, and EDIT and SET_KIND correct its content.
+     *
+     * <p>REMOVE only changes the moderation state, so the row and its bid history survive. That
+     * keeps the action reversible and leaves an audit trail if the removal was a mistake.</p>
+     */
     private void handleListingAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String action    = param(req, "action");
         String idStr     = param(req, "auctionId");
@@ -826,6 +917,9 @@ public class AdminApiServlet extends ApiBase {
                 if (sellerId < 0) { error(resp, 404, "Auction not found."); return; }
                 ok = featuredListingDAO.featureAuction(auctionId, days);
                 if (ok) {
+                    // Featuring is a paid promotion, so it books revenue against the seller.
+                    // Wrapped because the listing is already featured by this point and a
+                    // bookkeeping failure should not undo that.
                     try { platformRevenueDAO.recordFeaturedListing(auctionId, sellerId); } catch (Exception ignored) { }
                     okMsg(resp, "Listing featured for " + days + " days.");
                 } else {
@@ -908,12 +1002,14 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /** The acting admin's own id, taken from the session, for stamping the audit log entry. */
     private int adminId(HttpServletRequest req) {
         return ((Number) authSession(req).getAttribute("userId")).intValue();
     }
 
     // ── POST: category action ─────────────────────────────────────────────────
 
+    /** POST /api/admin/categories. Dispatches CREATE, EDIT, DELETE or RESTORE on the category list. */
     private void handleCategoryAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String action = param(req, "action");
         if (action == null) { badRequest(resp, "action is required."); return; }
@@ -927,6 +1023,11 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Creates a category from {@code name}, {@code description} and optional
+     * {@code displayOrder}. Names must be unique because buyers filter by them, and the URL slug
+     * is derived from the name rather than accepted from the request.
+     */
     private void catCreate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String name = SecurityUtil.sanitize(param(req, "name"));
         String desc = SecurityUtil.sanitize(param(req, "description"));
@@ -950,6 +1051,10 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Renames or reorders a category. The uniqueness check excludes the row being edited, so
+     * saving a category without changing its name is not rejected as a duplicate of itself.
+     */
     private void catEdit(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int id = parseCatId(req, resp); if (id < 0) return;
 
@@ -970,6 +1075,10 @@ public class AdminApiServlet extends ApiBase {
         else serverError(resp, "Could not update category.");
     }
 
+    /**
+     * Deactivates a category. A soft delete, and refused while any auction still points at it,
+     * which would otherwise leave those listings with a category that no longer resolves.
+     */
     private void catDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int id = parseCatId(req, resp); if (id < 0) return;
         if (catDAO.findById(id) == null) { error(resp, 404, "Category not found."); return; }
@@ -982,6 +1091,7 @@ public class AdminApiServlet extends ApiBase {
         else serverError(resp, "Could not deactivate category.");
     }
 
+    /** Reactivates a soft-deleted category so it can be selected on new listings again. */
     private void catRestore(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int id = parseCatId(req, resp); if (id < 0) return;
         if (catDAO.findById(id) == null) { error(resp, 404, "Category not found."); return; }
@@ -992,6 +1102,7 @@ public class AdminApiServlet extends ApiBase {
 
     // ── GET: reports ─────────────────────────────────────────────────────────
 
+    /** GET /api/admin/reports. Listing reports and account reports merged into one moderation queue. */
     private void handleGetReports(HttpServletResponse resp) throws IOException {
         try {
             ok(resp, reportDAO.getAllReportsUnified());
@@ -1002,6 +1113,11 @@ public class AdminApiServlet extends ApiBase {
 
     // ── POST: report action ───────────────────────────────────────────────────
 
+    /**
+     * POST /api/admin/reports with {@code action}, {@code reportId} and {@code type}. Resolves or
+     * dismisses a report, or saves a reply the reporter will see on their own reports page.
+     * {@code type} is mandatory because the two report tables number their rows independently.
+     */
     private void handleReportAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String action    = param(req, "action");
         String idStr     = param(req, "reportId");
@@ -1045,6 +1161,7 @@ public class AdminApiServlet extends ApiBase {
         }
     }
 
+    /** GET /api/admin/orders. Every order on the platform, for dispute handling and correction. */
     private void handleGetOrders(HttpServletResponse resp) throws IOException {
         try {
             ok(resp, orderDAO.listAllForAdmin());
@@ -1134,12 +1251,14 @@ public class AdminApiServlet extends ApiBase {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    /** First path segment after /api/admin, which selects the resource in both routing switches. */
     private String sub(HttpServletRequest req) {
         String p = req.getPathInfo();
         if (p == null || p.equals("/")) return "";
         return p.replaceFirst("^/", "").split("/")[0];
     }
 
+    /** Parses {@code categoryId}, writing the 400 itself and returning -1 so callers guard on a negative. */
     private int parseCatId(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String s = param(req, "categoryId");
         if (s == null || s.isBlank()) { badRequest(resp, "categoryId is required."); return -1; }
@@ -1147,11 +1266,17 @@ public class AdminApiServlet extends ApiBase {
         catch (NumberFormatException e) { badRequest(resp, "Invalid category ID."); return -1; }
     }
 
+    /** Parses an optional numeric parameter, falling back to {@code def} when absent or malformed. */
     private int parseInt(String s, int def) {
         if (s == null) return def;
         try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
     }
 
+    /**
+     * Builds a URL-safe slug from a category name and makes it unique by appending -2, -3 and so
+     * on. {@code excludeId} is the row being edited, or -1 when creating, so a category keeps its
+     * own slug on save instead of colliding with itself.
+     */
     private String resolveSlug(String name, int excludeId) {
         String base = name.trim().toLowerCase()
                 .replaceAll("[^a-z0-9\\s-]", "")
@@ -1167,6 +1292,7 @@ public class AdminApiServlet extends ApiBase {
         return candidate;
     }
 
+    /** First {@code n} items, used to trim the dashboard previews without a second query. */
     private static <T> List<T> slice(List<T> list, int n) {
         return list.size() > n ? list.subList(0, n) : list;
     }

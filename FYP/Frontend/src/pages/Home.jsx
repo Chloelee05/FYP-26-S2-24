@@ -1,3 +1,18 @@
+/*
+ * Landing page at "/". Public, so an unregistered visitor sees the whole page; the only
+ * parts that change with a session are the sign up bands and the dismiss button on a
+ * recommendation card. A guest sees "View Auction" on each card instead of a bid prompt,
+ * because AuctionCard reads the session and will not offer bidding to someone signed out.
+ * Almost nothing on this page is hardcoded. Marketing copy comes from the landing_content
+ * table through /api/landing-content and is edited by an admin at /admin/landing-content;
+ * the constants in this file are only the fallback strings used if that call returns empty.
+ * The rest is live data: /api/categories, /api/recommendations/trending, /api/featured,
+ * /api/recommendations and /api/stats (user counts, fee schedule, buyer testimonials).
+ * Recommendation cards carry provenance in a.why, a reason code such as PEER_BIDS,
+ * SIMILAR_TASTE, SAME_CATEGORY or TRENDING plus keywords, so the shopper can open
+ * "why this?" and see what caused the suggestion. Impressions and clicks are reported back
+ * so the admin analytics page can measure click-through per reason code.
+ */
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -109,6 +124,8 @@ function splitHeadline(text) {
   return at < 0 ? [text, ''] : [text.slice(0, at + 1), text.slice(at + 2)];
 }
 
+// Shared heading for each strip on the page: title, optional subtitle, optional right side
+// action link such as "View all".
 function SectionHeader({ title, subtitle, action, icon: Icon }) {
   return (
     <div className="flex items-end justify-between gap-4 mb-6">
@@ -124,6 +141,8 @@ function SectionHeader({ title, subtitle, action, icon: Icon }) {
   );
 }
 
+// Placeholder card matching the real AuctionCard footprint, so the grid does not jump
+// height when the trending request finishes.
 function CardSkeleton() {
   return (
     <div className="card overflow-hidden">
@@ -141,20 +160,31 @@ function CardSkeleton() {
 export default function Home() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Trending listings, ranked server side by recent bid count.
   const [auctions, setAuctions] = useState([]);
   const [categories, setCategories] = useState([]);
+  // Recommender output. Each entry carries a .why block with the reason code and keywords.
   const [recommended, setRecommended] = useState([]);
+  // True when the server actually had enough history to personalise. When false the same
+  // strip is relabelled "Popular Right Now" so the heading does not overclaim.
   const [personalised, setPersonalised] = useState(false);
+  // Listings the seller paid the featured fee on.
   const [featured, setFeatured] = useState([]);
+  // Platform metrics, fee schedule and testimonials from /api/stats. null hides those blocks.
   const [stats, setStats] = useState(null);
+  // Admin edited copy keyed by content key, read through the c() helper below.
   const [content, setContent] = useState({});
   // How many days of bids the server's trending ranking actually counted. The subtitle
   // states this number, so it is read back from the API rather than assumed here.
   const [trendingWindowDays, setTrendingWindowDays] = useState(null);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [loadError, setLoadError] = useState('');
+  // Bumped by the "Try again" button to re-run the load effect below.
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Page load. The four requests are fired together rather than chained, so one slow or
+  // failing section does not hold up the others. Only trending surfaces its error to the
+  // user; the decorative blocks just stay hidden if their call fails.
   useEffect(() => {
     getCategories().then(r => setCategories(r.data)).catch(() => {});
     // Genuinely trending, ranked server-side. /api/search has no bid-count sort and
@@ -176,6 +206,9 @@ export default function Home() {
     getLandingContent().then(r => setContent(r.data ?? {})).catch(() => setContent({}));
   }, [reloadKey]);
 
+  // Re-fetched whenever the session changes, because signing in or out changes the answer:
+  // a guest gets a generic popular list, a member gets picks from their own bid and watch
+  // history plus buyers with similar taste.
   useEffect(() => {
     getRecommendations()
       .then(r => {
@@ -203,11 +236,16 @@ export default function Home() {
     ).catch(() => {});
   }, [auctions]);
 
+  // "Not interested". Removed from the list first so the card disappears immediately, then
+  // persisted. If the persist call fails the card stays hidden for this visit rather than
+  // popping back and making the click look broken.
   const handleDismiss = async (auctionId) => {
     setRecommended(prev => prev.filter(a => a.auctionId !== auctionId));
     try { await dismissRecommendation(auctionId); } catch { /* keep hidden locally */ }
   };
 
+  // Every visible string on the page goes through c(): the admin's landing_content value if
+  // one exists for that key, otherwise the fallback declared in this file.
   const c = (key, fallback) => content[key] ?? fallback;
   const [headlineTop, headlineRest] = splitHeadline(c('hero.headline', 'Bid smart, buy'));
 
@@ -486,7 +524,9 @@ export default function Home() {
           </Reveal>
         )}
 
-        {/* Recommendations */}
+        {/* Recommendations. The heading and subtitle swap depending on whether the server
+            personalised the list and, if not, whether the viewer is signed in at all: a
+            guest is told to sign in, a member with no history is told to bid or watch. */}
         {recommended.length > 0 && (
           <Reveal as="section">
             <SectionHeader
@@ -512,6 +552,8 @@ export default function Home() {
                       .catch(() => {});
                   }}
                 >
+                  {/* Dismissal is stored against the account, so it is only offered to a
+                      signed in user. A guest has nowhere to persist the preference. */}
                   {user && (
                     <button
                       type="button"
@@ -676,7 +718,8 @@ export default function Home() {
           </Reveal>
         )}
 
-        {/* Guest sign-up band */}
+        {/* Guest sign-up band. Hidden once signed in, since the call to action would be
+            meaningless to an existing member. */}
         {!user && (
           <Reveal as="section" className="sheen-host rounded-3xl bg-ink-900 text-white px-8 py-12 text-center">
             <div

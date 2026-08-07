@@ -1,3 +1,27 @@
+/*
+ * Account settings at "/profile/settings". Behind ProtectedRoute, so any signed in account
+ * reaches it; nothing here is seller or admin specific. Six sections live in this one file,
+ * each its own component, picked by the ?tab= query parameter: profile, payment methods,
+ * password, two factor auth, notifications and account deletion. App.jsx redirects the older
+ * standalone paths (/profile/edit, /profile/change-password, /profile/2fa) into the matching
+ * tab here so old bookmarks still land somewhere sensible.
+ *
+ * PDPA related behaviour, since a fair amount of it is concentrated on this page:
+ *   Email is the sign-in identity and is shown read only. It is left out of the update
+ *   payload entirely, so the server keeps whatever address it already holds.
+ *   A saved card is never displayed in full. Only the ciphertext, the brand and the last
+ *   four digits are stored, the CVV is not stored at all, and the number cannot be edited
+ *   because changing it would change everything the row is identified by.
+ *   Deleting the account is a soft delete. Personal data (name, email, phone, address,
+ *   photo, 2FA setup) is erased, but bids and reviews are kept with the identity stripped,
+ *   because removing them would rewrite the history of auctions other people took part in.
+ *   Live listings are cancelled and any paid but unshipped order raises a refund.
+ *   Telegram linking is opt in, uses a one time code, and can be disconnected here.
+ *
+ * Endpoints used: profile get/update/photo upload/delete, payment methods list/add/update/
+ * delete/set default, change password, 2FA setup/confirm/disable, notification preferences
+ * get/save, Telegram preferences save, Telegram status and unlink.
+ */
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
@@ -24,6 +48,8 @@ import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { publicPath } from '../utils/appBase';
 
+// Section list. The key is what goes in the URL, and the title and desc are rendered as the
+// heading above whichever section is showing, so nav and content cannot drift apart.
 const TABS = [
   { key: 'profile',       label: 'Profile',          icon: User,        title: 'Profile details',      desc: 'How your account appears to other people on AuctionHub.' },
   { key: 'payment',       label: 'Payment methods',  icon: CreditCard,  title: 'Payment methods',      desc: 'Cards, PayPal and bank accounts you can pay for an order with.' },
@@ -79,14 +105,20 @@ function phoneViolation(phone) {
   return null;
 }
 
+// Display name, email, phone, address and profile photo.
 function ProfileSection() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
+  // The visible "Choose photo" button forwards its click to the hidden file input, since a
+  // native file input cannot be styled to match the rest of the form.
   const fileInputRef = useRef(null);
 
   const [form, setForm] = useState({ username: '', email: '', phone: '', address: '' });
+  // Snapshot of what the server returned. Compared against form to work out whether there
+  // is anything worth saving.
   const [initial, setInitial] = useState({ username: '', email: '', phone: '', address: '' });
   const [currentImageUrl, setCurrentImageUrl] = useState('');
+  // Local blob URL for a photo picked but not yet uploaded.
   const [previewUrl, setPreviewUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -109,6 +141,8 @@ function ProfileSection() {
     }).catch(() => setError('Could not load your profile.'));
   }, []);
 
+  // Enables the save button. Only editable fields count, so the locked email can never make
+  // the form look changed.
   const dirty = useMemo(
     () => Boolean(selectedFile) || EDITABLE_FIELDS.some(f => form[f.key] !== initial[f.key]),
     [form, initial, selectedFile],
@@ -129,6 +163,10 @@ function ProfileSection() {
     setError('');
   };
 
+  // Saves the profile. The photo goes first and a failure there stops the whole submit, so
+  // the text fields are not saved against a photo that never uploaded. After the update the
+  // profile is read back and pushed into the auth context, which is what refreshes the name
+  // and avatar in the navbar without a page reload.
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(''); setMessage('');
@@ -259,6 +297,9 @@ function ProfileSection() {
 }
 
 // ── Change password section ───────────────────────────────────────────────────
+// Posts the current and new password to /api/auth/change-password. The current password is
+// required, so knowing the new one is not enough to take over an unattended session. The
+// strength rule is enforced server side; the hint below only describes it.
 function ChangePasswordSection() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -282,6 +323,8 @@ function ChangePasswordSection() {
   };
 
   const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+  // Only flagged once the confirm box has something in it, so the warning does not appear
+  // while the second field is still being typed.
   const mismatch = form.confirmPassword.length > 0 && form.newPassword !== form.confirmPassword;
 
   return (
@@ -336,15 +379,25 @@ function ChangePasswordSection() {
 }
 
 // ── 2FA section ───────────────────────────────────────────────────────────────
+// Time based one time passwords. Enabling is two steps on purpose: /2fa/setup returns a
+// secret and an otpauth URI for the QR code, but nothing is switched on until /2fa/confirm
+// accepts a live code from the app, which proves the authenticator was actually paired.
+// Disabling asks for the current password instead of a code, so a locked out user with the
+// right password can still recover.
 function TwoFactorSection() {
   const { user, setUser } = useAuth();
   const is2FAEnabled = user?.twoFactorEnabled ?? false;
 
+  // 'idle' or 'setup'. Controls whether the QR pairing panel is on screen.
   const [step, setStep] = useState('idle');
+  // otpauth:// URI encoded into the QR code, and the same secret in text form for anyone
+  // who cannot scan it.
   const [totpUri, setTotpUri]       = useState('');
   const [totpSecret, setTotpSecret] = useState('');
   const [confirmCode, setConfirmCode] = useState('');
   const [showDisable, setShowDisable] = useState(false);
+  // Despite the name this holds the current password, not a TOTP code: turning 2FA off is
+  // confirmed with the password so an authenticator that has been lost is not a dead end.
   const [disableCode, setDisableCode] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError]     = useState('');
@@ -371,6 +424,8 @@ function TwoFactorSection() {
     clearMessages(); setLoading(true);
     try {
       await confirm2FA(confirmCode);
+      // Patched into the session locally so the panel flips straight away rather than
+      // waiting for the next /session read.
       setUser(prev => ({ ...prev, twoFactorEnabled: true }));
       setStep('idle'); setConfirmCode('');
       setMessage('Two-factor authentication is now enabled on your account.');
@@ -581,9 +636,13 @@ function PrefSwitch({ checked, label, disabled, saving, onToggle }) {
  * one click and turning it back on restores the choices underneath rather than resetting them.
  */
 function TelegramPreferences({ prefs, onChange }) {
+  // { available, linked, telegramUsername, linkedAt }. available is false when the bot is
+  // not configured on this deployment, and the whole card is then hidden.
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [connectOpen, setConnectOpen] = useState(false);
+  // Which switch has a save in flight. Also used to disable the others meanwhile, so two
+  // overlapping saves cannot write conflicting preference sets.
   const [savingKey, setSavingKey] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -596,6 +655,8 @@ function TelegramPreferences({ prefs, onChange }) {
 
   useEffect(() => { loadStatus(); }, []);
 
+  // Unlinks the chat. The stored preferences are left alone, so reconnecting later brings
+  // back the same choices rather than starting from the defaults.
   const handleDisconnect = async () => {
     setBusy(true); setError('');
     try {
@@ -608,6 +669,8 @@ function TelegramPreferences({ prefs, onChange }) {
     }
   };
 
+  // Optimistic toggle: the switch moves immediately and is put back if the save fails, so a
+  // working toggle feels instant and a broken one does not quietly lie about being saved.
   const handleToggle = async (key) => {
     const next = { ...prefs, [key]: !prefs[key] };
     onChange(next);
@@ -627,6 +690,9 @@ function TelegramPreferences({ prefs, onChange }) {
 
   const linked = Boolean(status.linked);
   const linkedDate = status.linkedAt ? new Date(status.linkedAt).toLocaleDateString() : null;
+  // Per event switches are locked when there is no linked chat, when the master switch is
+  // off, or while any save is running. The master switch itself is deliberately left out of
+  // this, so Telegram can always be turned off in one click.
   const childrenDisabled = !linked || !prefs.enabled || savingKey !== null;
 
   return (
@@ -714,6 +780,9 @@ function TelegramPreferences({ prefs, onChange }) {
         )}
       </div>
 
+      {/* Linking is done in a dialog: the server issues a one time code and a deep link into
+          the bot, and the status is re-read on close so the card reflects the new link
+          whether it was completed or abandoned. */}
       {connectOpen && (
         <TelegramConnectModal
           onClose={() => { setConnectOpen(false); loadStatus(); }}
@@ -729,6 +798,8 @@ const DEFAULT_TELEGRAM_PREFS = {
   orderUpdates: true,
 };
 
+// In-app and email alerts, with the Telegram card nested underneath. Both preference sets
+// come back from one GET, but they save to different endpoints.
 function NotificationPreferencesSection() {
   const [prefs, setPrefs] = useState({ outbid: true, endingSoon: true, wonAuction: true });
   const [telegramPrefs, setTelegramPrefs] = useState(DEFAULT_TELEGRAM_PREFS);
@@ -737,6 +808,9 @@ function NotificationPreferencesSection() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
+  // Each preference defaults to on if the server has no stored value, so a brand new account
+  // is opted in to the alerts that matter (being outbid, winning) rather than silently
+  // missing them.
   useEffect(() => {
     getNotificationPreferences()
       .then(r => {
@@ -751,6 +825,8 @@ function NotificationPreferencesSection() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Same optimistic pattern as the Telegram switches: flip locally, save, revert on failure.
+  // There is no save button, so each switch has to be its own transaction.
   const handleToggle = async (key) => {
     const next = { ...prefs, [key]: !prefs[key] };
     setPrefs(next);
@@ -823,6 +899,9 @@ const DELETION_EFFECTS = [
   'This cannot be undone — you would need to register again.',
 ];
 
+// Account closure. This is a soft delete on the server: the row survives with its personal
+// columns cleared, which is what lets past bids and reviews stay valid while no longer
+// naming anyone. Typing DELETE is the guard against an accidental click.
 function DeleteAccountSection() {
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -832,6 +911,8 @@ function DeleteAccountSection() {
 
   const confirmed = typed.trim().toUpperCase() === 'DELETE';
 
+  // Deletes, then signs out locally and leaves for /login. logout() runs after the delete
+  // because the request needs the session that is about to be thrown away.
   const handleDelete = async (e) => {
     e.preventDefault();
     if (!confirmed) return;
@@ -973,13 +1054,18 @@ function EditMethodForm({ method, saving, onCancel, onSave }) {
   );
 }
 
+// Saved cards, PayPal accounts and bank accounts. MyPurchases reads the same list, and an
+// empty list is why the pay dialog there refuses to open.
 function PaymentMethodsSection() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [methodType, setMethodType] = useState('card'); // card | paypal | bank
+  // Three separate form states rather than one shared object, so switching between the type
+  // pills does not throw away what was already typed into another one.
   const [cardForm, setCardForm] = useState(EMPTY_CARD);
   const [paypalForm, setPaypalForm] = useState(EMPTY_PAYPAL);
   const [bankForm, setBankForm] = useState(EMPTY_BANK);
+  // Id of the method whose inline editor is open, or null.
   const [editingId, setEditingId] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [message, setMessage] = useState('');
@@ -993,6 +1079,9 @@ function PaymentMethodsSection() {
 
   useEffect(() => { loadCards(); }, []);
 
+  // Adds whichever method type is selected. Only the matching form is cleared afterwards.
+  // The list is re-read rather than appended to locally, because the server decides the
+  // display label, the last four digits and which method ends up marked as default.
   const handleAddMethod = async (e) => {
     e.preventDefault();
     setError(''); setMessage('');
@@ -1034,6 +1123,8 @@ function PaymentMethodsSection() {
     catch (err) { setError(apiErrorMessage(err, 'Could not remove that payment method.')); }
   };
 
+  // Marking one method default clears the flag on the others server side, so the list is
+  // reloaded instead of being patched in place.
   const handleDefaultCard = async (id) => {
     setError(''); setMessage('');
     try { await setDefaultPaymentMethod(id); loadCards(); }
@@ -1274,9 +1365,14 @@ function PaymentMethodsSection() {
 }
 
 // ── Main settings page ────────────────────────────────────────────────────────
+// Shell around the six sections: the nav, the heading, and the tab routing. Only the active
+// section is mounted, so switching tab discards any half filled form in the previous one and
+// the next visit starts from freshly loaded server data.
 export default function AccountSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get('tab');
+  // Validated against the known keys, so a hand edited or stale ?tab= value falls back to
+  // profile rather than rendering nothing.
   const tab = TABS.some(t => t.key === requested) ? requested : 'profile';
   const active = TABS.find(t => t.key === tab);
 

@@ -33,14 +33,28 @@ import java.util.List;
  *   statusFilter – Integer (null = all)
  *
  * Protected by AuthFilter (/protected/*). Role check is re-enforced inline.
+ *
+ * <p>Legacy JSP page; the SPA reads the seller's listings from {@code /api/seller/*} in
+ * {@code SellerApiServlet}. The seller id always comes from the session and is passed to every
+ * DAO call, so the status filter narrows the seller's own listings and can never widen the
+ * query to somebody else's.</p>
+ *
+ * <p>Because one account can both buy and sell, {@code RbacUtil.isSeller} passes on the
+ * {@code canSell} capability rather than requiring a separate seller account.</p>
  */
 @WebServlet("/protected/seller/auctions")
 public class SellerDashboardServlet extends HttpServlet {
 
     private SellerAuctionDAO dao = new SellerAuctionDAO();
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setDao(SellerAuctionDAO dao) { this.dao = dao; }
 
+    /**
+     * Renders one page of the seller's own auctions, optionally narrowed by status.
+     * An unrecognised {@code status} is a 400 rather than a silent "show everything", so a
+     * mistyped filter cannot look like an empty result set.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -78,6 +92,11 @@ public class SellerDashboardServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Loads the bid history for one of the seller's auctions, given {@code auction_id}.
+     * Unfinished: the rows are put on the request but no view is rendered, so this currently
+     * returns an empty response. The SPA gets this data from {@code /api/seller/*} instead.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String temp = req.getParameter("auction_id");
@@ -138,6 +157,11 @@ public class SellerDashboardServlet extends HttpServlet {
         return new int[]{page, pageSize};
     }
 
+    /**
+     * Fetches the bids on one auction, or null when the caller is refused or the query fails.
+     * The seller id is passed to the DAO alongside the auction id, so the query only returns
+     * rows for an auction this seller actually owns.
+     */
     private List<Bid> getBidHistory(HttpServletRequest req, HttpServletResponse resp, Long auctionId) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
         if (session == null) {
@@ -167,6 +191,7 @@ public class SellerDashboardServlet extends HttpServlet {
         }
     }
 
+    /** Records an error message; the forward is commented out because no view was written. */
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message) throws ServletException, IOException {
         req.setAttribute("Error", message);
         // req.getRequestDispatcher("???").forward(req, resp);

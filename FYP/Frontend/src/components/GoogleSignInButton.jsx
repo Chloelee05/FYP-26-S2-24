@@ -1,3 +1,15 @@
+/**
+ * The Google sign-in button on the login and register pages, and on the linked accounts
+ * section of account settings.
+ *
+ * Props: `onCredential(idToken)` receives the Google ID token, which the caller then
+ * posts to /api/oauth/login or /api/oauth/link for the server to verify;
+ * `onAvailabilityChange(bool)` lets the page hide its "or" divider when Google is not
+ * configured; `text` picks the wording Google renders on the button.
+ *
+ * The button itself is drawn by Google's own script rather than by us, which is a
+ * requirement of using their identity service.
+ */
 import { useEffect, useRef, useState } from 'react';
 import { getOAuthConfig } from '../api/auth';
 
@@ -35,6 +47,10 @@ export default function GoogleSignInButton({ onCredential, onAvailabilityChange,
     availabilityRef.current = onAvailabilityChange;
   });
 
+  // Ask the server whether Google is configured, and only then load the script and let
+  // Google draw its button. Anything that goes wrong along the way, including no client
+  // id and a blocked script, ends in `unavailable` and the component renders nothing, so
+  // the password form is still usable.
   useEffect(() => {
     let cancelled = false;
     const unavailable = () => {

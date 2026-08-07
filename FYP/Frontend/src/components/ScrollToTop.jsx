@@ -1,3 +1,5 @@
+// Mounted once inside the router in App.jsx. Renders nothing; it exists purely for the
+// side effect below.
 import { useEffect } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
 

@@ -28,6 +28,16 @@ import java.io.IOException;
  * </ol>
  *
  * All actions require an authenticated session (RBAC enforced via {@link RbacUtil}).
+ *
+ * <p>Legacy code from the JSP era. Note that the class carries no {@code @WebServlet}
+ * annotation and is not declared in {@code web.xml}, so it is not currently reachable over
+ * HTTP; the live 2FA feature is {@code TwoFactorApiServlet} on {@code /api/2fa/*}, which the
+ * SPA calls. The logic below is still the reference for how the TOTP secret is handled.</p>
+ *
+ * <p>The pending secret lives in the session between setup and confirm and is only written to
+ * the database once the user has proved they can generate a valid code from it. It is stored
+ * encrypted through {@link SecurityUtil#encrypt(String)}, so a leaked database dump does not
+ * hand over working authenticator seeds.</p>
  */
 public class TwoFactorServlet extends HttpServlet {
 
@@ -37,15 +47,23 @@ public class TwoFactorServlet extends HttpServlet {
         userDAO = new UserDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setUserDAO(UserDAO userDAO) {
         this.userDAO = userDAO;
     }
 
+    /** Not implemented: the settings page that would host this form was never built in JSP. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         //
     }
 
+    /**
+     * Dispatches on the {@code action} parameter to setup, confirm or disable. The
+     * authentication check comes first, before the action is even read, because all three
+     * branches operate on the signed-in account taken from {@code session.sessionEmail} rather
+     * than from anything the caller supplied.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
@@ -80,6 +98,11 @@ public class TwoFactorServlet extends HttpServlet {
 
     // action handlers
 
+    /**
+     * Generates a fresh TOTP secret and parks it in the session as {@code pending2faSecret}.
+     * Nothing is written to the database yet, so abandoning the wizard leaves the account
+     * exactly as it was.
+     */
     private void handleSetup(HttpServletRequest req, HttpSession session, String email) {
         String secret = TotpUtil.generateSecret();
         session.setAttribute("pending2faSecret", secret);
@@ -90,6 +113,11 @@ public class TwoFactorServlet extends HttpServlet {
         req.setAttribute("Setup", "Scan the QR code or enter the secret key, then confirm with your authenticator code.");
     }
 
+    /**
+     * Checks the first code the user reads off their authenticator against the pending secret,
+     * and only then persists it encrypted. Requiring a working code before saving is what stops
+     * a user locking themselves out with a QR code they never actually scanned.
+     */
     private void handleConfirm(HttpServletRequest req, HttpSession session, String email) {
         String pendingSecret = (String) session.getAttribute("pending2faSecret");
         String otpCode       = req.getParameter("otpCode");
@@ -118,6 +146,11 @@ public class TwoFactorServlet extends HttpServlet {
         req.setAttribute("TwoFactorEnabled", "Two-factor authentication has been enabled.");
     }
 
+    /**
+     * Turns 2FA off, but only after a currently valid code has been supplied. Decrypts the
+     * stored secret to verify against it. Without that check, a hijacked session could quietly
+     * strip the second factor off the account.
+     */
     private void handleDisable(HttpServletRequest req, HttpSession session, String email) {
         String otpCode = req.getParameter("otpCode");
 

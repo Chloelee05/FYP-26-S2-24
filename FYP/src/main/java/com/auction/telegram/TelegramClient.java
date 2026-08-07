@@ -123,6 +123,12 @@ public final class TelegramClient {
         }
     }
 
+    /**
+     * Reads Telegram's JSON envelope. Every reply carries an {@code ok} flag, and a
+     * failure adds an error code, a description and sometimes a {@code retry_after} the
+     * worker uses to back off. The HTTP status is only a fallback for a body that does not
+     * name a code of its own.
+     */
     private static SendResult parse(String payload, int statusCode) {
         try {
             JsonNode root = MAPPER.readTree(payload);

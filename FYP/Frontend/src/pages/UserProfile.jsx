@@ -1,3 +1,15 @@
+/*
+ * The signed in account's own profile at "/profile". Behind ProtectedRoute, any role.
+ * This is the private view of the account: identity, rating breakdown, transaction record,
+ * reviews in both directions and reports raised. The public version other people see is
+ * SellerProfilePublic at /seller/:id.
+ * Pulls from five endpoints on mount: profile, transaction history, reviews about me, my
+ * reports, and reviews I wrote. A review can be edited or deleted for 24 hours after it is
+ * posted; the server sets rev.editable and the buttons follow that flag rather than the page
+ * recomputing the window itself.
+ * Reviewers are shown by masked name, and reports carry the moderation team's reply if one
+ * has been written.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -60,9 +72,12 @@ function StatTile({ icon: Icon, label, value, tone }) {
 export default function UserProfile() {
   const [profile, setProfile] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  // Reviews other people left about this account.
   const [reviews, setReviews] = useState([]);
   const [myReports, setMyReports] = useState([]);
+  // Reviews this account wrote about other people. Only these can be edited.
   const [writtenReviews, setWrittenReviews] = useState([]);
+  // The review the edit dialog is open for, or null.
   const [editingReview, setEditingReview] = useState(null);
   const [editScore, setEditScore] = useState(0);
   const [editComment, setEditComment] = useState('');
@@ -70,9 +85,13 @@ export default function UserProfile() {
   const [tab, setTab] = useState('transactions');
   const [filter, setFilter] = useState('All');
 
+  // Extracted because it is re-run after an edit or a delete, so the editable flag and the
+  // stored text come back from the server rather than being guessed locally.
   const loadWrittenReviews = () =>
     getMyWrittenReviews().then(r => setWrittenReviews(Array.isArray(r.data) ? r.data : [])).catch(() => {});
 
+  // Five independent requests on mount. Each section renders its own empty state if its call
+  // fails, which is why none of them set a page level error.
   useEffect(() => {
     getProfile().then(r => setProfile(r.data)).catch(() => {});
     getTransactionHistory().then(r => setTransactions(r.data ?? [])).catch(() => {});
@@ -81,6 +100,9 @@ export default function UserProfile() {
     loadWrittenReviews();
   }, []);
 
+  // Loads one review into the edit dialog. The stored comment is HTML escaped on the way in,
+  // so it is decoded before it goes back into the textarea, otherwise editing would slowly
+  // turn an apostrophe into &#39; and then into the escaped form of that.
   const openEditReview = (rev) => {
     setEditingReview(rev);
     setEditScore(rev.rating ?? 0);
@@ -100,6 +122,8 @@ export default function UserProfile() {
     }
   };
 
+  // Deletes a review the account wrote. The server enforces the same 24 hour window, so a
+  // stale editable flag on screen still cannot delete an old review.
   const handleDeleteReview = async (id) => {
     if (!window.confirm('Delete this review? This cannot be undone.')) return;
     setReviewMsg('');
@@ -139,6 +163,8 @@ export default function UserProfile() {
     ? transactions
     : transactions.filter(t => t.transactionType === filter.toLowerCase());
 
+  // Summary tiles are worked out from the transaction rows already loaded, so there is no
+  // extra stats call and the numbers cannot disagree with the table below them.
   const totalPurchases = transactions.filter(t => t.transactionType === 'purchase').length;
   const totalSales = transactions.filter(t => t.transactionType === 'sale').length;
   const totalVolume = transactions.reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -200,6 +226,8 @@ export default function UserProfile() {
             <h2 className="font-display font-bold text-lg text-ink-900">{profile.username}</h2>
             <div className="mt-2 mb-2 flex flex-wrap justify-center gap-1.5">
               <span className={roleDisplay.className}>{roleDisplay.label}</span>
+              {/* canSell is the capability, not a role. It is badged separately so it is
+                  clear that one account holds both sides. */}
               {profile.canSell && <span className="badge-purple">Selling enabled</span>}
             </div>
             <p className="text-sm text-ink-400 mb-5">

@@ -1,3 +1,12 @@
+/*
+ * Seller overview at "/seller/dashboard". Behind ProtectedRoute with requireSeller.
+ * Reads the seller's own listings, the analytics summary and the SALE rows of the transaction
+ * history, and can ask the server to email the analytics report.
+ * This page reports on performance; the listings themselves are managed on My listings. The
+ * earnings summary is where the commission and featured listing fees are shown, so the gross
+ * figure here and the net figure differ by exactly those fees.
+ * Everything money related is simulated in this prototype. There is no wallet and no payout.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, ListOrdered, Star, BarChart3, Mail } from 'lucide-react';
@@ -16,6 +25,7 @@ export default function SellerDashboard() {
   const [analyticsMsg, setAnalyticsMsg] = useState('');
   const [emailing, setEmailing] = useState(false);
   const [sales, setSales] = useState([]);
+  // Report text shown on the page when the server could not send it by email.
   const [inlineReport, setInlineReport] = useState('');
 
   useEffect(() => {
@@ -28,6 +38,9 @@ export default function SellerDashboard() {
       .catch(() => {});
   }, []);
 
+  // Asks the server to email the analytics report. If SMTP is not configured the server
+  // answers with the report body instead of an error, and it is rendered inline, so the
+  // feature can still be demonstrated on a deployment with no mail server.
   const handleEmailAnalytics = async () => {
     setEmailing(true);
     setAnalyticsMsg('');
@@ -46,6 +59,8 @@ export default function SellerDashboard() {
     }
   };
 
+  // Grouped through the shared helper rather than by reading the status column here, which
+  // is what keeps these counts identical to the tab counts on My listings.
   const { active, finished, cancelled } = groupListings(auctions);
 
   return (

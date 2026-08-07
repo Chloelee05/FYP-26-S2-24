@@ -1,3 +1,10 @@
+<%--
+  Admin overview: headline metrics, the recent-activity feed, and five-row previews of the
+  user and listing tables. Rendered by AdminDashboardServlet (/admin/dashboard), which sits
+  behind AdminFilter, so this page assumes the viewer is already known to be an admin.
+  Includes the shared admin sidebar and highlights it using "adminActiveNav".
+  Legacy JSP admin console; the SPA admin area reads /api/admin/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

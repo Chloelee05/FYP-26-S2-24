@@ -1,3 +1,14 @@
+/*
+ * User reports at "/admin/reports". ADMIN only.
+ * Reads GET /api/admin/reports and calls resolve, reopen and reply. Two kinds of report land
+ * in the same list: an account report raised from a public seller profile, and a listing
+ * report raised from an auction page. They are stored in separate tables, so every call has
+ * to carry the type as well as the id, and rows are keyed by both.
+ * The reply written here is what the reporter sees on their own profile page under Reports,
+ * so this is the moderation team answering the person who complained.
+ * Resolve and reopen are the same flag in both directions, which lets a report closed by
+ * mistake be put back into the queue.
+ */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
@@ -20,13 +31,19 @@ export default function AdminReports() {
 
   useEffect(() => { reload(); }, []);
 
+  // Ids are only unique within their own table, so an account report and a listing report can
+  // share a number. Identity has to be the pair, or patching one would hit the other.
   const sameReport = (a, b) => a.id === b.id && (a.type ?? 'account') === (b.type ?? 'account');
 
+  // Updates the row in the table and the open dialog together, so the badge in the modal
+  // changes as soon as the action succeeds.
   const patch = (report, patch) => {
     setReports(prev => prev.map(r => sameReport(r, report) ? { ...r, ...patch } : r));
     if (selected && sameReport(selected, report)) setSelected(s => ({ ...s, ...patch }));
   };
 
+  // Seeds the textarea with any reply already saved, so reopening a report shows the previous
+  // response instead of a blank box that would overwrite it.
   const openReport = (report) => {
     setSelected(report);
     setReplyText(report.admin_reply ?? '');
@@ -53,6 +70,8 @@ export default function AdminReports() {
     }
   };
 
+  // Saves the moderation reply. Older rows can arrive without a type, so it falls back to
+  // 'account' and writes the resolved value back onto the row to keep later calls consistent.
   const handleReply = async () => {
     if (!selected || !replyText.trim()) return;
     try {

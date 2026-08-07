@@ -44,6 +44,16 @@ import java.util.logging.Logger;
  * <p>The loop terminates when no auto-bidder can beat the current top bid.
  * {@link #resolveNextAutoBid(List, BigDecimal, int)} is package-visible so the algorithm
  * can be unit-tested without a database (SCRUM-270).</p>
+ *
+ * <p>Note when comparing this description against the code: step 5 above describes the
+ * leapfrog form, but {@link #resolveNextAutoBid} currently ships the one-step form, adding a
+ * single increment above the floor each round and looping. Both reach the same final price;
+ * the leapfrog version reaches it in fewer rows. The comment inside that method describes
+ * what actually runs.</p>
+ *
+ * <p>Reads and writes {@code auto_bids}, inserts into {@code bids}, and reads
+ * {@code auction} and {@code auction_details}. Called by the auto-bid API servlet for
+ * setup and cancellation, and by {@link BidDAO} during bid placement.</p>
  */
 public class AutoBidDAO {
 
@@ -73,7 +83,8 @@ public class AutoBidDAO {
      *
      * <p>{@code maxAmount} is encrypted before storage (SCRUM-296).
      * {@code note}, if non-blank, is also encrypted.
-     * {@code bidIncrement} is stored as plain NUMERIC — not sensitive.</p>
+     * {@code bidIncrement} is stored as plain NUMERIC because it is not sensitive: knowing
+     * somebody bids in ten dollar steps says nothing about how high they will go.</p>
      *
      * @param auctionId    auction the auto-bid applies to
      * @param userId       buyer setting the auto-bid (always from session)
@@ -83,12 +94,19 @@ public class AutoBidDAO {
      */
     public void upsert(long auctionId, int userId, BigDecimal maxAmount, String note,
                        BigDecimal bidIncrement) {
+        // The ceiling is encrypted here, before any SQL is built. Storing it in clear would let
+        // anyone with database access read every buyer's walk-away price, which is the one number
+        // a proxy bidding system must keep secret.
         String encAmount = SecurityUtil.encrypt(maxAmount.toPlainString());
         String encNote = (note != null && !note.isBlank())
                 ? SecurityUtil.encrypt(note.trim()) : null;
+        // Guard against a zero or negative increment, which would make the resolution loop either
+        // never progress or bid downwards.
         BigDecimal safeIncrement = (bidIncrement != null && bidIncrement.compareTo(MIN_INCREMENT) >= 0)
                 ? bidIncrement : MIN_INCREMENT;
 
+        // Upsert on (auction_id, user_id): a buyer has at most one auto-bid per auction, so
+        // raising their ceiling replaces the old row rather than stacking a second one.
         String sql =
                 "INSERT INTO auto_bids (auction_id, user_id, max_amount_enc, note_enc, bid_increment) "
                 + "VALUES (?, ?, ?, ?, ?) "
@@ -153,6 +171,8 @@ public class AutoBidDAO {
      * or {@code null} if the user has no auto-bid registered.
      */
     public BigDecimal getMaxAmountForUser(long auctionId, int userId) {
+        // Scoped by user_id as well as auction_id, so this can only ever return the caller's own
+        // ceiling. Decryption happens inside the DAO; the ciphertext never leaves this class.
         String sql = "SELECT max_amount_enc FROM auto_bids WHERE auction_id = ? AND user_id = ?";
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -204,17 +224,20 @@ public class AutoBidDAO {
         BigDecimal startingPrice = fetchStartingPrice(conn, auctionId);
         // A seller must never bid on their own listing. This engine inserts into
         // `bids` directly rather than going through BidDAO.placeBid, so it does not
-        // inherit that guard — enforce it here too. Also neutralises any auto-bid row
-        // that predates the check.
+        // inherit that guard and has to enforce it here too. This also neutralises any
+        // auto-bid row that was stored before the check existed.
         int sellerId = fetchSellerId(conn, auctionId);
         int placed = 0;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
-            // Current top bid
+            // Current top bid. Re-read every round, because the previous round's counter-bid is
+            // now the leading bid and the next competitor has to respond to that.
             BigDecimal topAmount = null;
             int topBidderId = -1;
             String topSql =
                     "SELECT bid_amount, user_id FROM bids "
+                    // bid_time ASC as the tie-break means that when two bids match to the cent,
+                    // the one placed first holds the lead. That is the usual auction convention.
                     + "WHERE auction_id = ? ORDER BY bid_amount DESC, bid_time ASC LIMIT 1";
             try (PreparedStatement ps = conn.prepareStatement(topSql)) {
                 ps.setLong(1, auctionId);
@@ -225,6 +248,8 @@ public class AutoBidDAO {
                     }
                 }
             }
+            // The floor is whichever is higher, the leading bid or the starting price. Taking the
+            // max protects against a historic bid recorded below the listing's own opening price.
             BigDecimal floor = (topAmount == null) ? startingPrice : topAmount.max(startingPrice);
 
             // Decrypt all auto-bids, dropping the seller's own row if one exists.
@@ -255,20 +280,23 @@ public class AutoBidDAO {
     }
 
     // -------------------------------------------------------------------------
-    // Algorithm (package-visible for unit testing — SCRUM-270)
+    // Algorithm (package-visible for unit testing, SCRUM-270)
     // -------------------------------------------------------------------------
 
     /**
      * Pure-function core of the proxy-bidding algorithm; no I/O.
      *
      * <p>Given all current auto-bids (with decrypted max amounts), the current price floor,
-     * and who currently holds the top bid, returns the next counter-bid to insert — or
+     * and who currently holds the top bid, returns the next counter-bid to insert, or
      * {@code null} if no auto-bid fires.</p>
      *
      * <h3>Efficient resolution (SCRUM-270)</h3>
-     * <p>The winner bids just above the <em>second-best</em> competitor's max (not just
-     * {@code floor + 0.01}). This collapses a two-auto-bidder cascade into a single round:
-     * B($150) vs A($100) at floor $10 → B bids $100.01 directly (not $10.01, $10.02, …).</p>
+     * <p>The original design had the winner bid just above the <em>second-best</em>
+     * competitor's max, collapsing a two-auto-bidder cascade into a single round:
+     * B($150) vs A($100) at floor $10 gives B bidding $100.01 straight away. The shipped
+     * version takes one increment per round instead, which reaches the same final price
+     * through a visible sequence of steps. {@code secondBestMax} below is still computed
+     * from that earlier design and no longer feeds into the returned amount.</p>
      *
      * @param allBids          all auto-bid rows for this auction (may include top bidder's own row)
      * @param floor            current bid floor (top bid or starting price, whichever is higher)
@@ -280,7 +308,9 @@ public class AutoBidDAO {
 
         if (allBids == null || allBids.isEmpty()) return null;
 
-        // Competing auto-bids: excludes the current top bidder, must have max > floor
+        // Competing auto-bids: excludes the current top bidder, must have max > floor.
+        // Excluding the leader is what stops a buyer bidding against themselves; requiring a
+        // ceiling strictly above the floor is what eventually terminates the loop.
         List<AutoBidRow> competitors = new ArrayList<>();
         for (AutoBidRow b : allBids) {
             if (b.userId != currentTopBidder && b.maxAmount.compareTo(floor) > 0) {
@@ -289,13 +319,15 @@ public class AutoBidDAO {
         }
         if (competitors.isEmpty()) return null;
 
-        // Winner = highest max; tie-break by earliest created_at
+        // Winner = highest max; tie-break by earliest created_at, so two buyers who set the same
+        // ceiling are settled by who committed to it first rather than arbitrarily.
         competitors.sort(Comparator
                 .comparing(AutoBidRow::getMaxAmount).reversed()
                 .thenComparing(AutoBidRow::getCreatedAt));
         AutoBidRow winner = competitors.get(0);
 
-        // secondBestMax = highest max among ALL other auto-bids (including current top bidder's)
+        // secondBestMax = highest max among ALL other auto-bids (including current top bidder's).
+        // Left from the leapfrog design described above; the counter-bid below no longer uses it.
         BigDecimal secondBestMax = floor;
         for (AutoBidRow b : allBids) {
             if (b.userId != winner.userId && b.maxAmount.compareTo(secondBestMax) > 0) {
@@ -308,10 +340,13 @@ public class AutoBidDAO {
         // The loop in processAutoBids re-enters until no competitor can respond,
         // effectively resolving the final price through repeated small steps.
         // Uses winner's per-buyer increment (defaults to MIN_INCREMENT for legacy rows).
+        // min() with the winner's own ceiling is the safety rail: an increment that would overshoot
+        // is trimmed back, so a proxy bid can never exceed the maximum the buyer agreed to.
         BigDecimal step = winner.getIncrement();
         BigDecimal counter = floor.add(step).min(winner.maxAmount);
 
-        // Edge: if counter ≤ floor (shouldn't happen given filters above), bail out
+        // Edge: if counter is not above the floor (shouldn't happen given filters above), bail out
+        // rather than inserting a bid that does not raise the price and would loop forever.
         if (counter.compareTo(floor) <= 0) return null;
 
         return new CounterBid(winner.userId, counter);
@@ -321,6 +356,10 @@ public class AutoBidDAO {
     // Internal helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Every auto-bid on the auction with its ceiling decrypted, on the caller's transaction.
+     * Rows that will not decrypt are dropped rather than thrown, see the inline note.
+     */
     private List<AutoBidRow> fetchAllDecrypted(Connection conn, long auctionId)
             throws SQLException {
         List<AutoBidRow> rows = new ArrayList<>();
@@ -339,7 +378,9 @@ public class AutoBidDAO {
                         rows.add(new AutoBidRow(uid, max, createdAt,
                                 inc != null ? inc : MIN_INCREMENT));
                     } catch (Exception e) {
-                        // Corrupt ciphertext — skip and log; don't fail the whole transaction
+                        // Corrupt ciphertext, or a row written under an older encryption key.
+                        // Skip and log rather than failing the whole transaction: one unreadable
+                        // auto-bid must not stop a live auction from accepting bids at all.
                         LOGGER.warning(String.format(
                                 "AutoBidDAO: could not decrypt max_amount for user %d on auction %d; skipping.",
                                 uid, auctionId));
@@ -350,6 +391,7 @@ public class AutoBidDAO {
         return rows;
     }
 
+    /** The listing's opening price, which is the floor when no bids exist yet. */
     private BigDecimal fetchStartingPrice(Connection conn, long auctionId) throws SQLException {
         String sql = "SELECT starting_price FROM auction_details WHERE id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -377,7 +419,7 @@ public class AutoBidDAO {
     }
 
     /**
-     * Whether {@code userId} owns this listing — a seller may not auto-bid on their
+     * Whether {@code userId} owns this listing. A seller may not auto-bid on their
      * own auction. Resolved server-side from {@code auction.seller_id} (IDOR prevention).
      */
     public boolean isOwnAuction(long auctionId, int userId) {
@@ -393,7 +435,7 @@ public class AutoBidDAO {
      * apply to.
      *
      * <p>Proxy bidding works by counter-bidding one increment above whoever is leading,
-     * which needs a leader that is visible and a price that moves — a sealed auction has
+     * which needs a leader that is visible and a price that moves. A sealed auction has
      * neither, and takes one hidden bid per buyer instead. {@code processAutoBids} is
      * consequently never reached on this auction type, so a row stored against one would
      * sit there doing nothing while its owner believed they were still in the running.
@@ -424,7 +466,7 @@ public class AutoBidDAO {
         /** Per-buyer bid increment; defaults to MIN_INCREMENT (0.01) for legacy rows. */
         private final BigDecimal increment;
 
-        /** Legacy constructor — increment defaults to MIN_INCREMENT. */
+        /** Legacy constructor for rows predating the per-buyer increment column. */
         public AutoBidRow(int userId, BigDecimal maxAmount, Instant createdAt) {
             this(userId, maxAmount, createdAt, MIN_INCREMENT);
         }

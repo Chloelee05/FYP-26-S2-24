@@ -1,3 +1,6 @@
+// Rendered by ProtectedRoute in place of a seller page when the signed-in account has not
+// switched selling on yet. It is not a route of its own, so the URL the user asked for
+// stays in the address bar and they land on it as soon as the capability is granted.
 import { useState } from 'react';
 import { Store, Check, AlertCircle } from 'lucide-react';
 import { enableSelling } from '../api/user';
@@ -20,6 +23,10 @@ export default function EnableSellingGate() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Turn on canSell, then refresh the session. That second call is what matters: once
+  // useAuth reports the capability, ProtectedRoute re-renders and this gate is replaced
+  // by the page the user was heading for. Loading is deliberately left on in the success
+  // path, since the component is about to be unmounted anyway.
   const handleEnable = async () => {
     setError(''); setLoading(true);
     try {

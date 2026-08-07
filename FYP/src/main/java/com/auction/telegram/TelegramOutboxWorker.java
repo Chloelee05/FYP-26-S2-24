@@ -103,6 +103,8 @@ public class TelegramOutboxWorker {
                 outboxDAO.markSkipped(message.id, "no active Telegram link");
                 return false;
             }
+            // Chat ids are held encrypted rather than in the clear, so the plaintext exists
+            // only for the moment it takes to make the API call.
             chatId = SecurityUtil.decrypt(link.chatIdEncrypted);
         } catch (RuntimeException e) {
             outboxDAO.markFailed(message.id, message.attempts, "link lookup failed");

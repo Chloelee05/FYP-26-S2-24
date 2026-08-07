@@ -34,6 +34,11 @@ import java.util.logging.Logger;
  * the auction's seller.</p>
  *
  * <p><b>No PII in logs:</b> Only {@code auctionId} and {@code buyerId} are logged.</p>
+ *
+ * <p>Legacy JSP flow; the SPA posts to {@code /api/report/*} in {@code ReportApiServlet}.
+ * A report filed here is what the admin listings and reports screens later act on, so this is
+ * the entry point of the moderation pipeline. {@link ReportUserServlet} covers the separate case
+ * of reporting an account rather than a listing.</p>
  */
 @WebServlet("/protected/report")
 public class BuyerReportServlet extends HttpServlet {
@@ -50,6 +55,11 @@ public class BuyerReportServlet extends HttpServlet {
         this.reportDAO = reportDAO;
     }
 
+    /**
+     * Files a report against the seller of {@code auctionId}. The {@code description} is
+     * optional, length-capped, and sanitized before storage, since an admin will later read it
+     * on a moderation page and it must not be able to carry markup there.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {

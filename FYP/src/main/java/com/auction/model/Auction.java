@@ -5,6 +5,20 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * A listing as the seller creates or edits it. Spans the two tables an auction is split
+ * across: {@code auction} holds the identifiers, dates and status, and
+ * {@code auction_details} holds the title, description and prices.
+ *
+ * <p>Built by the seller create and edit servlets from submitted form fields, then written
+ * by {@code SellerAuctionDAO}. Read paths use the narrower projections instead
+ * ({@link AuctionDetail} for the public page, {@link SearchResultItem} for list cards),
+ * so this class is essentially write-side.</p>
+ *
+ * <p>Which of the price fields matter depends on {@link #getAuctionType()}: an ascending
+ * auction only needs the starting price, a Dutch auction also needs
+ * {@link #getDutchFloorPrice()}, and Buy It Now is optional on any of them.</p>
+ */
 public class Auction implements  Serializable{
     private int auction_id;
     private int seller_id;
@@ -12,6 +26,7 @@ public class Auction implements  Serializable{
     private String auction_details;
     private Instant start_date;
     private Instant end_date;
+    /** Opening price. For a Dutch auction this is the clock's high start. */
     private float starting_price;
     private BigDecimal maxPrice;    // null = no cap (SCRUM-33)
     private int quantity = 1;

@@ -10,7 +10,17 @@ import usePolling from '../hooks/usePolling';
 import ChatMessage from './ChatMessage';
 import SupportChatInput from './SupportChatInput';
 
-/** Floating buyer/seller -> admin support chat. Order chat with sellers lives at /messages. */
+/**
+ * Floating buyer/seller -> admin support chat. Order chat with sellers lives at /messages.
+ *
+ * Mounted once in App.jsx and takes no props. It hides itself for a guest, for an admin
+ * (who answers these threads from the admin console rather than raising them) and on the
+ * /support page, which is the same conversation at full size.
+ *
+ * A member can have several threads at once, shown as chips along the top. Two polls run
+ * while the panel is open: the thread list every 12 seconds and the open transcript every
+ * 5. Both stop when the panel closes, because usePolling is passed an `enabled` flag.
+ */
 export default function SupportChatWidget() {
   const { pathname } = useLocation();
   const { user } = useAuth();
@@ -20,10 +30,14 @@ export default function SupportChatWidget() {
   const [messages, setMessages] = useState([]);
   const [newSubject, setNewSubject] = useState('');
   const [newBody, setNewBody] = useState('');
+  // `mode` is 'chat' when reading a thread and 'new' when composing one. `status` is a
+  // single line used for both errors and confirmations, since the panel is too small for
+  // two separate message areas.
   const [mode, setMode] = useState('chat');
   const [status, setStatus] = useState('');
   const bottomRef = useRef(null);
 
+  // Also gates both polls below, so a hidden widget never talks to the server.
   const visible = user && user.role !== 'ADMIN' && !pathname.endsWith('/support');
 
   const loadMessages = useCallback(async (threadId, config) => {
@@ -36,6 +50,8 @@ export default function SupportChatWidget() {
     }
   }, []);
 
+  // Refresh the thread list, keeping whichever thread the user is reading and falling
+  // back to the newest one only when nothing is selected yet.
   const loadThreads = useCallback(async (config) => {
     try {
       const r = await getSupportThreads(config);
@@ -50,6 +66,9 @@ export default function SupportChatWidget() {
     }
   }, []);
 
+  // usePolling passes only an axios config, so the selected thread id is bound in here.
+  // Changing thread gives the callback a new identity, which restarts the poll with an
+  // immediate load of the thread just opened.
   const pollMessages = useCallback(
     (config) => loadMessages(selectedId, config),
     [loadMessages, selectedId],
@@ -73,6 +92,8 @@ export default function SupportChatWidget() {
   const unreadCount = threads.filter(t => t.unread).length;
   const selected = threads.find(t => Number(t.id) === Number(selectedId));
 
+  // Opens a thread and immediately switches to reading it, so the member sees their own
+  // message land rather than an empty form.
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newBody.trim()) return;
@@ -92,6 +113,8 @@ export default function SupportChatWidget() {
     }
   };
 
+  // Refuses to post to a thread an admin has closed, which is also why the composer is
+  // swapped for a notice further down.
   const handleSend = async ({ body, attachmentUrl }) => {
     if (!selectedId || selected?.status === 'CLOSED') return;
     setStatus('');

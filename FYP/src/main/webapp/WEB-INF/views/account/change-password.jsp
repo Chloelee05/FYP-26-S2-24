@@ -1,3 +1,9 @@
+<%--
+  Change-password form for a signed-in user. Rendered by ChangePasswordServlet
+  (/protected/account/password) on GET and on any validation failure, with the reason in
+  "error". A successful change destroys the session and redirects to the login page.
+  Legacy JSP flow; the SPA posts to /api/auth/change-password.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

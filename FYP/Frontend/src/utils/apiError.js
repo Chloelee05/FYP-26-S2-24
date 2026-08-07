@@ -1,4 +1,10 @@
 /**
+ * Turns an axios error into one sentence a user can act on. Every catch block in the app
+ * that shows an error to the screen goes through this, so a failed bid and a failed
+ * upload report themselves the same way instead of each page inventing its own wording.
+ */
+
+/**
  * User-facing text for axios failures (network, 401, 500, etc.).
  *
  * A request that never reached the server has no `response` at all — that reads very

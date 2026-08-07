@@ -1,3 +1,8 @@
+/*
+ * Catch-all page for the "*" route in App.jsx. Public, and rendered inside MainLayout so the
+ * navbar and footer stay available. Shows the path that failed to match, which usually means
+ * a removed auction or an out of date link, and offers a way back or into search.
+ */
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Compass, ChevronLeft, Search } from 'lucide-react';
 

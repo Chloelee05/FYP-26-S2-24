@@ -20,6 +20,15 @@ import java.util.logging.Logger;
  * POST /api/auto-bid  params: auctionId, action (SET|CANCEL), maxAmount, note, bidIncrement
  * GET  /api/auto-bid?auctionId=X  — returns the authenticated buyer's current auto-bid (or 404)
  * Open to any signed-in non-admin account; auto-bidding on your own listing is rejected.
+ *
+ * <p>An auto-bid, or proxy bid, is a standing instruction: the buyer names a ceiling and the
+ * system counter-bids one increment above whoever takes the lead, up to that ceiling. The row
+ * lives in {@code auto_bids} and is acted on by {@link AutoBidDAO#processAutoBids}, which
+ * {@link BidDAO} also calls inside the bid transaction.</p>
+ *
+ * <p>Only meaningful for ascending auctions. Sealed BLIND auctions have no visible leader to
+ * counter-bid against, so both the read and the write path refuse them outright rather than
+ * storing a row that would never fire.</p>
  */
 @WebServlet("/api/auto-bid")
 public class AutoBidApiServlet extends ApiBase {
@@ -32,10 +41,15 @@ public class AutoBidApiServlet extends ApiBase {
         this.autoBidDAO = new AutoBidDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO in place of the real one. */
     public void setAutoBidDAO(AutoBidDAO autoBidDAO) { this.autoBidDAO = autoBidDAO; }
 
-    /** GET /api/auto-bid?auctionId=X — return the buyer's active auto-bid row, or 404. */
+    /**
+     * GET /api/auto-bid?auctionId=X returns the buyer's active auto-bid row, or 404.
+     * Scoped to the session's own user id, so nobody can read a rival's ceiling, which would
+     * otherwise be enough to outbid them by a cent. Returns {@code enabled}, {@code maxAmount}
+     * and {@code bidIncrement} so the SPA can prefill the auto-bid dialog.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
@@ -70,6 +84,15 @@ public class AutoBidApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /**
+     * POST /api/auto-bid. {@code action=CANCEL} deletes the buyer's row; anything else is a
+     * set or update, taking {@code maxAmount} (required, positive), optional
+     * {@code bidIncrement} and an optional {@code note}. Requires a signed-in non-admin session
+     * and the buyer id always comes from that session.
+     *
+     * <p>After storing the row it resolves proxy bids straight away, so the ceiling starts
+     * defending the buyer immediately instead of waiting for the next manual bid.</p>
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
@@ -122,7 +145,9 @@ public class AutoBidApiServlet extends ApiBase {
             badRequest(resp, "maxAmount must be a valid number."); return;
         }
 
-        // bidIncrement is optional; falls back to AutoBidDAO.MIN_INCREMENT (0.01)
+        // bidIncrement is optional; falls back to AutoBidDAO.MIN_INCREMENT (0.01).
+        // A value below the floor is quietly raised to it rather than rejected, because a zero
+        // or negative step would make the proxy loop counter-bid without ever gaining the lead.
         BigDecimal bidIncrement = AutoBidDAO.MIN_INCREMENT;
         String incStr = param(req, "bidIncrement");
         if (incStr != null && !incStr.isBlank()) {

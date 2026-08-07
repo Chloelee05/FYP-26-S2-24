@@ -1,3 +1,19 @@
+/**
+ * The single axios instance every other module in src/api uses. Import it as `api` and
+ * call relative paths such as '/auction/12', which resolve against the Java backend.
+ *
+ * baseURL is `${appBase()}/api`. appBase() is empty under the Vite dev server (where the
+ * proxy forwards /api to Tomcat on port 8080) and '/online-auction' in the Docker and
+ * production builds, so no module has to know which one it is running under.
+ *
+ * Two things travel with every request: the JSESSIONID cookie, because withCredentials is
+ * true and the SPA is served from the same origin as the servlets, and a bearer token if
+ * the tab has one (see the interceptor below). Servlets accept either.
+ *
+ * The default Content-Type is JSON, but most POST helpers override it with
+ * application/x-www-form-urlencoded, since the servlets read fields via
+ * request.getParameter().
+ */
 import axios from 'axios';
 import { appBase } from '../utils/appBase';
 

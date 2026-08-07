@@ -14,6 +14,10 @@ import java.util.Map;
 /**
  * Third-party sign-in links (SCRUM-17). A user can link one account per
  * provider; a provider account can belong to only one user.
+ *
+ * <p>Reads and writes {@code linked_accounts}. Called by the account settings API for the
+ * link/unlink screen, and by the auth servlet during OAuth sign-in to resolve a provider identity
+ * back to a local user id.</p>
  */
 public class LinkedAccountDAO {
 
@@ -46,12 +50,20 @@ public class LinkedAccountDAO {
 
     public enum LinkResult { SUCCESS, ALREADY_LINKED_TO_OTHER_USER }
 
-    /** Links (or re-links) a provider account to a user. */
+    /**
+     * Links (or re-links) a provider account to a user.
+     *
+     * @param providerUid the provider's own stable id for the account, which is what sign-in
+     *                    matches on; the email is stored for display only and can change
+     */
     public LinkResult link(int userId, String provider, String providerUid, String email) {
-        // Refuse if this provider account already belongs to a different user.
+        // Refuse if this provider account already belongs to a different user. Without this check
+        // two local accounts could both sign in through the same Google identity.
         Integer owner = findUserIdByProvider(provider, providerUid);
         if (owner != null && owner != userId) return LinkResult.ALREADY_LINKED_TO_OTHER_USER;
 
+        // ON CONFLICT on (user_id, provider) turns a repeat link into a re-link, refreshing the
+        // provider uid and email if the user changed them on the provider side.
         String sql = "INSERT INTO linked_accounts (user_id, provider, provider_uid, provider_email) "
                    + "VALUES (?, ?, ?, ?) "
                    + "ON CONFLICT (user_id, provider) DO UPDATE SET "

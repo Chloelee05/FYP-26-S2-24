@@ -1,3 +1,5 @@
+// Used by NotificationBell (30s), OrderMessageModal and SupportChatWidget (5s and 12s),
+// TelegramConnectModal (3s while it waits for the bot) and the auction detail price poll.
 import { useEffect } from 'react';
 
 /**

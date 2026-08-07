@@ -8,6 +8,9 @@
  * The buckets here match SellerAuctionDAO.ListingBucket exactly, because My listings now
  * asks the server for one bucket at a time so that it can paginate. These helpers stay for
  * the pages that hold a whole array in memory.
+ *
+ * This file is about a seller's view of their own listings. The buyer-facing labels for an
+ * order live in utils/orders.js, and the product versus service wording in utils/listingKind.js.
  */
 
 /**

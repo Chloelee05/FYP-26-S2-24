@@ -1,3 +1,12 @@
+/**
+ * Read-only progress timeline for one order, opened from My purchases and My sales.
+ * Props: `order` and `onClose`. Nothing here writes; the seller advances shipping from
+ * the order list itself.
+ *
+ * The seven steps span both the payment state (order.status) and the shipping state
+ * (order.shippingStatus), which the backend tracks separately. stepIndex below folds the
+ * two into a single position on the line, and everything up to it is drawn as done.
+ */
 import { Package, CreditCard, Truck, MapPin, CheckCircle2 } from 'lucide-react';
 import Modal from './Modal';
 
@@ -11,6 +20,8 @@ const STEPS = [
   { key: 'completed', label: 'Receipt confirmed', icon: CheckCircle2 },
 ];
 
+// How far along STEPS this order is. Checked from the latest state backwards, so the
+// furthest point reached wins; PAID with no shipping status yet counts as preparing.
 function stepIndex(order) {
   if (order.status === 'COMPLETED') return 6;
   const ship = (order.shippingStatus || '').toUpperCase();
@@ -22,6 +33,9 @@ function stepIndex(order) {
   return 1;
 }
 
+// Timestamp to print under a step, where there is one. Only one shippingUpdatedAt is
+// stored, so a shipping step shows a time only while it is the current one; the earlier
+// shipping steps have no date of their own to show.
 function stepTime(order, key) {
   if (key === 'placed') return order.createdAt;
   if (key === 'paid') return order.paidAt;

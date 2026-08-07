@@ -1,3 +1,12 @@
+/*
+ * Category management at "/admin/categories". ADMIN only.
+ * Reads GET /api/admin/categories and calls the create, edit, delete and restore admin
+ * endpoints. These are the categories sellers pick from when listing and shoppers filter by
+ * on Search, so a change here shows up on both sides at once.
+ * Delete is a soft delete: the row is flagged rather than removed, which keeps the category
+ * attached to auctions that already use it. Deactivated categories are listed separately and
+ * can be restored, and the server refuses a delete that would strand live listings.
+ */
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, RotateCcw, Pencil, Tag, AlertCircle } from 'lucide-react';
 import { getAdminCategories, createCategory, editCategory, deleteCategory, restoreCategory } from '../../api/admin';
@@ -34,6 +43,9 @@ export default function AdminCategories() {
     }
   };
 
+  // The category is only flagged deleted locally, matching what the server does. Anything
+  // that refuses to delete, such as a category still holding active auctions, comes back as
+  // an error message rather than silently doing nothing.
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this category?')) return;
     setError('');
@@ -54,6 +66,8 @@ export default function AdminCategories() {
     });
   };
 
+  // An empty display order means "leave it alone", so it is sent as null and the local row
+  // keeps whatever value it already had rather than being reset to zero.
   const handleEditSave = async (e) => {
     e.preventDefault();
     if (!editForm.name.trim()) return;
@@ -85,6 +99,8 @@ export default function AdminCategories() {
     }
   };
 
+  // One response holds both, split here so the deactivated ones can be shown in their own
+  // table with a restore button instead of disappearing from the admin's view.
   const visible  = categories.filter(c => !c.deleted);
   const deleted  = categories.filter(c => c.deleted);
 

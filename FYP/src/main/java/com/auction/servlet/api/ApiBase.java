@@ -17,43 +17,62 @@ import java.util.Collections;
  * Base class for all /api/* JSON servlets.
  * Provides a shared ObjectMapper and helper methods for writing JSON responses
  * and enforcing authentication/role checks.
+ *
+ * <p>Every servlet in this package extends it, so the whole API answers with the same
+ * JSON shapes: {@code {"message": ...}} on success and {@code {"error": ...}} on failure.
+ * Authentication is token based rather than container session based: the React SPA sends
+ * a bearer token which is resolved to an {@link AuthSession} through {@link TokenStore},
+ * which lets several browser tabs be logged in as different users at once.</p>
+ *
+ * <p>The role helpers here mirror {@code RbacUtil} so that {@code AuthFilter} and the
+ * servlets agree on who may do what. Guards such as {@link #requireAuth} write the error
+ * response themselves and return false, so callers just return early.</p>
  */
 public abstract class ApiBase extends HttpServlet {
 
+    /** Shared mapper. Java 8 date/time is serialised as ISO-8601 text, not epoch numbers, so the SPA can parse it directly. */
     protected static final ObjectMapper MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+    /** Serialises {@code data} as the whole response body under the given HTTP status code. */
     protected void json(HttpServletResponse resp, int status, Object data) throws IOException {
         resp.setContentType("application/json;charset=UTF-8");
         resp.setStatus(status);
         MAPPER.writeValue(resp.getWriter(), data);
     }
 
+    /** 200 with an arbitrary payload. */
     protected void ok(HttpServletResponse resp, Object data) throws IOException {
         json(resp, 200, data);
     }
 
+    /** 200 with only {@code {"message": ...}}, for actions that have nothing to return. */
     protected void okMsg(HttpServletResponse resp, String message) throws IOException {
         json(resp, 200, Collections.singletonMap("message", message));
     }
 
+    /** Failure envelope. The SPA reads the {@code error} key to decide what to show the user. */
     protected void error(HttpServletResponse resp, int status, String message) throws IOException {
         json(resp, status, Collections.singletonMap("error", message));
     }
 
+    /** 400 for a validation failure. The message is shown to the user, so keep it non-technical. */
     protected void badRequest(HttpServletResponse resp, String message) throws IOException {
         error(resp, 400, message);
     }
 
+    /** 401 when there is no valid token. The SPA treats this as "send the user back to login". */
     protected void unauthorized(HttpServletResponse resp) throws IOException {
         error(resp, 401, "Authentication required");
     }
 
+    /** 403 when the caller is logged in but lacks the role or capability. Deliberately vague so it leaks nothing. */
     protected void forbidden(HttpServletResponse resp) throws IOException {
         error(resp, 403, "Access denied");
     }
 
+    /** 500 for an unexpected server fault. Pass a generic message, never a stack trace or SQL text. */
     protected void serverError(HttpServletResponse resp, String message) throws IOException {
         error(resp, 500, message);
     }
@@ -107,11 +126,14 @@ public abstract class ApiBase extends HttpServlet {
                 if (userRole == allowed) return true;
             }
         } catch (IllegalArgumentException e) {
+            // Role string in the session does not match any enum constant, e.g. a stale
+            // session written by an older build. Fail closed rather than throwing.
             return false;
         }
         return false;
     }
 
+    /** Admin is the one genuinely exclusive role: it gates moderation and the whole admin console. */
     protected boolean isAdmin(AuthSession session)  { return hasRole(session, Role.ADMIN);  }
 
     /** Exact role match. Prefer {@link #canBuy(AuthSession)} for buyer-side authorisation. */

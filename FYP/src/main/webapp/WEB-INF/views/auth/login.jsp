@@ -1,3 +1,8 @@
+<%--
+  Sign-in form. Rendered by LoginServlet (/login) on GET and again on any failed POST, with
+  the error message in "Error" and the typed address in "email" so the field is not cleared.
+  Legacy JSP flow: the React SPA has its own login screen posting to /api/auth/login.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

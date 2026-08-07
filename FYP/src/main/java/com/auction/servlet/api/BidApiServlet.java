@@ -22,6 +22,15 @@ import java.math.BigDecimal;
  *   BLIND    → one sealed bid per buyer; revealed at close
  * Open to any signed-in non-admin account; bidding on your own listing is rejected
  * downstream with {@link BidResult#SELF_BID}.
+ *
+ * <p>The most safety-critical endpoint in the system, so the servlet stays thin: it parses and
+ * authorises, then hands off to {@link BidDAO}, which does the price comparison, the rate limit
+ * and the write inside one database transaction. Doing the checks here instead would let two
+ * bids arriving at the same moment both pass and both win.</p>
+ *
+ * <p>After a successful write it pushes a fresh snapshot to
+ * {@link AuctionEventPublisher} so every watcher's price updates live, then queues outbid,
+ * won and lost messages through {@link NotificationService}.</p>
  */
 @WebServlet("/api/bid")
 public class BidApiServlet extends ApiBase {
@@ -32,11 +41,23 @@ public class BidApiServlet extends ApiBase {
         this.bidDAO = new BidDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test drive the strategy branches without a live database. */
     public void setBidDAO(BidDAO bidDAO) { this.bidDAO = bidDAO; }
 
+    /**
+     * Serves POST /api/bid. Requires a signed-in non-admin session; the buyer id is taken from
+     * the session and never from a parameter. Reads {@code auctionId}, optional {@code action}
+     * and, for the ascending and sealed paths, {@code bidAmount}.
+     *
+     * <p>The auction's own type decides which handler runs, rather than anything the client
+     * sends, so a buyer cannot post a Dutch acceptance at an ascending listing to skip the
+     * minimum-increment rule.</p>
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // canBuy covers both checks at once: signed in, and not an admin. Admins are excluded so
+        // that moderation stays impartial; a seller-capable account may still bid, because buying
+        // and selling share one login.
         AuthSession session = authSession(req);
         if (!canBuy(session)) {
             forbidden(resp); return;
@@ -68,6 +89,8 @@ public class BidApiServlet extends ApiBase {
         AuctionType type;
         try { type = AuctionType.getAuctionType(typeId); }
         catch (IllegalArgumentException e) { type = AuctionType.PRICE_UP; }
+        // An unrecognised type id falls back to ascending, the most restrictive of the three:
+        // it never reveals a sealed price and never closes the auction on a single action.
 
         try {
             if (type == AuctionType.DUTCH_AUCTION) {
@@ -83,6 +106,11 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Buy It Now: pays the seller's fixed price and closes the auction on the spot. Ascending
+     * only, which {@link BidDAO#buyItNow} enforces. Everyone who was still bidding gets a lost
+     * notice because the listing disappeared from under them.
+     */
     private void handleBuyNow(HttpServletResponse resp, long auctionId, int buyerId) throws IOException {
         BidResult result = bidDAO.buyItNow(auctionId, buyerId);
         if (result == BidResult.SUCCESS) {
@@ -96,6 +124,11 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * PRICE_UP: the ordinary ascending bid. The DAO checks the amount beats the current high,
+     * applies the per-buyer rate limit, writes the row and then resolves any proxy auto-bids,
+     * all in one transaction.
+     */
     private void handleAscending(HttpServletRequest req, HttpServletResponse resp, long auctionId, int buyerId)
             throws IOException {
         BigDecimal bidAmount = parseAmount(req, resp);
@@ -117,6 +150,11 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * DUTCH_AUCTION: no amount is sent. The buyer is accepting whatever the declining clock reads
+     * right now, and the DAO recomputes that price server side so a stale or edited client figure
+     * cannot be used to buy below the current clock.
+     */
     private void handleDutch(HttpServletResponse resp, long auctionId, int buyerId) throws IOException {
         BidResult result = bidDAO.acceptDutchBid(auctionId, buyerId);
         if (result == BidResult.SUCCESS) {
@@ -130,6 +168,11 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * BLIND: one sealed bid per buyer, rejected with {@link BidResult#ALREADY_BID} on a second
+     * attempt. The confirmation text says nothing about the standing or amount of any other bid,
+     * and the snapshot pushed afterwards withholds the price while the auction is open.
+     */
     private void handleSealed(HttpServletRequest req, HttpServletResponse resp, long auctionId, int buyerId)
             throws IOException {
         BigDecimal bidAmount = parseAmount(req, resp);
@@ -144,6 +187,11 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Parses {@code bidAmount} into a BigDecimal, writing the 400 itself and returning null when
+     * it is missing, unparsable or not positive. BigDecimal rather than double because money must
+     * not pick up binary rounding error.
+     */
     private BigDecimal parseAmount(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String amountStr = param(req, "bidAmount");
         if (amountStr == null) { badRequest(resp, "bidAmount is required."); return null; }
@@ -158,6 +206,10 @@ public class BidApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Turns a {@link BidResult} into wording for the bidder. Kept in one place so the same
+     * rejection always reads the same way whichever auction type produced it.
+     */
     private String toMessage(BidResult r) {
         switch (r) {
             case AUCTION_NOT_FOUND:  return "Auction not found.";

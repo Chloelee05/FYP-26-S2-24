@@ -1,3 +1,10 @@
+<%--
+  Category management table with the create, edit, delete and restore forms. Rendered by
+  AdminCategoriesServlet (/admin/categories) behind AdminFilter; every action posts back to
+  the same URL and returns as a redirect with a flash message. Soft-deleted categories stay in
+  the list so they can be restored, and a category still used by auctions cannot be deleted.
+  Legacy JSP admin console; the SPA manages categories through /api/admin/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

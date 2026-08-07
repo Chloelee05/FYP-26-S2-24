@@ -17,6 +17,15 @@ import java.util.Map;
  * POST /api/rate         params: auctionId, score (1-5), comment?
  * POST /api/rate/update  params: reviewId, score (1-5), comment? — edit own review (24h window)
  * POST /api/rate/delete  params: reviewId — delete own review (24h window)
+ *
+ * <p>Seller reputation. A review can only be written by the buyer who won the auction and only
+ * after the order is marked complete, which is what stops anyone from posting reviews about a
+ * seller they never dealt with. One review per auction. {@link RatingDAO} enforces all of that
+ * in SQL rather than relying on the servlet.</p>
+ *
+ * <p>Edits and deletions are limited to {@link RatingDAO#EDIT_WINDOW_HOURS} after posting, so a
+ * seller cannot pressure a buyer into rewriting an old review. Comment text is sanitised because
+ * it appears on the seller's public profile.</p>
  */
 @WebServlet(urlPatterns = {"/api/rate", "/api/rate/*"})
 public class RateApiServlet extends ApiBase {
@@ -27,9 +36,13 @@ public class RateApiServlet extends ApiBase {
         this.ratingDAO = new RatingDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setRatingDAO(RatingDAO ratingDAO) { this.ratingDAO = ratingDAO; }
 
+    /**
+     * Routes the reads: /check answers whether the caller has already rated one auction, and
+     * /mine lists the reviews they have written along with whether each is still editable.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -43,6 +56,11 @@ public class RateApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Routes the writes. /update and /delete edit the caller's own review; anything else is a new
+     * rating, taking {@code auctionId}, {@code score} of 1 to 5 and an optional {@code comment}.
+     * The rater id always comes from the session.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -65,6 +83,8 @@ public class RateApiServlet extends ApiBase {
         try { auctionId = Long.parseLong(auctionIdStr); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid auction ID."); return; }
 
+        // Out-of-range scores are thrown into the same catch as unparsable ones, so both give the
+        // one message. The bound matters because the average rating is shown on the seller profile.
         int score;
         try {
             score = Integer.parseInt(scoreStr);
@@ -73,6 +93,7 @@ public class RateApiServlet extends ApiBase {
             badRequest(resp, "Score must be a number between 1 and 5."); return;
         }
 
+        // Sanitised because the comment is rendered on the seller's public profile.
         String comment = param(req, "comment");
         if (comment != null) comment = com.auction.util.SecurityUtil.sanitize(comment.trim());
 
@@ -84,6 +105,11 @@ public class RateApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/rate/update with {@code reviewId}, {@code score} and optional {@code comment}.
+     * The UPDATE is scoped by both review id and user id, so somebody else's review id matches
+     * nothing and comes back as 404. Refused once the edit window has passed.
+     */
     private void handleUpdateOwn(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int userId = sessionUserId(req);
         Long reviewId = parseLongParam(req, "reviewId");
@@ -108,6 +134,10 @@ public class RateApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/rate/delete with {@code reviewId}. Same ownership and time-window rules as the
+     * update path, so an old review cannot be withdrawn later.
+     */
     private void handleDeleteOwn(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int userId = sessionUserId(req);
         Long reviewId = parseLongParam(req, "reviewId");
@@ -121,12 +151,17 @@ public class RateApiServlet extends ApiBase {
         }
     }
 
+    /** Parses an id parameter, returning null rather than throwing when absent or malformed. */
     private Long parseLongParam(HttpServletRequest req, String name) {
         String v = param(req, name);
         if (v == null) return null;
         try { return Long.parseLong(v); } catch (NumberFormatException e) { return null; }
     }
 
+    /**
+     * GET /api/rate/check?auctionId=X. Returns {@code {"rated": true|false}} so the order page
+     * can show either the rating form or the review the buyer already left.
+     */
     private void handleCheck(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!canBuy(authSession(req))) { forbidden(resp); return; }
         int buyerId = sessionUserId(req);
@@ -140,6 +175,7 @@ public class RateApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /** Wording for each reason a rating can be refused, spelling out the condition the buyer missed. */
     private String toMessage(RatingResult r) {
         switch (r) {
             case AUCTION_NOT_FOUND:     return "Auction not found.";

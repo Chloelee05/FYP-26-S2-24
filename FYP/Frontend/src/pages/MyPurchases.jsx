@@ -1,3 +1,13 @@
+/*
+ * Buyer order list at "/purchases". Behind ProtectedRoute, so any signed in account can
+ * reach it; no seller capability is needed because winning an auction is open to everyone.
+ * Reads GET /api/orders and keeps only the rows where role is "buyer", so the same endpoint
+ * serves this page and My sales. Also calls GET payment methods to fill the pay dialog, POST
+ * pay order and POST complete order when the buyer confirms receipt.
+ * Orders are grouped into tabs by lifecycle stage (to pay, to ship, to receive, completed,
+ * returns) using the shared helpers in utils/orders, and refunds, tracking and messaging the
+ * seller each open their own modal.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -18,7 +28,11 @@ import OrderMessageModal from '../components/OrderMessageModal';
 import OrderRefundModal from '../components/OrderRefundModal';
 import { apiErrorMessage } from '../utils/apiError';
 
-/** True when the order is waiting on something the buyer has to do. */
+/**
+ * True when the order is waiting on something the buyer has to do.
+ * Three cases: payment outstanding, delivered but receipt not confirmed (and not caught up
+ * in a refund), or completed but not yet rated. Drives the amber ring on the card.
+ */
 function needsMyAction(o) {
   const shipping = (o.shippingStatus || '').toUpperCase();
   const refund = (o.refundStatus || '').toUpperCase();
@@ -29,7 +43,10 @@ function needsMyAction(o) {
 }
 
 export default function MyPurchases() {
+  // Every order where this account is the buyer. Tabs and filters are applied over it in
+  // memory, so switching tab does not go back to the server.
   const [orders, setOrders] = useState([]);
+  // Saved payment methods. An empty list is why the pay dialog refuses to open.
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('unpaid');
@@ -37,7 +54,10 @@ export default function MyPurchases() {
   const [dateFilter, setDateFilter] = useState('all');
   const [message, setMessage] = useState('');
 
+  // Each of these holds the order a dialog is open for, or null when it is closed.
   const [payingOrder, setPayingOrder] = useState(null);
+  // True while the payment request is in flight. Both dialog buttons are disabled on it so
+  // a slow gateway cannot be clicked into two charges.
   const [paying, setPaying] = useState(false);
   const [payMethodId, setPayMethodId] = useState(null);
   const [trackOrder, setTrackOrder] = useState(null);
@@ -67,12 +87,16 @@ export default function MyPurchases() {
     getPaymentMethods().then(r => setCards(r.data ?? [])).catch(() => {});
   }, []);
 
+  // Badge number per tab, from the full order list rather than the filtered view, so the
+  // search box does not make the counts drop.
   const counts = useMemo(() => {
     const out = {};
     PURCHASE_TABS.forEach(t => { out[t.key] = orders.filter(o => inTab(o, t)).length; });
     return out;
   }, [orders]);
 
+  // The rows actually rendered: current tab, then date window, then the keyword, which is
+  // matched against the item title, the seller name and the order reference.
   const visible = useMemo(() => {
     const active = PURCHASE_TABS.find(t => t.key === tab);
     const q = query.trim().toLowerCase();
@@ -88,6 +112,8 @@ export default function MyPurchases() {
     });
   }, [orders, tab, query, dateFilter]);
 
+  // Opens the payment dialog, preselecting the card marked default. With no saved method it
+  // shows an explanation instead of an empty chooser the buyer cannot use.
   const openPayChooser = (order) => {
     setMessage('');
     if (cards.length === 0) {
@@ -98,8 +124,11 @@ export default function MyPurchases() {
     setPayingOrder(order);
   };
 
+  // Pays the selected order, then follows it into whichever tab it moved to.
   const handlePayOrder = async () => {
     if (!payingOrder) return;
+    // Captured before the dialog closes, because payingOrder is cleared below and the id is
+    // still needed to find the same order in the reloaded list.
     const paidId = payingOrder.id;
     setMessage('');
     setPaying(true);
@@ -122,6 +151,8 @@ export default function MyPurchases() {
     }
   };
 
+  // Buyer confirming the item arrived. This releases the order to COMPLETED and unlocks
+  // rating the seller, and it cannot be reversed, so it is confirmed first.
   const handleConfirmReceipt = async (orderId) => {
     if (!window.confirm('Confirm you received the item in good condition? This cannot be undone.')) return;
     setMessage('');
@@ -195,6 +226,9 @@ export default function MyPurchases() {
 
       {message && <div className="alert-info mb-4"><span>{message}</span></div>}
 
+      {/* Payment dialog. dismissOnBackdrop is off because a stray click outside mid payment
+          would be an annoying way to lose the chooser. Modal renders through a portal into
+          document.body, so no parent overflow can clip it. */}
       {payingOrder && (
         <Modal
           title="Choose payment method"
@@ -362,6 +396,10 @@ export default function MyPurchases() {
                   </p>
                 </div>
 
+                {/* Action row. Each button is tied to the exact stage it applies to, so the
+                    buyer only ever sees the moves the server would accept: pay while unpaid,
+                    confirm receipt only once delivered, refund only on a paid order with no
+                    request already open, rate only after completion. */}
                 <div className="flex flex-wrap gap-2 px-5 py-3.5 border-t border-ink-100">
                   {o.status === 'PENDING_PAYMENT' && (
                     <button onClick={() => openPayChooser(o)} className="btn-primary btn-sm">Pay now</button>

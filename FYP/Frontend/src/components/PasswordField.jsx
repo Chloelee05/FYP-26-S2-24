@@ -1,3 +1,8 @@
+/**
+ * Password input with a reveal toggle, used on login, register, password reset and the
+ * security tab of settings. Controlled: the caller owns `value` and `onChange`, and the
+ * remaining props pass straight through to the input.
+ */
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 
@@ -34,6 +39,8 @@ export default function PasswordField({
         onClick={() => setVisible(v => !v)}
         className="absolute right-4 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 p-1"
         aria-label={visible ? 'Hide password' : 'Show password'}
+        // Out of the tab order on purpose, so Tab goes from the password to the submit
+        // button. The aria-label keeps it reachable to a screen reader.
         tabIndex={-1}
       >
         {visible ? <EyeOff size={18} /> : <Eye size={18} />}

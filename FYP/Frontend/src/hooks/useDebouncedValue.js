@@ -1,3 +1,5 @@
+// Used by the Navbar search box and by the free-text filters on the search, seller
+// listing and admin pages.
 import { useEffect, useState } from 'react';
 
 /**

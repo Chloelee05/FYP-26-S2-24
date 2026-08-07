@@ -10,12 +10,28 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
-/** Generates plain-text admin analytics export reports. */
+/**
+ * Generates plain-text admin analytics export reports.
+ *
+ * <p>Read-only. Runs aggregate counts and sums across {@code users}, {@code user_status},
+ * {@code roles}, {@code bids}, {@code orders}, {@code auction}, {@code auction_details},
+ * {@code platform_revenue}, {@code account_reports}, {@code seller_reports} and
+ * {@code support_threads}. Called by the admin export endpoint, which returns the string as a
+ * downloadable text file, and by the dashboard for {@link #revenueGrowthLabel()}.</p>
+ *
+ * <p>Each report opens one connection and reuses it for every statement, so all the figures in a
+ * single export come from the same session.</p>
+ */
 public class AdminReportDAO {
 
     private static final DateTimeFormatter FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
 
+    /**
+     * User-base report: account counts by status and role, recent sign-ups, and a week of bid
+     * activity. The status counts join {@code user_status} because the users table stores a status
+     * id, not a label.
+     */
     public String generateUserActivityReport() {
         StringBuilder sb = new StringBuilder();
         sb.append("USER ACTIVITY REPORT\n");
@@ -32,7 +48,8 @@ public class AdminReportDAO {
                     "SELECT COUNT(*) FROM users u JOIN user_status s ON s.id = u.status_id WHERE s.status = 'Suspended'");
             // roles.role stores 'Buyer' / 'Seller' / 'Admin' in mixed case, so the original
             // equality against 'BUYER' / 'SELLER' matched nothing and printed 0 for both
-            // while every other count on the report was right.
+            // while every other count on the report was right. upper() on the column is the fix,
+            // which is why these two counts look different from the status counts above.
             appendCount(sb, conn, "Buyers",
                     "SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u.role_id "
                   + "WHERE upper(r.role) = 'BUYER'");
@@ -73,6 +90,10 @@ public class AdminReportDAO {
         return sb.toString();
     }
 
+    /**
+     * Money report: order totals by status, the platform's own commission and featured-listing
+     * income, revenue over four rolling windows, a product versus service split, and top sellers.
+     */
     public String generateRevenueReport() {
         StringBuilder sb = new StringBuilder();
         sb.append("REVENUE REPORT\n");
@@ -102,6 +123,9 @@ public class AdminReportDAO {
                   + "AND (featured_until IS NULL OR featured_until > now())");
 
             sb.append("\n--- Revenue by period ---\n");
+            // The interval text is inlined into the SQL rather than bound as a parameter, because
+            // Postgres will not accept a placeholder inside an interval literal. It is safe here
+            // only because both arrays are fixed constants and no user input reaches them.
             String[] labels = { "Last 24 hours", "Last 7 days", "Last 30 days", "Last 90 days" };
             String[] intervals = { "1 day", "7 days", "30 days", "90 days" };
             for (int i = 0; i < labels.length; i++) {
@@ -114,6 +138,10 @@ public class AdminReportDAO {
             // The minimum requirements name products *and* services, so the split has to be
             // legible somewhere an assessor will look, not just stored on the row.
             sb.append("\n--- Products vs services ---\n");
+            // One row per listing_kind: how many listings exist of that kind and how much money
+            // they brought in. The LEFT JOIN keeps kinds with no sales in the output, and the
+            // FILTER clause restricts the SUM to paid or completed orders while COUNT(*) still
+            // counts every listing. Doing it with a WHERE instead would drop the unsold kinds.
             String kindSql =
                 "SELECT d.listing_kind, COUNT(*) AS listings, "
               + "  COALESCE(SUM(o.amount) FILTER (WHERE o.status IN ('PAID','COMPLETED')), 0) AS revenue "
@@ -130,6 +158,9 @@ public class AdminReportDAO {
             }
 
             sb.append("\n--- Top sellers by revenue ---\n");
+            // Ranks sellers by the sum of their auctions' winning bids. winning_bid is only set on
+            // auctions that actually sold, so the IS NOT NULL filter excludes unsold listings from
+            // both the sum and the ranking.
             String topSql = "SELECT u.username, COALESCE(SUM(d.winning_bid), 0) AS rev "
                     + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
                     + "JOIN users u ON u.id = a.seller_id "
@@ -148,6 +179,10 @@ public class AdminReportDAO {
         return sb.toString();
     }
 
+    /**
+     * Trust and safety report: how many listings are flagged or removed, how many users are
+     * suspended, how many reports and support threads are still open, plus recent examples of each.
+     */
     public String generateModerationReport() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODERATION REPORT\n");
@@ -233,8 +268,15 @@ public class AdminReportDAO {
      * <p>Replaces a hard-coded "+ 12.5% this month". Returns a plainly-worded reason
      * rather than a number when there is nothing to compare against, because an invented
      * percentage on a marking rubric reads as a falsified metric.</p>
+     *
+     * @return a display string such as "+ 8.4% vs last month", or an explanation of why no
+     *         percentage could be computed
      */
     public String revenueGrowthLabel() {
+        // Two conditional sums over one scan of orders. FILTER buckets the same amount column into
+        // this calendar month and the previous one, using date_trunc so the boundary is the first
+        // of the month rather than a rolling 30 days. One query avoids the two totals being read
+        // either side of a midnight rollover.
         String sql =
             "SELECT COALESCE(SUM(amount) FILTER ("
           + "    WHERE created_at >= date_trunc('month', now())), 0) AS this_month, "
@@ -248,6 +290,8 @@ public class AdminReportDAO {
             if (!rs.next()) return "no revenue recorded yet";
             java.math.BigDecimal thisMonth = rs.getBigDecimal("this_month");
             java.math.BigDecimal lastMonth = rs.getBigDecimal("last_month");
+            // Guard against dividing by zero, which is also the genuinely undefined case: there is
+            // no percentage change from a baseline of nothing.
             if (lastMonth.signum() == 0) {
                 return thisMonth.signum() == 0
                         ? "no revenue this month or last"
@@ -259,10 +303,13 @@ public class AdminReportDAO {
             return (change.signum() >= 0 ? "+ " : "− ")
                     + change.abs().toPlainString() + "% vs last month";
         } catch (Exception e) {
+            // The dashboard card is cosmetic, so a failure here degrades to a message rather than
+            // taking down the whole admin page.
             return "revenue trend unavailable";
         }
     }
 
+    /** Runs a single-value COUNT query and appends "label: n" to the report. */
     private static void appendCount(StringBuilder sb, Connection conn, String label, String sql) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -270,6 +317,7 @@ public class AdminReportDAO {
         }
     }
 
+    /** Same as {@link #appendCount} but for a money value, prefixed with a dollar sign. */
     private static void appendDecimal(StringBuilder sb, Connection conn, String label, String sql) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {

@@ -14,14 +14,29 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Auction persistence for admin moderation and dashboard metrics.
+ * Auction persistence for admin moderation and dashboard metrics, plus the multi-table insert
+ * that creates a listing.
+ *
+ * <p>Writes {@code auction}, {@code auction_details}, {@code auction_images} and
+ * {@code auction_tag_info}; reads those plus {@code users}, {@code auction_status} and
+ * {@code bids}. Called by the admin moderation and dashboard APIs, and by the listing creation
+ * flow. Creating an auction spans four tables, so {@link #createAuction} runs as one transaction:
+ * a listing must never exist without its details row.</p>
  */
 public class AuctionDAO {
 
     private static final ZoneId ADMIN_ZONE = ZoneId.systemDefault();
 
+    /**
+     * The admin moderation queue: every listing with its seller, category, leading bid, report
+     * count and current states. Ordered by report count so the most-complained-about listings sit
+     * at the top of the page. Unlike the buyer-facing queries this deliberately has no visibility
+     * filter, because moderators need to see removed and flagged rows too.
+     */
     public List<AdminListingRow> listListingsForModeration() {
         try (Connection conn = DBUtil.connectDB()) {
+            // The leading bid comes from a correlated subquery coalesced to 0, so a listing with no
+            // bids still produces one row rather than being dropped or showing null.
             String sql = "SELECT a.auction_id, d.title, a.date_created, u.username, "
                     + "d.category, "
                     + "COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), 0) AS current_bid, "
@@ -57,6 +72,10 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Sets a listing's moderation state directly. Unlike {@link #updateAuctionState} this does no
+     * whitelist check, so callers must pass a value the CHECK constraint accepts.
+     */
     public boolean updateModerationState(long auctionId, String state) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "UPDATE auction SET moderation_state = ? WHERE auction_id = ?";
@@ -70,8 +89,11 @@ public class AuctionDAO {
         }
     }
 
+    /** Bumps a listing's report tally, which is what orders the moderation queue. */
     public boolean incrementReports(long auctionId) {
         try (Connection conn = DBUtil.connectDB()) {
+            // Incremented in SQL rather than read-modify-write in Java, so two people reporting the
+            // same listing at once both count.
             String sql = "UPDATE auction SET report_count = report_count + 1 WHERE auction_id = ?";
             PreparedStatement ps = conn.prepareStatement(sql);
             ps.setLong(1, auctionId);
@@ -81,13 +103,15 @@ public class AuctionDAO {
         }
     }
 
+    /** Every listing ever created, including ended and removed ones. Admin dashboard tile. */
     public int countListingsTotal() {
         return countQuery("SELECT COUNT(*) FROM auction");
     }
 
+    /** Listings a buyer could bid on right now. Feeds the public landing page counter. */
     public int countListingsModerationActive() {
-        // Live / bid-able listings only — matches search & trending filters so the
-        // landing-page hero metric never over-counts ended or pending lots.
+        // Live / bid-able listings only. Matches the search and trending filters so the
+        // landing-page hero metric never over-counts ended or pending lots. status_id 1 is ACTIVE.
         return countQuery(
                 "SELECT COUNT(*) FROM auction "
                         + "WHERE moderation_state = 'active' "
@@ -95,6 +119,7 @@ public class AuctionDAO {
                         + "AND date_end > now()");
     }
 
+    /** Listings awaiting a moderator decision. */
     public int countListingsFlagged() {
         return countQuery("SELECT COUNT(*) FROM auction WHERE moderation_state = 'flagged'");
     }
@@ -104,8 +129,8 @@ public class AuctionDAO {
      *
      * <p>Reads the aggregate as a {@link BigDecimal} and rounds once, at the end.
      * {@code winning_bid} is NUMERIC(12,2) as of migration_seller_maintain_listing.sql, and
-     * {@code getLong} on a numeric aggregate truncates toward zero — which would have thrown
-     * away up to a dollar of the platform's total revenue rather than the cents it looks like.
+     * {@code getLong} on a numeric aggregate truncates toward zero, which threw away up to a
+     * dollar of the platform's total revenue rather than just the cents it looks like.
      * The whole-dollar return type is kept because the admin dashboard, the generated PDF
      * report and their tests all consume it as a {@code long}; rounding the total once is the
      * closest correct figure that shape can carry.</p>
@@ -127,6 +152,7 @@ public class AuctionDAO {
         return 0L;
     }
 
+    /** The most recently created flagged listings, for the moderation activity feed. */
     public List<FlaggedTitleEvent> recentFlaggedListings(int limit) {
         try (Connection conn = DBUtil.connectDB()) {
             String sql = "SELECT d.title, a.date_created "
@@ -151,6 +177,7 @@ public class AuctionDAO {
         }
     }
 
+    /** Runs a parameterless single-value COUNT. Shared by the dashboard tiles above. */
     private static int countQuery(String sql) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -164,6 +191,7 @@ public class AuctionDAO {
         return 0;
     }
 
+    /** A flagged listing's title and creation time, the pair the activity feed renders. */
     public static final class FlaggedTitleEvent {
         private final String title;
         private final Instant at;
@@ -182,6 +210,14 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Creates a listing across four tables in one transaction: the auction row, its details, its
+     * images and its tags. Any failure rolls the lot back, so a half-built listing with no title
+     * or no price cannot reach the browse grid.
+     *
+     * @param imageFilenames uploaded image paths in display order; may be empty
+     * @return the generated auction id
+     */
     public long createAuction(Auction auction, List<String> imageFilenames) throws Exception {
         try (Connection conn = DBUtil.connectDB()) {
             conn.setAutoCommit(false);
@@ -199,10 +235,13 @@ public class AuctionDAO {
         }
     }
 
+    /** The parent row: who is selling, the window, the auction type, and the initial status. */
     private long insertAuction(Connection conn, Auction auction) throws Exception {
         String sql = "INSERT INTO auction (status_id, seller_id, date_created, date_end, auction_type) VALUES(?, ?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
-            // Use PENDING when the start date is in the future; ACTIVE otherwise.
+            // Use PENDING when the start date is in the future; ACTIVE otherwise. A scheduled
+            // listing must not be bid-able before it opens, and the buyer-facing queries all filter
+            // on status_id = 1, so PENDING keeps it out of search until its start time.
             boolean scheduled = auction.getStart_date() != null
                     && auction.getStart_date().isAfter(java.time.Instant.now());
             stmt.setInt(1, scheduled ? AuctionStatus.PENDING.getId() : AuctionStatus.ACTIVE.getId());
@@ -219,6 +258,13 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * The details row, keyed by the same id as the auction row (a one-to-one extension table).
+     * The optional money columns are written as SQL NULL rather than zero when absent, because
+     * each belongs to a different auction type: {@code dutch_floor_price} to a Dutch clock,
+     * {@code buy_it_now_price} to an instant purchase, {@code cost_price} to the seller's own
+     * margin reporting. A zero would be a real price and would change behaviour.
+     */
     private void insertAuctionDetails(Connection conn, long auctionId, Auction auction) throws Exception {
         String sql = "INSERT INTO auction_details "
                    + "(id, title, description, category, item_condition_id, starting_price, max_price, "
@@ -260,6 +306,11 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Batch-inserts the image rows. Insertion order matters: every listing surface picks its
+     * thumbnail with {@code ORDER BY id LIMIT 1}, so the first filename in the list becomes the
+     * card image.
+     */
     private void insertAuctionImages(Connection conn, long auctionId, List<String> imageFilenames) throws Exception {
         if (imageFilenames == null || imageFilenames.isEmpty()) return;
         String sql = "INSERT INTO auction_images (auction_id, image_url, upload_date) VALUES (?, ?, ?)";
@@ -277,6 +328,7 @@ public class AuctionDAO {
         }
     }
 
+    /** Batch-inserts the link rows that {@link AuctionTagsDAO} later reads back. */
     private void insertAuctionTags(Connection conn, long auctionId, List<Long> tags) throws Exception {
         if (tags == null || tags.isEmpty()) return;
         String sql = "INSERT INTO auction_tag_info (auction_id, tag_id) VALUES (?, ?)";
@@ -292,6 +344,11 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Moderation state change with a whitelist. Only active, flagged and removed are accepted;
+     * anything else throws rather than reaching the database, so the CHECK constraint is never the
+     * first line of defence.
+     */
     public boolean updateAuctionState(long auction_id, String value) throws Exception {
         String sqlString = "UPDATE auction SET moderation_state = ? WHERE auction_id = ?";
         if(value == null || value.isBlank())
@@ -323,6 +380,7 @@ public class AuctionDAO {
         }
     }
 
+    /** Top 10 sellers by number of listings created, for the admin statistics page. */
     public List<TopStatistics> getTopAuctionCreator() throws Exception
     {
         String sqlString = "SELECT u.id, u.username, COUNT(a.auction_id) AS total_auctions " +
@@ -354,6 +412,10 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Top 10 sellers by money taken. Sums {@code winning_bid} per seller, filtered to auctions
+     * that actually sold, so unsold listings contribute nothing and do not drag a seller down.
+     */
     public List<TopStatistics> getTopSellerRevenue()throws Exception{
         String sqlString = "SELECT u.id, u.username, SUM(ad.winning_bid) AS total_revenue " +
                 "FROM auction a " +
@@ -385,7 +447,21 @@ public class AuctionDAO {
         }
     }
 
+    /**
+     * Listings matching an optional set of report filters, used by the admin report generator.
+     *
+     * <p>The SQL is assembled conditionally and the parameter index {@code i} advances only for
+     * the clauses that were actually appended, which is how the bindings stay aligned with the
+     * placeholders. Every filter value is still bound, never concatenated.</p>
+     *
+     * @param sellerUsername exact username, or null for all sellers
+     * @param category       exact category name, or null for all categories
+     * @param from           earliest creation time, or null for no lower bound
+     * @param to             latest creation time, or null for no upper bound
+     */
     public List<AdminListingRow> listForGenReport(String sellerUsername, String category, Instant from, Instant to) throws Exception {
+        // "WHERE 1=1" is a placeholder that lets every optional clause start with AND, so the
+        // builder does not need to track whether it is writing the first condition.
         StringBuilder sql = new StringBuilder(
                 "SELECT a.auction_id, ad.title, u.username, a.moderation_state, a.date_created " +
                         "FROM auction a " +

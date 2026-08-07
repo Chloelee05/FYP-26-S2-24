@@ -16,11 +16,15 @@ import java.util.List;
 /**
  * Data-access layer for the public buyer keyword search (SCRUM-48 / SCRUM-59 / SCRUM-60).
  *
- * <p><b>Case sensitivity (SCRUM-259):</b> PostgreSQL {@code ILIKE} is used for
- * case-insensitive matching — "Electronics" matches "electronics" and "ELECTRONICS".</p>
+ * <p>Reads {@code auction}, {@code auction_details}, {@code users}, {@code auction_status},
+ * {@code bids} and {@code auction_images}. Called by the search API servlet for the buyer browse
+ * and results pages, which are open to guests. Writes nothing.</p>
  *
- * <p><b>Injection safety (SCRUM-261 / SCRUM-294 / SCRUM-345):</b> Every filter value
- * — keyword, category, price bounds, condition id, location, end-time timestamp — is
+ * <p><b>Case sensitivity (SCRUM-259):</b> PostgreSQL {@code ILIKE} is used for
+ * case-insensitive matching, so "Electronics" matches "electronics" and "ELECTRONICS".</p>
+ *
+ * <p><b>Injection safety (SCRUM-261 / SCRUM-294 / SCRUM-345):</b> Every filter value,
+ * meaning keyword, category, price bounds, condition id, location and end-time timestamp, is
  * <em>always</em> bound via a {@link PreparedStatement} parameter; nothing is ever
  * concatenated into the SQL string. Price bounds are accepted as {@link BigDecimal};
  * the condition id is derived from the {@link com.auction.model.ItemCondition} enum
@@ -37,18 +41,18 @@ import java.util.List;
  *
  * <p><b>Sort (SCRUM-60 / SCRUM-349):</b> The {@code sort} parameter selects a fixed
  * {@code ORDER BY} fragment from the {@link SearchSort} enum whitelist. User input is
- * never concatenated into the ORDER BY clause — ORDER BY injection is prevented.</p>
+ * never concatenated into the ORDER BY clause, which prevents ORDER BY injection.</p>
  */
 public class SearchDAO {
 
-    /** Maximum allowed page size — mirrors the cap in {@code SearchServlet}. */
+    /** Maximum allowed page size, mirroring the cap in {@code SearchServlet}. */
     public static final int MAX_PAGE_SIZE = 50;
 
     /** Max length for the location hint string accepted from the client. */
     static final int LOCATION_MAX_LENGTH = 100;
 
     // =========================================================================
-    // Public API — full-filter versions (SCRUM-59)
+    // Public API, full-filter versions (SCRUM-59)
     // =========================================================================
 
     /**
@@ -67,9 +71,13 @@ public class SearchDAO {
                                          SearchFilter filter, SearchSort sort,
                                          int page, int pageSize) {
         if (sort == null) sort = SearchSort.DEFAULT;
+        // params is filled in the same order the builders append their placeholders, then bound
+        // positionally by bindAll. The SQL is assembled conditionally, so the parameter list has to
+        // be built alongside it rather than declared up front.
         List<Object> params = new ArrayList<>();
         int offset = pageSize * (page - 1);
 
+        // Two query shapes, chosen by whether a price bound was supplied. See the builders below.
         boolean needsPriceWrap = hasPriceFilter(filter);
         String sql = needsPriceWrap
                 ? buildPriceWrappedSearchSql(keyword, categoryName, filter, sort, params, pageSize, offset)
@@ -96,6 +104,8 @@ public class SearchDAO {
      * @param filter       optional filters; {@code null} = no filter
      * @return number of matching rows
      */
+    // Kept in step with search() on purpose: it applies exactly the same filters, so the
+    // pagination total the UI shows cannot disagree with the pages it is counting.
     public int count(String keyword, String categoryName, SearchFilter filter) {
         List<Object> params = new ArrayList<>();
         String sql;
@@ -126,12 +136,12 @@ public class SearchDAO {
         return search(keyword, null, null, SearchSort.DEFAULT, page, pageSize);
     }
 
-    /** Category filter only — no extra filters; default sort (newest). */
+    /** Category filter only, no extra filters; default sort (newest). */
     public List<SearchResultItem> search(String keyword, String categoryName, int page, int pageSize) {
         return search(keyword, categoryName, null, SearchSort.DEFAULT, page, pageSize);
     }
 
-    /** Filters only — default sort (newest). Backward-compatible with SCRUM-59 callers. */
+    /** Filters only, with the default sort (newest). Backward-compatible with SCRUM-59 callers. */
     public List<SearchResultItem> search(String keyword, String categoryName,
                                          SearchFilter filter, int page, int pageSize) {
         return search(keyword, categoryName, filter, SearchSort.DEFAULT, page, pageSize);
@@ -142,7 +152,7 @@ public class SearchDAO {
         return count(keyword, null, null);
     }
 
-    /** Category filter only — no extra filters. */
+    /** Category filter only, no extra filters. */
     public int count(String keyword, String categoryName) {
         return count(keyword, categoryName, null);
     }
@@ -154,8 +164,13 @@ public class SearchDAO {
     /**
      * The {@code current_price} column. Blind auctions resolve to their starting
      * price instead of the leading bid: every row these queries return is still
-     * open, so the top sealed bid must not leave the server — not in the payload,
-     * and not inferable through the price filter that runs on this same column.
+     * open, so the top sealed bid must not leave the server. That covers both the
+     * payload and what could be inferred through the price filter, which runs on
+     * this same column.
+     *
+     * <p>For the other two auction types the value is the highest bid so far, or the starting
+     * price when there are no bids yet, which is what the COALESCE around the MAX subquery
+     * provides. Held as a constant so the search query and the count query cannot drift apart.</p>
      */
     private static final String SEALED_SAFE_PRICE =
             "CASE WHEN a.auction_type = " + AuctionType.BLIND.getId() + " THEN d.starting_price "
@@ -178,6 +193,10 @@ public class SearchDAO {
     private static String buildInnerFromWhere(String keyword, String categoryName,
                                                SearchFilter filter, List<Object> params) {
         String pattern = likePattern(keyword);
+        // Three visibility conditions come before any user filter: moderation-approved, status
+        // Active, and not yet ended. A removed, suspended or expired listing is never searchable.
+        // The keyword is matched against both title and description, hence two bindings of the
+        // same pattern.
         StringBuilder sb = new StringBuilder(
                 "FROM auction a "
                 + "JOIN auction_details d ON d.id = a.auction_id "
@@ -209,6 +228,8 @@ public class SearchDAO {
                     (long) filter.getEndAfterHours() * 3600)));
         }
         if (filter != null && filter.getLocation() != null && !filter.getLocation().isBlank()) {
+            // There is no location column, so a location hint is matched as free text against the
+            // title and description. It narrows results rather than filtering precisely.
             String locPat = "%" + filter.getLocation() + "%";
             sb.append("  AND (d.title ILIKE ? OR d.description ILIKE ?) ");
             params.add(locPat);
@@ -218,8 +239,9 @@ public class SearchDAO {
     }
 
     /**
-     * Simple search SQL (no price filter) — the computed alias {@code current_price} is
-     * only needed in the SELECT list; WHERE conditions are applied directly.
+     * Simple search SQL, used when no price filter is set. The computed alias
+     * {@code current_price} is only needed in the SELECT list, so the WHERE conditions can be
+     * applied directly against the base tables with no wrapping.
      */
     private static String buildSimpleSearchSql(String keyword, String categoryName,
                                                 SearchFilter filter, SearchSort sort,
@@ -240,8 +262,15 @@ public class SearchDAO {
     }
 
     /**
-     * Price-wrapped search SQL — wraps the inner query so that the computed
-     * {@code current_price} column can be used in an outer {@code WHERE} clause.
+     * Price-wrapped search SQL. SQL does not allow a SELECT alias in the WHERE clause of the same
+     * query, so the whole result set becomes a derived table named {@code base} and the price
+     * bounds are applied outside it. That way {@code current_price} is computed once and the
+     * price filter tests the same figure the buyer sees on the card, including the blind-auction
+     * substitution.
+     *
+     * <p>Parameter order matters here: the inner filters bind first, then the price bounds, then
+     * the limit and offset, which is why the page size is appended after
+     * {@link #appendPriceConditions}.</p>
      */
     private static String buildPriceWrappedSearchSql(String keyword, String categoryName,
                                                       SearchFilter filter, SearchSort sort,
@@ -265,17 +294,22 @@ public class SearchDAO {
         return outer.toString();
     }
 
+    /** Row count for the unfiltered-by-price case: the same FROM and WHERE, counted instead of selected. */
     private static String buildSimpleCountSql(String keyword, String categoryName,
                                                SearchFilter filter, List<Object> params) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
         return "SELECT COUNT(*)::int " + fromWhere;
     }
 
+    /**
+     * Row count for the price-filtered case, wrapped the same way as the search query so the
+     * total and the pages agree.
+     */
     private static String buildPriceWrappedCountSql(String keyword, String categoryName,
                                                      SearchFilter filter, List<Object> params) {
         String fromWhere = buildInnerFromWhere(keyword, categoryName, filter, params);
         // The same sealed-safe column the result page is built from. This query returns only
-        // a count, so nothing leaves directly — but the price filter runs on this column, so
+        // a count, so nothing leaves directly, but the price filter runs on this column, so
         // computing it from the true sealed bid made the result count answer "is the top bid
         // between X and Y?" for any range the caller tried. It also made the count disagree
         // with the page it counts, since that one already resolved blind rows to entry price.
@@ -286,6 +320,10 @@ public class SearchDAO {
         return outer.toString();
     }
 
+    /**
+     * Appends the price bounds to an outer WHERE. The caller has already written "WHERE 1=1", which
+     * is what lets both bounds be optional and still start with AND.
+     */
     private static void appendPriceConditions(SearchFilter filter, StringBuilder sql, List<Object> params) {
         if (filter.getMinPrice() != null) {
             sql.append("AND current_price >= ? ");
@@ -297,6 +335,7 @@ public class SearchDAO {
         }
     }
 
+    /** Whether either price bound was supplied, which decides between the two query shapes. */
     private static boolean hasPriceFilter(SearchFilter filter) {
         return filter != null && (filter.getMinPrice() != null || filter.getMaxPrice() != null);
     }
@@ -316,6 +355,11 @@ public class SearchDAO {
         return "%" + keyword + "%";
     }
 
+    /**
+     * Binds the collected values positionally. The type switch exists because the parameter list is
+     * heterogeneous (patterns, ids, money, timestamps) and JDBC needs the right setter for each,
+     * particularly for BigDecimal and Timestamp.
+     */
     private static void bindAll(PreparedStatement ps, List<Object> params) throws SQLException {
         for (int i = 0; i < params.size(); i++) {
             Object v = params.get(i);
@@ -327,12 +371,15 @@ public class SearchDAO {
         }
     }
 
+    /** Builds one result card, applying the Dutch clock on top of the price the query resolved. */
     private static SearchResultItem mapRow(ResultSet rs) throws SQLException {
         Timestamp endTs = rs.getTimestamp("date_end");
         Timestamp startTs = rs.getTimestamp("date_created");
         int typeId = rs.getInt("auction_type");
         BigDecimal price = rs.getBigDecimal("current_price");
         if (price == null) price = BigDecimal.ZERO;
+        // Only a Dutch listing changes here. Routing every card through DutchClock keeps the
+        // search grid, the featured carousel and the detail page quoting the same declining price.
         price = DutchClock.listedPrice(typeId, price,
                 rs.getBigDecimal("starting_price"), rs.getBigDecimal("dutch_floor_price"),
                 startTs != null ? startTs.toInstant() : null,

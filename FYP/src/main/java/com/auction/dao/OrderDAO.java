@@ -20,9 +20,19 @@ import java.util.List;
 /**
  * Orders represent the simulated post-auction transaction (payment + fulfilment).
  * Created when a seller declares the winner of an ended auction.
+ *
+ * <p>Owns the {@code orders} table and, while finalising, also writes {@code auction.status_id}
+ * and {@code auction_details.winner_id}/{@code winning_bid}. Reads {@code bids} to find the
+ * winner, plus {@code users}, {@code auction_images} and {@code user_reviews} for display.
+ * Called by the order API, the seller dashboard and the scheduled payment-timeout job.</p>
+ *
+ * <p>Every state change that depends on the row's current state takes {@code SELECT ... FOR
+ * UPDATE} first and re-checks the state in the UPDATE's WHERE clause, so two clicks or two
+ * workers cannot both advance the same order.</p>
  */
 public class OrderDAO {
 
+    /** Why a declare attempt was refused, so the API can explain it instead of returning a 500. */
     public enum DeclareStatus { SUCCESS, AUCTION_NOT_FOUND, NOT_SELLER, NOT_ENDED, NOT_ACTIVE, ALREADY_FINALIZED, NO_BIDS }
 
     /** Result of declaring a winner: outcome plus (on success) the new order + winner. */
@@ -46,6 +56,11 @@ public class OrderDAO {
      * Finalises an auction owned by {@code sellerId}: records the highest bidder as winner,
      * marks the auction FINISHED, and creates a PENDING_PAYMENT order.
      * When {@code early} is true the seller may close before the scheduled end time.
+     *
+     * <p>All of it happens in one transaction opened here, because a winner recorded without its
+     * order, or an order without stock taken off the listing, leaves the sale half done. The
+     * auction row is locked FOR UPDATE at the start so the background finalizer cannot conclude
+     * the same auction at the same moment.</p>
      */
     public DeclareResult declareWinner(long auctionId, int sellerId, boolean early) {
         Connection conn = null;
@@ -78,7 +93,8 @@ public class OrderDAO {
                 conn.rollback(); return DeclareResult.fail(DeclareStatus.NOT_ENDED);
             }
 
-            // Already has an order? (unique per auction)
+            // Already has an order? One order per auction, so the presence of a row is the marker
+            // that this auction was already concluded, whether by the seller or by the finalizer.
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT 1 FROM orders WHERE auction_id = ?")) {
                 ps.setLong(1, auctionId);
@@ -87,6 +103,7 @@ public class OrderDAO {
                 }
             }
 
+            // Highest bid wins; an equal-valued tie goes to whoever bid first.
             int winnerId;
             BigDecimal amount;
             try (PreparedStatement ps = conn.prepareStatement(
@@ -100,6 +117,8 @@ public class OrderDAO {
                 }
             }
 
+            // The CASE WHEN only rewrites date_end on an early close, so the listing's history shows
+            // when it actually stopped taking bids. A normal close leaves the scheduled time alone.
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction SET status_id = ?, date_end = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE date_end END "
                   + "WHERE auction_id = ?")) {
@@ -111,7 +130,7 @@ public class OrderDAO {
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE auction_details SET winner_id = ?, winning_bid = ? WHERE id = ?")) {
                 ps.setInt(1, winnerId);
-                // Was setInt(amount.setScale(0, HALF_UP)), which rounded the cents away — and
+                // Was setInt(amount.setScale(0, HALF_UP)), which rounded the cents away, and it
                 // rounded where AuctionFinalizer truncated, so the same auction concluded at a
                 // different figure depending on which path got there first. Both now write the
                 // bid itself into the NUMERIC(12,2) column.
@@ -119,7 +138,8 @@ public class OrderDAO {
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
-            // One unit leaves on a conclusion — see SellerAuctionDAO.decrementStockForSale.
+            // One unit leaves stock on a conclusion. See SellerAuctionDAO.decrementStockForSale.
+            // Runs on this connection so it commits or rolls back with the rest of the declare.
             SellerAuctionDAO.decrementStockForSale(conn, auctionId);
 
             long orderId;
@@ -148,9 +168,15 @@ public class OrderDAO {
 
     public enum ShippingAdvanceResult { SUCCESS, NOT_FOUND, NOT_SELLER, NOT_PAID, INVALID_TRANSITION, ALREADY_DELIVERED }
 
+    /** The fulfilment steps in order. A seller can only move forward one step at a time. */
     private static final String[] SHIPPING_SEQUENCE = { "PREPARING", "SHIPPED", "IN_TRANSIT", "DELIVERED" };
 
-    /** Marks a PENDING_PAYMENT order PAID (simulated payment) for the owning buyer. */
+    /**
+     * Marks a PENDING_PAYMENT order PAID (simulated payment) for the owning buyer, and starts
+     * fulfilment at PREPARING in the same statement. The buyer id and current status are both in
+     * the WHERE clause, so someone else's order cannot be paid and a double submit updates
+     * nothing the second time. Returns false in either of those cases.
+     */
     public boolean pay(long orderId, int buyerId, Long paymentMethodId) {
         String sql = "UPDATE orders SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, "
                 + "shipping_status = 'PREPARING', shipping_updated_at = CURRENT_TIMESTAMP, payment_method_id = ? "
@@ -168,14 +194,14 @@ public class OrderDAO {
 
     /**
      * Cancels every {@code PENDING_PAYMENT} order whose {@code created_at} is older than
-     * {@code deadline} — the auto-cancellation of an unpaid winning bid (anti-abuse /
-     * lifecycle feature).
+     * {@code deadline}. This is the auto-cancellation of an unpaid winning bid, an anti-abuse and
+     * lifecycle feature.
      *
-     * <p><b>Design decision (see also migration_order_payment_timeout.sql):</b> a cancelled
+     * <p>Design decision, see also migration_order_payment_timeout.sql: a cancelled
      * order is <em>not</em> re-awarded to the next-highest bidder, nor is the auction
      * automatically relisted. The auction stays {@code FINISHED} with its existing
-     * {@code winner_id}/{@code winning_bid} untouched — that is a historical fact (who won
-     * the auction), separate from whether the resulting order was ever paid. The listing
+     * {@code winner_id}/{@code winning_bid} untouched, because who won the auction is a
+     * historical fact, separate from whether the resulting order was ever paid. The listing
      * simply closes as unsold from a sale-completion point of view (the order row is the
      * source of truth for that: {@code status = 'CANCELLED'}), and the seller is told they
      * can relist, exactly as an auction that closes with zero bids already tells them. A
@@ -184,8 +210,8 @@ public class OrderDAO {
      * no "next bidder" concept at all?) that are not worth the additional surface area this
      * close to a viva.</p>
      *
-     * <p><b>Grandfathering:</b> {@code effectiveSince} excludes every order created before
-     * the feature's first migration apply — see the migration for why: a handful of orders
+     * <p>Grandfathering: {@code effectiveSince} excludes every order created before
+     * the feature's first migration apply. See the migration for why: a handful of orders
      * were already stuck in {@code PENDING_PAYMENT} indefinitely in the live database before
      * this shipped, and silently cancelling them the instant this deploys would be a surprise
      * ahead of a demo. They stay exactly as they are, forever, without needing their ids
@@ -193,9 +219,9 @@ public class OrderDAO {
      *
      * <p>Row-locked ({@code FOR UPDATE}) and the status re-checked in the {@code UPDATE}'s
      * {@code WHERE} clause, so an order that was paid in the instant between the SELECT and
-     * the UPDATE (there is none — same transaction — but this is cheap insurance against a
-     * future caller reusing the connection differently) can never be cancelled after all:
-     * a {@code PAID} order is never touched by this method, regardless of its age.</p>
+     * the UPDATE can never be cancelled after all. There is no such instant today, since both
+     * run in one transaction, but it is cheap insurance against a future caller reusing the
+     * connection differently. A {@code PAID} order is never touched here, whatever its age.</p>
      *
      * @return the ids of the orders that were cancelled, for the caller to notify about
      */
@@ -206,6 +232,8 @@ public class OrderDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
+            // Two bounds: older than the payment deadline, but not older than the day the feature
+            // went live. The second one is the grandfathering rule described above.
             List<Long> ids = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT id FROM orders WHERE status = 'PENDING_PAYMENT' "
@@ -242,7 +270,11 @@ public class OrderDAO {
         }
     }
 
-    /** Advances shipping one step (seller only, PAID orders). */
+    /**
+     * Advances shipping one step for the seller who owns the order, which must be PAID.
+     * The seller id is part of the locking SELECT, so another seller's order reads as NOT_FOUND
+     * rather than revealing that it exists.
+     */
     public ShippingAdvanceResult advanceShipping(long orderId, int sellerId) {
         try (Connection conn = DBUtil.connectDB()) {
             conn.setAutoCommit(false);
@@ -273,6 +305,10 @@ public class OrderDAO {
         }
     }
 
+    /**
+     * The step after {@code current}, or null once DELIVERED is reached, which is what tells
+     * {@link #advanceShipping} there is nowhere left to go. A blank value starts at PREPARING.
+     */
     private static String nextShipping(String current) {
         if (current == null || current.isBlank()) return SHIPPING_SEQUENCE[0];
         for (int i = 0; i < SHIPPING_SEQUENCE.length - 1; i++) {
@@ -281,6 +317,7 @@ public class OrderDAO {
         return null;
     }
 
+    /** Turns a stored shipping code into the wording shown to the buyer. */
     public static String labelForShipping(String s) {
         if (s == null) return "Pending";
         switch (s.toUpperCase()) {
@@ -292,8 +329,15 @@ public class OrderDAO {
         }
     }
 
-    /** Marks a PAID+DELIVERED order COMPLETED (buyer confirms receipt). Blocked while a refund is pending. */
+    /**
+     * Marks a PAID and DELIVERED order COMPLETED when the buyer confirms receipt.
+     * Refused while a refund is outstanding, since completing the order would settle a sale the
+     * buyer is currently disputing.
+     */
     public boolean confirmReceipt(long orderId, int buyerId) {
+        // Every precondition lives in the WHERE clause, so the whole check and the write are one
+        // atomic statement. COALESCE on refund_status treats "never requested" as an empty string,
+        // which lets a single IN test cover both that case and a refund the seller already refused.
         String sql = "UPDATE orders SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP "
                 + "WHERE id = ? AND buyer_id = ? AND status = 'PAID' "
                 + "AND UPPER(COALESCE(shipping_status, '')) = 'DELIVERED' "
@@ -311,9 +355,9 @@ public class OrderDAO {
     public enum RefundDecision { SUCCESS, NOT_FOUND, NOT_REQUESTED }
 
     /**
-     * Seller approves or declines a pending refund request.
-     * Approve → order CANCELLED + refund_status APPROVED; Decline → refund_status REJECTED
-     * (order stays PAID so the normal flow can resume).
+     * Seller approves or declines a pending refund request on their own order.
+     * Approving sets refund_status APPROVED and cancels the order. Declining sets REJECTED and
+     * leaves the order PAID, so the buyer can still confirm receipt and the normal flow resumes.
      */
     public RefundDecision resolveRefund(long orderId, int sellerId, boolean approve) {
         try (Connection conn = DBUtil.connectDB()) {
@@ -379,7 +423,11 @@ public class OrderDAO {
 
     public enum RefundResult { SUCCESS, NOT_FOUND, NOT_BUYER, NOT_ELIGIBLE, ALREADY_REQUESTED }
 
-    /** Buyer requests a refund on a paid order that is not yet completed. */
+    /**
+     * Buyer requests a refund on a paid order that is not yet completed. A reason is required.
+     * Any non-blank refund_status means a request was already made, including one the seller
+     * rejected, so the buyer cannot reopen the same dispute by asking again.
+     */
     public RefundResult requestRefund(long orderId, int buyerId, String reason) {
         if (reason == null || reason.isBlank()) return RefundResult.NOT_ELIGIBLE;
         try (Connection conn = DBUtil.connectDB()) {
@@ -431,7 +479,10 @@ public class OrderDAO {
 
     /**
      * Creates a {@code PENDING_PAYMENT} order when an auction already has a winner but no order row.
-     * Idempotent — no-op if an order exists or the auction has no winner yet.
+     * Idempotent: it does nothing if an order exists or the auction has no winner yet.
+     *
+     * <p>Runs on the caller's connection because the finalizer calls it inside the same transaction
+     * that stamped the winner onto {@code auction_details}.</p>
      */
     public void ensureOrderForAuction(Connection conn, long auctionId) throws SQLException {
         try (PreparedStatement check = conn.prepareStatement(
@@ -453,6 +504,8 @@ public class OrderDAO {
                 if (!rs.next()) return;
                 sellerId = rs.getInt("seller_id");
                 winnerId = rs.getInt("winner_id");
+                // getInt returns 0 for SQL NULL, so wasNull is what distinguishes "no winner
+                // declared" from a real id. Either way there is nothing to create an order from.
                 if (rs.wasNull() || winnerId <= 0) return;
                 amount = rs.getBigDecimal("winning_bid");
                 if (amount == null) return;
@@ -470,8 +523,15 @@ public class OrderDAO {
         }
     }
 
-    /** Backfill order rows for finalized auctions that have a winner but were never declared via {@link #declareWinner}. */
+    /**
+     * Backfills order rows for finalized auctions that have a winner but were never declared via
+     * {@link #declareWinner}. Called before listing a user's orders so a lazily finalized auction
+     * shows up straight away rather than after the next background sweep.
+     */
     private void syncMissingOrdersForUser(int userId) {
+        // INSERT ... SELECT, so the rows are found and written in one statement. Scoped to
+        // auctions this user is on either side of, and NOT EXISTS keeps it from duplicating an
+        // order that is already there, which makes repeated page loads harmless.
         String sql =
             "INSERT INTO orders (auction_id, buyer_id, seller_id, amount, status) "
           + "SELECT a.auction_id, d.winner_id, a.seller_id, d.winning_bid, 'PENDING_PAYMENT' "
@@ -490,9 +550,15 @@ public class OrderDAO {
         }
     }
 
-    /** All orders where the user is buyer or seller, newest first, framed for that user. */
+    /**
+     * All orders where the user is buyer or seller, newest first, framed for that user: each row
+     * carries the role they played and the name of the other party, so one list serves both sides.
+     */
     public List<Order> listForUser(int userId) {
         syncMissingOrdersForUser(userId);
+        // users is joined twice to name both sides. The thumbnail comes from a correlated subquery
+        // taking the listing's first image by id, and has_rated is an EXISTS test against
+        // user_reviews so the UI knows whether to offer a rating link on that order.
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
           + "  o.created_at, o.paid_at, o.completed_at, o.shipping_status, o.shipping_updated_at, "
@@ -528,7 +594,11 @@ public class OrderDAO {
         return out;
     }
 
-    /** All platform orders for the admin console (newest first). */
+    /**
+     * Every order on the platform for the admin console, newest first. Same shape as
+     * {@link #listForUser}, but has_rated is a constant false because an admin is not a party to
+     * the sale and never sees a rating prompt.
+     */
     public List<Order> listAllForAdmin() {
         String sql =
             "SELECT o.id, o.auction_id, d.title, o.buyer_id, o.seller_id, o.amount, o.status, "
@@ -557,7 +627,7 @@ public class OrderDAO {
         return out;
     }
 
-    /** Total completed (fully settled) orders — used by the public platform stats. */
+    /** Count of fully settled orders, shown in the public platform statistics. */
     public int countCompletedOrders() {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -573,8 +643,7 @@ public class OrderDAO {
      * The order's current shipping step, or null if it has none yet.
      *
      * <p>Read after {@link #advanceShipping} so the caller can say which step was reached,
-     * rather than only whether it was the last one — every step now tells the buyer
-     * something.</p>
+     * rather than only whether it was the last one. Every step tells the buyer something.</p>
      */
     public String shippingStatusOf(long orderId) {
         try (Connection conn = DBUtil.connectDB();
@@ -605,6 +674,10 @@ public class OrderDAO {
         }
     }
 
+    /**
+     * Whether this auction's order has settled. Rating a counterparty is gated on this, so a
+     * buyer cannot review a seller before the transaction actually finished.
+     */
     public boolean isOrderCompleted(long auctionId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -616,6 +689,7 @@ public class OrderDAO {
         }
     }
 
+    /** Whether this user already left a review on this auction. One review per person per sale. */
     public boolean hasUserRatedAuction(long auctionId, int userId) {
         try (Connection conn = DBUtil.connectDB();
              PreparedStatement ps = conn.prepareStatement(
@@ -628,10 +702,12 @@ public class OrderDAO {
         }
     }
 
+    /** Maps a row, taking the has_rated flag from the result set. */
     private static Order mapOrderRow(ResultSet rs, String role, String counterparty) throws SQLException {
         return mapOrderRow(rs, role, counterparty, rs.getBoolean("has_rated"));
     }
 
+    /** Maps a row with hasRated supplied by the caller, which the admin listing sets to false. */
     private static Order mapOrderRow(ResultSet rs, String role, String counterparty, boolean hasRated) throws SQLException {
         return new Order(
                 rs.getLong("id"),
@@ -656,5 +732,6 @@ public class OrderDAO {
                 rs.getString("cancel_reason"));
     }
 
+    /** Null-safe timestamp conversion; most of the lifecycle timestamps are null early on. */
     private static Instant instant(Timestamp ts) { return ts != null ? ts.toInstant() : null; }
 }

@@ -1,3 +1,10 @@
+<%--
+  Listing moderation table. Rendered by AdminListingsServlet (/admin/listings) behind
+  AdminFilter, and the FLAG, REMOVE and RESTORE buttons post back to the same URL. Moderation
+  state is separate from auction status: a removed listing stops being publicly visible but
+  its auction keeps running.
+  Legacy JSP admin console; the SPA moderates through /api/admin/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

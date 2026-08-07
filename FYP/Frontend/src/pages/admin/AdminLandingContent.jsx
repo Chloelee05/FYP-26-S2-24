@@ -1,3 +1,15 @@
+/*
+ * Landing page copy editor at "/admin/landing-content". ADMIN only.
+ * This is the admin end of the dynamic Home page: every heading, subheading and button label
+ * on "/" is a row in the landing_content table, and editing it here changes what the next
+ * visitor reads. Nothing on the landing page is hardcoded except the fallback strings Home.jsx
+ * uses if the content call comes back empty.
+ * Reads GET admin landing content, and calls save, reset one field and reset a whole group.
+ * Every field keeps its original wording in defaultValue, so a reset restores the shipped copy
+ * rather than blanking the field.
+ * Live data on the landing page (categories, metrics, listings, testimonials) is generated and
+ * is not editable here.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import {
   AlertCircle, RotateCcw, Check, Save, Type, Search, X, ChevronDown, ChevronsDownUp,
@@ -11,11 +23,16 @@ import { apiErrorMessage } from '../../utils/apiError';
 // Backend LandingContentItem fields: key, group, label, value, defaultValue,
 // multiline, displayOrder, updatedAt, updatedBy, default.
 // The field list, its grouping and its defaults all come from the landing_content
-// table, so adding copy is a migration change only — nothing here is hardcoded.
+// table, so adding a new piece of copy is a migration change only. Nothing here is hardcoded.
 
+// Scope marker for the sticky save bar, which saves across every group at once. It is not a
+// real group name, so it can never collide with one coming from the database.
 const ALL_GROUPS = '__all__';
 
 export default function AdminLandingContent() {
+  // items holds what the server currently has, values holds what is in the boxes. Keeping the
+  // two apart is what makes "unsaved changes", Discard and the per field Reset possible: a
+  // field counts as changed whenever its value differs from the item it came from.
   const [items, setItems] = useState([]);
   const [values, setValues] = useState({});
   const [loading, setLoading] = useState(true);
@@ -68,6 +85,9 @@ export default function AdminLandingContent() {
     return next;
   });
 
+  // Saves one group or the whole page depending on scope. Only the fields that actually
+  // differ are sent, and items is patched locally on success so the group stops showing as
+  // unsaved without refetching the entire list.
   const saveFields = async (scope, fields) => {
     const changed = changedIn(fields);
     if (changed.length === 0) return;
@@ -88,12 +108,16 @@ export default function AdminLandingContent() {
     }
   };
 
+  // Throws away local edits by copying the saved values back into the boxes. Nothing is sent
+  // to the server, since nothing was saved.
   const discardFields = (fields) => setValues(v => {
     const next = { ...v };
     fields.forEach(f => { next[f.key] = f.value ?? ''; });
     return next;
   });
 
+  // Reset is a save, not a discard: it writes the original wording back to the database, so
+  // both the stored item and the box on screen move to defaultValue.
   const handleResetField = async (item) => {
     setError('');
     try {
@@ -107,6 +131,8 @@ export default function AdminLandingContent() {
     }
   };
 
+  // Resetting a whole group can undo a lot of writing at once, so it is confirmed first and
+  // then the list is reloaded rather than patched field by field.
   const handleResetGroup = async (group) => {
     if (!window.confirm(`Restore every "${group}" field to its original wording?`)) return;
     setError('');

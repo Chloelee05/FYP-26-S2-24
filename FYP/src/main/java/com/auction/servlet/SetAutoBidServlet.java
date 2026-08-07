@@ -39,6 +39,12 @@ import java.util.logging.Logger;
  *   <li>No client-trusted auto-bid logic: the auto-bid triggers fire inside
  *       {@link AutoBidDAO#processAutoBids} on the server.</li>
  * </ul>
+ *
+ * <p>Legacy JSP flow; the SPA posts to {@code /api/auto-bid} in {@code AutoBidApiServlet}.
+ * An auto-bid is a proxy: the buyer states a ceiling and the platform raises their bid on their
+ * behalf as rivals come in, up to that ceiling. Both the ceiling and the private note are
+ * encrypted at rest by {@link AutoBidDAO}, since knowing another bidder's maximum would let a
+ * seller or a rival drive the price straight to it.</p>
  */
 @WebServlet("/protected/auto-bid")
 public class SetAutoBidServlet extends HttpServlet {
@@ -58,6 +64,12 @@ public class SetAutoBidServlet extends HttpServlet {
         this.bidDAO = bidDAO;
     }
 
+    /**
+     * Handles both actions. {@code action=CANCEL} deletes the buyer's auto-bid for this auction;
+     * anything else is treated as {@code SET} and stores {@code maxAmount} with an optional
+     * {@code note}. After a successful SET the proxy resolution runs immediately so the buyer's
+     * bid appears at once rather than waiting for the next rival bid to trigger it.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -168,6 +180,9 @@ public class SetAutoBidServlet extends HttpServlet {
 
         // SCRUM-296: no client-trusted auto-bid logic — fire proxy resolution server-side
         try {
+            // Who was leading before and after the proxy bids fire, read inside one transaction
+            // so the comparison sees a consistent snapshot. A change of leader means somebody
+            // was outbid by this auto-bid and has to be told.
             Integer displaced = com.auction.util.DBUtil.runInTransaction(conn -> {
                 Integer before = com.auction.dao.BidDAO.topBidderId(conn, auctionId);
                 autoBidDAO.processAutoBids(conn, auctionId);
@@ -192,6 +207,7 @@ public class SetAutoBidServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/auction/" + auctionId);
     }
 
+    /** Flash-message helper: records the problem and returns the buyer to the auction page. */
     private void storeErrorAndRedirect(HttpSession session, HttpServletRequest req,
                                        HttpServletResponse resp, long auctionId, String msg)
             throws IOException {

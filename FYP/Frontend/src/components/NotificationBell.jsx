@@ -1,3 +1,16 @@
+/**
+ * Bell icon in the Navbar with an unread count, and the dropdown behind it. Rendered only
+ * for a signed-in account, including an admin. Takes no props: the list belongs to
+ * whoever the session says the caller is.
+ *
+ * Notifications are outbid alerts, ending-soon reminders, won and lost results and order
+ * updates. There is no server push, so the list is polled every 30 seconds; usePolling
+ * pauses that while the tab is in the background and reloads on return.
+ *
+ * Reads are applied optimistically: the badge drops as soon as the item is clicked rather
+ * than waiting for the round trip, since a failure there is not worth interrupting a
+ * navigation for.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
@@ -6,6 +19,7 @@ import usePolling from '../hooks/usePolling';
 
 const POLL_MS = 30000;
 
+/** Relative timestamp, coarsening from minutes to hours to days as the item ages. */
 function timeAgo(iso) {
   if (!iso) return '';
   const diff = Math.max(0, Date.now() - new Date(iso).getTime());
@@ -24,6 +38,8 @@ export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const ref = useRef(null);
 
+  // Wrapped in useCallback because usePolling restarts whenever the loader's identity
+  // changes; an inline function would restart the poll on every render.
   const load = useCallback(async ({ signal } = {}) => {
     try {
       const r = await getNotifications({ signal });
@@ -42,11 +58,15 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
+  // Opening reloads straight away rather than waiting out the poll, so the panel is never
+  // up to 30 seconds stale at the moment someone looks at it.
   const handleOpen = () => {
     setOpen(v => !v);
     if (!open) load();
   };
 
+  // Mark read, close, then follow the notification's link if it has one. Most do: an
+  // outbid alert points at the auction, an order update at the order.
   const handleClick = async (n) => {
     if (!n.read) {
       try { await markNotificationRead(n.id); } catch { /* ignore */ }

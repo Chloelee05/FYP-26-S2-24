@@ -1,3 +1,12 @@
+/*
+ * Holds the signed in account for the whole app. Every access decision in the front end
+ * reads from here: ProtectedRoute for route guards, the navbar for which links to show,
+ * and individual pages for whether the viewer is the owner of a listing.
+ * Calls GET /session on mount, POST /login and POST /logout. The user object carries the
+ * role (USER or ADMIN) and the canSell capability that gates the seller tools.
+ * The token lives in sessionStorage rather than localStorage so it dies with the tab, and
+ * the axios interceptor reads it from there for the Authorization header.
+ */
 import { createContext, useContext, useState, useEffect } from 'react';
 import { getSession, login as apiLogin, logout as apiLogout } from '../api/auth';
 
@@ -7,9 +16,14 @@ import { getSession, login as apiLogin, logout as apiLogout } from '../api/auth'
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  // null means signed out. Otherwise the session payload: id, username, role, canSell.
   const [user, setUser] = useState(null);
+  // True until the first /session call settles. ProtectedRoute waits on this so a page
+  // reload does not flash a redirect to /login before the session has been restored.
   const [loading, setLoading] = useState(true);
 
+  // Restore the session once on mount. A failure is the normal guest case, not an error,
+  // so it just clears any stale token and leaves user as null.
   useEffect(() => {
     getSession()
       .then(res => {
@@ -23,6 +37,9 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Signs in. If the account has two factor enabled the server answers with requires2fa
+  // and a short lived pending token instead of a session, and the caller routes to
+  // /2fa-verify. user stays null until that second step succeeds.
   const login = async (email, password) => {
     const res = await apiLogin(email, password);
     if (res.data?.requires2fa) {
@@ -46,6 +63,8 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Clears the local session in a finally block, so the user is signed out on this device
+  // even if the server call fails or the network is down.
   const logout = async () => {
     try {
       await apiLogout();

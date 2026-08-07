@@ -29,6 +29,20 @@ import java.util.logging.Logger;
  *
  * <p>All methods are best-effort and never throw: a notification failure must not
  * break the primary action (placing a bid, approving a user, etc.).</p>
+ *
+ * <h2>Why neither slow channel runs on the request thread</h2>
+ * <p>Only the in-app row is written synchronously, because it is a single INSERT and the
+ * user expects the bell to update immediately. The other two channels each talk to a
+ * third party over the network, and both were deliberately moved off the request thread
+ * after they were found holding HTTP responses open.</p>
+ * <p>Email is handed to a background executor, since sending is a full SMTP conversation
+ * of connect, TLS, authenticate and deliver. A single bid could pay that cost twice, once
+ * for the seller and once for the displaced bidder, before the bidder got their response
+ * back. Telegram is queued as an outbox row and delivered later by
+ * {@link com.auction.telegram.TelegramOutboxWorker}, which is also what lets the worker
+ * respect Telegram's rate limits and retry a failed send. In both cases nothing in the
+ * response depends on the message having actually left, so waiting for it bought
+ * nothing.</p>
  */
 public final class NotificationService {
 
@@ -899,10 +913,6 @@ public final class NotificationService {
     }
 
     /**
-     * Every distinct bidder on the auction except {@code winnerId}. One row per person
-     * however many times they bid, so a buyer who was outbid five times is told once.
-     */
-    /**
      * Every distinct bidder on the auction. The no-winner counterpart to
      * {@link #losingBidders}: a cancelled auction has no winner to exclude, so everyone who
      * bid is a recipient, once each however many bids they placed.
@@ -922,6 +932,10 @@ public final class NotificationService {
         return out;
     }
 
+    /**
+     * Every distinct bidder on the auction except {@code winnerId}. One row per person
+     * however many times they bid, so a buyer who was outbid five times is told once.
+     */
     private static List<Integer> losingBidders(long auctionId, int winnerId) {
         String sql = "SELECT DISTINCT user_id FROM bids WHERE auction_id = ? AND user_id <> ?";
         List<Integer> out = new ArrayList<>();
@@ -938,6 +952,12 @@ public final class NotificationService {
         return out;
     }
 
+    /**
+     * Wraps every public hook so a notification failure is logged and dropped rather than
+     * propagating. The caller is always in the middle of the user's real action, and a bid
+     * that succeeded must not be reported as failed because the follow-up message could not
+     * be built.
+     */
     private static void safe(Runnable r) {
         try { r.run(); } catch (Exception e) { LOG.warning("Notification failed: " + e.getMessage()); }
     }

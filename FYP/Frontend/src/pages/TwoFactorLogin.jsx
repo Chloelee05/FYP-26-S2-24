@@ -1,3 +1,11 @@
+/*
+ * Second factor step at "/2fa-verify". Public route, but only reachable in practice from
+ * Login: the pending token that authorises POST /2fa/verify-login was written to
+ * sessionStorage during the first step, and without it the verify call fails.
+ * maskedEmail arrives in router state so the page can say where the code went without the
+ * full address appearing in the URL. On success the session is set and an ADMIN goes to the
+ * admin console while everyone else goes to the landing page.
+ */
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
@@ -44,6 +52,9 @@ export default function TwoFactorLogin() {
         <span className="font-medium text-ink-700">{maskedEmail || 'your registered email'}</span>.
       </p>
 
+      {/* Development convenience: when mail sending is not configured the server returns the
+          code in the login response so testing does not need a working inbox. It is absent
+          in a production build. */}
       {devOtp && (
         <div className="alert-warning mb-4 text-xs">
           <span>Dev mode — OTP: <span className="font-mono font-bold">{devOtp}</span></span>

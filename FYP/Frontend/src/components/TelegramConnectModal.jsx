@@ -12,9 +12,23 @@ import { apiErrorMessage } from '../utils/apiError';
 /**
  * Three-step Telegram linking dialog: explain and consent, wait for the link, confirm.
  *
+ * Opened from the account menu in the Navbar and from the notifications tab of settings.
+ * Props: `onClose` closes the dialog, `onLinked` fires once the link succeeds so the
+ * caller can update its own state (the Navbar uses it to flip to "Telegram connected").
+ *
+ * How the linking works. Pressing "Agree & connect" asks the server for a single-use
+ * code, which comes back both as a t.me deep link and as 6 digits. Opening the deep link
+ * starts a chat with the bot and hands it the code; the bot then tells the server, not
+ * this tab, so the dialog finds out by polling /api/telegram/status every 3 seconds until
+ * it reports linked or the code expires after 5 minutes.
+ *
  * The deep link is the happy path and owns the visual weight; the 6-digit code is a
  * fallback for people whose Telegram is on another device, so it sits behind a quiet
  * disclosure. Both redeem through the same server-side single-use code.
+ *
+ * Linking is opt in, and that is the point of the first step. The chat ID is personal
+ * data under the PDPA, so nothing is stored until the member has read what is kept and
+ * pressed the consent button. Disconnecting from account settings withdraws it.
  *
  * Explanatory copy comes from the server (`landing_content`, editable by an admin) with
  * the strings below as fallbacks; button labels and errors stay here because they are
@@ -86,8 +100,11 @@ function CodeDisplay({ code }) {
 export default function TelegramConnectModal({ onClose, onLinked }) {
   const [step, setStep] = useState('explain'); // explain | waiting | success
   const [copy, setCopy] = useState(FALLBACK_COPY);
+  // `available` is false when the server has no bot token configured.
   const [available, setAvailable] = useState(true);
   const [session, setSession] = useState(null); // { deepLink, code, botUsername, expiresAt }
+  // Milliseconds left on the code, which drives the countdown; `expired` flips when it
+  // runs out and offers a new one. `fallbackOpen` is the "link not working?" disclosure.
   const [remaining, setRemaining] = useState(0);
   const [expired, setExpired] = useState(false);
   const [fallbackOpen, setFallbackOpen] = useState(false);
@@ -95,6 +112,8 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Several async paths can finish after the dialog closes, so each one checks this
+  // before touching state.
   const mounted = useRef(true);
   const pollStartedAt = useRef(0);
   useEffect(() => () => { mounted.current = false; }, []);
@@ -116,6 +135,8 @@ export default function TelegramConnectModal({ onClose, onLinked }) {
       .catch(() => { /* Fall back to the built-in copy; the connect button still works. */ });
   }, []);
 
+  // The consent button. Mints the code, works out when it expires from the server's
+  // expiresInSeconds, and moves to step 2. Also reused by "Get a new code".
   const beginLink = useCallback(async () => {
     setBusy(true);
     setError('');

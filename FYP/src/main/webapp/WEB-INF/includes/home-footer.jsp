@@ -1,3 +1,8 @@
+<%--
+  Shared page footer with the about and help anchors that the home navbar links to. Statically
+  included by index.jsp, search.jsp and seller-profile.jsp. Content only, no server data.
+  Legacy JSP layout fragment; the SPA has its own footer component.
+--%>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <c:set var="ctx" value="${pageContext.request.contextPath}"/>
 <footer class="home-footer" id="help">

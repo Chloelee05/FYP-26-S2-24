@@ -32,6 +32,11 @@ import java.util.logging.Logger;
  *   <li>No password, phone, address, or 2FA fields are loaded or forwarded.</li>
  * </ul>
  * </p>
+ *
+ * <p>Legacy JSP page; the SPA reads the same profile from {@code /api/seller/*} in
+ * {@code SellerApiServlet}. Note that the page never loads the full user row: it goes through
+ * {@link SellerProfileDAO#getPublicProfile}, which selects only the public columns, so PDPA
+ * data cannot leak here by someone later adding a field to the JSP.</p>
  */
 @WebServlet("/seller/*")
 public class SellerProfileServlet extends HttpServlet {
@@ -51,6 +56,10 @@ public class SellerProfileServlet extends HttpServlet {
         this.sellerProfileDAO = sellerProfileDAO;
     }
 
+    /**
+     * Renders the public profile: the seller's summary, their average rating and a page of
+     * reviews. Optional {@code page} and {@code size} paginate the reviews.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -127,6 +136,7 @@ public class SellerProfileServlet extends HttpServlet {
         }
     }
 
+    /** 1-based review page number; defaults to 1. */
     public static int parseReviewPage(HttpServletRequest req) {
         try {
             String p = req.getParameter("page");
@@ -135,6 +145,7 @@ public class SellerProfileServlet extends HttpServlet {
         return 1;
     }
 
+    /** Reviews per page, clamped into [1, {@value #MAX_REVIEW_PAGE_SIZE}]. */
     public static int parseReviewPageSize(HttpServletRequest req) {
         try {
             String s = req.getParameter("size");

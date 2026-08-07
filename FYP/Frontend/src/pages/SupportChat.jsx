@@ -1,3 +1,12 @@
+/*
+ * Support conversation with the admin team, at "/support". Behind ProtectedRoute, any signed
+ * in account. The same conversations appear on the admin side at /admin/chat.
+ * Reads support threads and their messages, POSTs a new thread or a reply, and marks a
+ * thread read when it is opened. Polling is 30 seconds for the thread list and 5 for the
+ * open conversation, matching the pattern used on the order messages page.
+ * A thread the admin has closed is read only: the composer is replaced by a notice, and the
+ * server rejects a message to a closed thread anyway.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getSupportThreads, createSupportThread, getSupportMessages, sendSupportMessage, markSupportThreadRead } from '../api/support';
@@ -17,6 +26,9 @@ export default function SupportChat() {
   const [msg, setMsg] = useState('');
   const bottomRef = useRef(null);
 
+  // Loads the thread list. The functional setSelectedId keeps whatever the user already has
+  // open and only falls back to the newest thread on the first load, so a poll landing while
+  // they are reading cannot yank them into a different conversation.
   const loadThreads = useCallback(async (config) => {
     try {
       const r = await getSupportThreads(config);
@@ -44,6 +56,8 @@ export default function SupportChat() {
   usePolling(loadThreads, 30000);
   usePolling(loadMessages, 5000, Boolean(selectedId));
 
+  // Clears the unread marker whenever a different thread is opened. Failure is ignored: an
+  // unread badge that lingers is not worth an error message.
   useEffect(() => {
     if (!selectedId) return;
     markSupportThreadRead(selectedId).catch(() => {});
@@ -53,6 +67,8 @@ export default function SupportChat() {
 
   const selected = threads.find(t => Number(t.id) === Number(selectedId));
 
+  // Opens a new support request and switches straight into it, fetching its messages by hand
+  // rather than waiting for the poll, so the user sees what they just sent.
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newBody.trim()) return;
@@ -72,6 +88,8 @@ export default function SupportChat() {
     }
   };
 
+  // Reply in the open thread, optionally with an attachment uploaded by SupportChatInput.
+  // Guarded on the closed status so a stale render cannot post into a finished thread.
   const handleSend = async ({ body, attachmentUrl }) => {
     if (!selectedId || selected?.status === 'CLOSED') return;
     try {
@@ -132,6 +150,8 @@ export default function SupportChat() {
           </div>
         ) : (
           <>
+            {/* The thread picker only appears once there is more than one conversation.
+                With a single thread the sidebar would be a column showing the obvious. */}
             {threads.length > 1 && (
               <div className="w-48 border-r border-ink-100 overflow-y-auto">
                 {threads.map(t => (

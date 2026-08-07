@@ -1,3 +1,14 @@
+/**
+ * Buyer's refund request form, opened from My purchases. Props: `order` is the order in
+ * question, `onClose` closes the dialog, `onSubmitted` lets the page reload its list.
+ *
+ * The request goes to the seller first, not to an admin. The seller approves or declines
+ * it, and only a declined request can be escalated to an admin through the support
+ * thread, which is what the warning at the top of the dialog explains.
+ *
+ * The dropdown reason and the typed details are joined into one string, because the
+ * endpoint stores a single reason field.
+ */
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { requestOrderRefund } from '../api/orders';
@@ -20,6 +31,8 @@ export default function OrderRefundModal({ order, onClose, onSubmitted }) {
 
   if (!order) return null;
 
+  // A ten character minimum on the details: a refund the seller has to judge needs
+  // something more than "broken" to judge it on.
   const handleSubmit = async (e) => {
     e.preventDefault();
     const reason = `${reasonType}: ${details.trim()}`.trim();
@@ -47,6 +60,7 @@ export default function OrderRefundModal({ order, onClose, onSubmitted }) {
       icon={AlertTriangle}
       onClose={onClose}
       size="md"
+      // A stray click outside must not discard a half-written complaint.
       dismissOnBackdrop={false}
     >
       <div className="p-6">

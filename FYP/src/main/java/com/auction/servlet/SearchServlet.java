@@ -58,6 +58,11 @@ import java.util.logging.Logger;
  *   <li>All values reaching the DAO are bound as {@code PreparedStatement} parameters.</li>
  * </ul>
  * </p>
+ *
+ * <p>Legacy JSP page; the SPA calls {@code /api/search} in {@code SearchApiServlet}.
+ * The recurring "silently drop" decision is worth understanding: a search box is not a form
+ * that has to be filled in correctly, so a nonsense filter is ignored and the rest of the search
+ * still runs. It never means the value was passed through unchecked.</p>
  */
 @WebServlet("/search")
 public class SearchServlet extends HttpServlet {
@@ -90,6 +95,13 @@ public class SearchServlet extends HttpServlet {
     public void setSearchDAO(SearchDAO searchDAO)       { this.searchDAO   = searchDAO; }
     public void setCategoryDAO(CategoryDAO categoryDAO) { this.categoryDAO = categoryDAO; }
 
+    /**
+     * Runs the search and renders the results page. The keyword goes to the DAO in its raw
+     * trimmed form, because it is bound as a prepared-statement parameter, while a separate
+     * sanitized copy is what gets echoed back into the page, so the two uses never share a value.
+     * The category filter is resolved from a slug to a real category name, and an unknown slug
+     * simply drops the category restriction instead of returning nothing.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -140,6 +152,7 @@ public class SearchServlet extends HttpServlet {
         int totalPages = (total == 0) ? 1 : (int) Math.ceil((double) total / size);
 
         // Clamp page after knowing totalPages
+        // Only possible once the count is known, which is why the query may run a second time.
         if (page > totalPages) {
             page    = totalPages;
             results = searchDAO.search(keyword, categoryName, filter, sort, page, size);
@@ -293,6 +306,7 @@ public class SearchServlet extends HttpServlet {
     // Pagination helpers
     // =========================================================================
 
+    /** 1-based page number; a missing or unparseable value falls back to page 1. */
     private static int parsePage(HttpServletRequest req) {
         try {
             String p = req.getParameter("page");
@@ -301,6 +315,7 @@ public class SearchServlet extends HttpServlet {
         return 1;
     }
 
+    /** Rows per page, clamped into [1, {@link SearchDAO#MAX_PAGE_SIZE}]. */
     private static int parseSize(HttpServletRequest req) {
         try {
             String s = req.getParameter("size");

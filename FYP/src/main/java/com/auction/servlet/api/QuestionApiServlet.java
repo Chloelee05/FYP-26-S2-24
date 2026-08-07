@@ -13,6 +13,14 @@ import java.io.IOException;
 /**
  * POST /api/question/ask    — buyer asks a question (params: auctionId, text)
  * POST /api/question/reply  — seller replies (params: questionId, text)
+ *
+ * <p>The write side of the public Q and A on a listing; the list itself is read through
+ * {@code AuctionApiServlet}. Both routes need a session, and each has its own rule: a buyer
+ * may not question their own listing, and only the seller who owns the auction may reply,
+ * which {@link QuestionDAO} verifies rather than trusting the caller.</p>
+ *
+ * <p>Question and reply text are run through {@link SecurityUtil#sanitize} because both are
+ * shown publicly on the listing page.</p>
  */
 @WebServlet("/api/question/*")
 public class QuestionApiServlet extends ApiBase {
@@ -23,9 +31,10 @@ public class QuestionApiServlet extends ApiBase {
         this.questionDAO = new QuestionDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setQuestionDAO(QuestionDAO questionDAO) { this.questionDAO = questionDAO; }
 
+    /** Routes to the reply handler for /reply, otherwise treats the request as a new question. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -39,6 +48,11 @@ public class QuestionApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/question/ask with {@code auctionId} and {@code text}. The asker id comes from
+     * the session. The DAO rejects a question on the caller's own listing and on an auction that
+     * has already closed, since an answer would arrive too late to be any use.
+     */
     private void handleAsk(HttpServletRequest req, HttpServletResponse resp, AuthSession session)
             throws IOException {
         if (!canBuy(session)) { forbidden(resp); return; }
@@ -62,6 +76,12 @@ public class QuestionApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/question/reply with {@code questionId} and {@code text}. The seller capability
+     * check here only says the caller may sell at all; {@link QuestionDAO#insertReply} is what
+     * confirms they own this particular auction. One answer per question, so a posted reply
+     * cannot later be overwritten. The asker is notified afterwards.
+     */
     private void handleReply(HttpServletRequest req, HttpServletResponse resp, AuthSession session)
             throws IOException {
         if (!isSeller(session)) { forbidden(resp); return; }
@@ -86,6 +106,7 @@ public class QuestionApiServlet extends ApiBase {
         }
     }
 
+    /** Wording for each rejection reason, kept in one place so ask and reply stay consistent. */
     private String toMessage(QuestionResult r) {
         switch (r) {
             case AUCTION_NOT_FOUND:  return "Auction not found.";

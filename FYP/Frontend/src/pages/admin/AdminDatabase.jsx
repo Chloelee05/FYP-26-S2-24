@@ -1,9 +1,22 @@
+/*
+ * Database tools at "/admin/database". ADMIN only, and the most destructive page in the app.
+ * Reads GET database status (table names and row counts) and the last 50 entries of the admin
+ * audit log. Downloads a full SQL dump, and restores from an uploaded one.
+ * Restore applies INSERT statements only. Nothing in the uploaded file can drop or alter a
+ * table, so a bad or hostile backup file cannot destroy the schema. The server reports how
+ * many statements were applied and how many rows were inserted.
+ * The audit trail below records the admin actions that change other people's data: listing
+ * edits, product or service reclassification, order state corrections and account
+ * deactivations, each with the value it replaced and the reason given.
+ */
 import { useState, useEffect } from 'react';
 import {
   getDatabaseStatus, downloadDatabaseBackup, restoreDatabaseBackup, getAdminAuditLog,
 } from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
 
+// The dump arrives as a blob, so it is saved by pointing a synthetic anchor at an object URL
+// and clicking it. Revoking the URL right after releases the file from memory.
 function triggerBlobDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -45,6 +58,9 @@ export default function AdminDatabase() {
     }
   };
 
+  // The file input is cleared straight away so picking the same file twice still fires a
+  // change event; without that, a failed restore could not be retried with the same file.
+  // The SQL is read in the browser and posted as text rather than as a multipart upload.
   const handleRestore = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';

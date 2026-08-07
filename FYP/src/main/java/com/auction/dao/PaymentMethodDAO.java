@@ -19,15 +19,25 @@ import java.util.List;
  * {@code CARD}, {@code PAYPAL} and {@code BANK_TRANSFER}.
  *
  * <p>For cards and bank accounts the full number is stored AES-GCM encrypted
- * ({@code card_number_enc}); only the brand + last 4 are kept in clear for display.
+ * ({@code card_number_enc}); only the brand and last 4 are kept in clear for display.
  * CVV is never stored. PayPal accounts store only the linked email in {@code account_ref}.</p>
+ *
+ * <p>Reads and writes {@code payment_methods} only. Called by the account settings API for the
+ * saved payment methods screen, and by the checkout flow through {@link #belongsTo} and
+ * {@link #labelFor}. Every query is scoped by {@code user_id} as well as row id, so one member
+ * can never read or change another member's payment details.</p>
  */
 public class PaymentMethodDAO {
 
+    /**
+     * The columns safe to read back. {@code card_number_enc} is deliberately absent: the encrypted
+     * PAN is written once and never selected again, so no read path can decrypt it.
+     */
     private static final String SELECT_COLS =
             "id, method_type, card_holder, card_brand, card_last4, exp_month, exp_year, "
           + "account_ref, is_default, created_at";
 
+    /** The user's saved methods, default first, then newest. */
     public List<PaymentMethod> listForUser(int userId) {
         String sql = "SELECT " + SELECT_COLS + " FROM payment_methods WHERE user_id = ? "
                 + "ORDER BY is_default DESC, created_at DESC";
@@ -69,9 +79,12 @@ public class PaymentMethodDAO {
      * Returns the new id, or -1 on failure.
      */
     public long add(int userId, String cardHolder, String pan, int expMonth, int expYear, boolean makeDefault) {
+        // Strip spaces and dashes so what is encrypted and what is compared are both bare digits.
         String digits = pan.replaceAll("\\D", "");
         String last4 = digits.length() >= 4 ? digits.substring(digits.length() - 4) : digits;
         String brand = detectBrand(digits);
+        // AES-GCM through SecurityUtil. The full PAN only exists in clear inside this method; what
+        // reaches the table is ciphertext plus the brand and last4 the member identifies it by.
         String enc = encrypt(digits, "Card encryption failed");
         return insert(userId, "CARD", cardHolder, brand, last4, expMonth, expYear, enc, null, makeDefault);
     }
@@ -90,6 +103,8 @@ public class PaymentMethodDAO {
         String digits = accountNumber.replaceAll("\\D", "");
         String last4 = digits.length() >= 4 ? digits.substring(digits.length() - 4) : digits;
         String enc = encrypt(digits, "Bank account encryption failed");
+        // account_ref carries the bank name here, where a PayPal row carries the email. The column
+        // is reused because each method type has exactly one free-text identifier.
         return insert(userId, "BANK_TRANSFER", accountHolder, "Bank", last4, null, null, enc, bankName, makeDefault);
     }
 
@@ -105,6 +120,10 @@ public class PaymentMethodDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
+            // The first method a user adds becomes the default automatically, so an account can
+            // never end up with saved methods but nothing selected at checkout. Clearing the old
+            // default and inserting the new one share a transaction, so there is no moment where
+            // two rows or zero rows are flagged default.
             boolean isDefault = makeDefault || countForUser(conn, userId) == 0;
             if (isDefault) clearDefault(conn, userId);
 
@@ -145,7 +164,7 @@ public class PaymentMethodDAO {
      *
      * <p><b>The PAN is deliberately not updatable.</b> Only the ciphertext, the brand and the
      * last 4 digits of a card number are ever stored, so "change the number" cannot be an
-     * edit of the row the user is looking at — the brand and last4 they identify it by both
+     * edit of the row the user is looking at. The brand and last4 they identify it by both
      * change, and the ciphertext has to be produced afresh. That is an add followed by a
      * delete, and the API says so rather than pretending otherwise. What genuinely does
      * change on a card the member keeps is the name on it and the expiry printed on the
@@ -188,8 +207,8 @@ public class PaymentMethodDAO {
     /**
      * Edits a bank method's account-holder name and bank name, scoped to the owner.
      * The account number itself is encrypted and its last 4 digits are what the member
-     * recognises the row by, so changing it is an add rather than an edit — same reasoning
-     * as {@link #updateCard}.
+     * recognises the row by, so changing it is an add rather than an edit, for the same reason
+     * given on {@link #updateCard}.
      */
     public boolean updateBankTransfer(int userId, long id, String accountHolder, String bankName) {
         String sql = "UPDATE payment_methods SET card_holder = ?, account_ref = ? "
@@ -223,8 +242,8 @@ public class PaymentMethodDAO {
      * Marks a method default and clears the flag on the user's other methods.
      *
      * <p>The promotion runs first and the transaction is rolled back when it matches nothing.
-     * Clearing first would mean an id that is not the caller's — a stale tab, a guessed
-     * number — wiped the default they actually had and left the account with none, while the
+     * Clearing first would mean an id that is not the caller's, from a stale tab or a guessed
+     * number, wiped the default they actually had and left the account with none, while the
      * caller was told the change failed.</p>
      */
     public boolean setDefault(int userId, long id) {
@@ -296,6 +315,10 @@ public class PaymentMethodDAO {
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
+    /**
+     * AES-GCM encryption with a type-specific failure message. Throws rather than storing anything
+     * in clear, so a broken key configuration cannot silently leave a plaintext PAN in the table.
+     */
     private static String encrypt(String value, String errorMessage) {
         try {
             return SecurityUtil.encrypt(value);
@@ -304,6 +327,7 @@ public class PaymentMethodDAO {
         }
     }
 
+    /** How many methods the user already has. Runs on the caller's transaction. */
     private int countForUser(Connection conn, int userId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT COUNT(*) FROM payment_methods WHERE user_id = ?")) {
@@ -314,6 +338,7 @@ public class PaymentMethodDAO {
         }
     }
 
+    /** Unsets the default flag across all of the user's methods, ahead of setting a new one. */
     private void clearDefault(Connection conn, int userId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?")) {
@@ -337,6 +362,10 @@ public class PaymentMethodDAO {
                 ts != null ? ts.toInstant() : null);
     }
 
+    /**
+     * Card brand from the leading digit, the standard issuer identifier: 4 is Visa, 5 Mastercard,
+     * 3 Amex, 6 Discover. This is for display only and does not validate the number.
+     */
     private String detectBrand(String digits) {
         if (digits.isEmpty()) return "Card";
         char f = digits.charAt(0);

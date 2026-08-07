@@ -1,3 +1,12 @@
+<%--
+  Public auction detail page: the listing itself, the bid form, the first page of bid history
+  and the question and answer thread. Rendered by AuctionDetailServlet (/auction/{id}), open
+  to guests. The canBid, canAsk, canAnswer and isSelf flags decide which controls are drawn,
+  and every one of them is checked again by the servlet that handles the action, so hiding a
+  button here is presentation only. Flash messages set by PlaceBidServlet, SetAutoBidServlet
+  and AuctionQuestionServlet are displayed once and cleared.
+  Legacy JSP page; the SPA renders the same listing from /api/auction/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

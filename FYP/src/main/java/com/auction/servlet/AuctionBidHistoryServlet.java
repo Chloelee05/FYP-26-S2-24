@@ -28,6 +28,11 @@ import java.util.logging.Logger;
  *   <li>Current leader partially masked; all others fully masked (DAO).</li>
  * </ul>
  * </p>
+ *
+ * <p>Legacy JSP page; the SPA gets the same rows from {@code /api/auction/*}. Its
+ * {@code parsePage} and {@code parsePageSize} helpers are static and public because
+ * {@link AuctionDetailServlet} reuses them for the history block embedded in the listing page,
+ * so both places clamp pagination the same way.</p>
  */
 @WebServlet("/auction-bids")
 public class AuctionBidHistoryServlet extends HttpServlet {
@@ -46,6 +51,10 @@ public class AuctionBidHistoryServlet extends HttpServlet {
         this.bidDAO = bidDAO;
     }
 
+    /**
+     * Renders one page of the bid history for {@code auctionId}. The existence check runs before
+     * the history query so a bad id produces a clean 404 rather than an empty-looking page.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -99,6 +108,11 @@ public class AuctionBidHistoryServlet extends HttpServlet {
     // Parsing helpers (public for unit tests — SCRUM-361)
     // =========================================================================
 
+    /**
+     * Reads {@code auctionId} as a long. Returns {@code -1} after sending a 400, so the caller
+     * checks the sign rather than catching an exception. Parsing strictly is the IDOR guard:
+     * a crafted string never reaches the DAO.
+     */
     public static long parseAuctionId(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
         String raw = req.getParameter("auctionId");
@@ -114,6 +128,11 @@ public class AuctionBidHistoryServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Resolves the 1-based page number, defaulting to 1 and never returning less than that.
+     * Two parameter names are accepted because the detail page carries the history's own page
+     * as {@code bidPage} to avoid colliding with its other paginated sections.
+     */
     public static int parsePage(HttpServletRequest req) {
         try {
             String p = req.getParameter("page");
@@ -123,6 +142,10 @@ public class AuctionBidHistoryServlet extends HttpServlet {
         return 1;
     }
 
+    /**
+     * Resolves the rows-per-page, clamped into [1, {@link BidDAO#MAX_BID_HISTORY_PAGE_SIZE}].
+     * The upper bound stops a caller asking for the entire bid table in one query.
+     */
     public static int parsePageSize(HttpServletRequest req) {
         try {
             String s = req.getParameter("size");

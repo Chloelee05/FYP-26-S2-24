@@ -1,3 +1,9 @@
+<%--
+  Legacy JSP landing page, served directly at the context root as the welcome file.
+  Static marketing content with the shared home navbar and footer included; no servlet
+  populates it. In a production build SpaFallbackFilter finds the React index.html first,
+  so visitors see the SPA home page and this file is only reached before a front-end build.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <c:set var="ctx" value="${pageContext.request.contextPath}"/>

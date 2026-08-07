@@ -21,27 +21,45 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Data-access layer for bid placement (SCRUM-51).
+ * Data-access layer for bid placement (SCRUM-51), covering all three auction types plus the
+ * public auction detail and bid history reads.
  *
- * <p><b>Transactional safety (SCRUM-263):</b> {@link #placeBid} opens a single
+ * <p>Writes {@code bids} and, on a concluding action, {@code auction.status_id} and
+ * {@code auction_details.winner_id}/{@code winning_bid}. Reads {@code auction},
+ * {@code auction_details}, {@code users} and {@code auction_images}. Called by
+ * {@code BidApiServlet} and {@code AuctionApiServlet}, and by the legacy {@code /protected/bid}
+ * servlet. Collaborates with {@link AutoBidDAO} for proxy bidding and {@link PlatformSettingsDAO}
+ * for the rate-limit window.</p>
+ *
+ * <p>Each auction type has its own entry point, because the mechanisms are not variations of one
+ * another: {@link #placeBid} for ascending, {@link #acceptDutchBid} for the declining clock,
+ * {@link #placeSealedBid} for blind, and {@link #buyItNow} for the fixed-price shortcut. Every one
+ * of them re-checks the auction type, so calling the wrong one is refused rather than misbehaving.</p>
+ *
+ * <p>Transactional safety (SCRUM-263): {@link #placeBid} opens a single
  * JDBC transaction, acquires a row-level lock on the {@code auction} row via
  * {@code SELECT … FOR UPDATE}, re-validates all preconditions inside the lock,
  * then inserts the bid or rolls back. This prevents TOCTOU races on concurrent
  * bids (SCRUM-265).</p>
  *
- * <p><b>Minimum increment (SCRUM-263):</b> A new bid must exceed the greater of the
+ * <p>Minimum increment (SCRUM-263): A new bid must exceed the greater of the
  * current highest bid and the starting price. Because {@code bids.bid_amount} is
  * {@code NUMERIC(10,2)}, the effective minimum meaningful step is {@code 0.01}.
  * Equal bids are always rejected ({@code >}, not {@code >=}).</p>
  *
- * <p><b>Auto-bid integration (SCRUM-52):</b> After each successful manual bid insert,
+ * <p>Auto-bid integration (SCRUM-52): After each successful manual bid insert,
  * {@link AutoBidDAO#processAutoBids(Connection, long)} is called within the same
  * transaction to fire any proxy counter-bids before the lock is released.</p>
  *
- * <p><b>Max-price cap (SCRUM-263):</b> The seller-set ceiling from
+ * <p>Max-price cap (SCRUM-263): The seller-set ceiling from
  * {@code auction_details.max_price} is re-checked inside the transaction.</p>
  *
- * <p><b>IDOR prevention (SCRUM-295):</b> {@code buyerId} is <em>always</em> taken
+ * <p>Blind confidentiality: a live sealed auction must never reveal what anyone bid.
+ * {@link #HIDE_LIVE_SEALED_BIDS} enforces that in SQL on the history queries, and
+ * {@link #placeBid} refuses blind auctions outright so a rejection message cannot be used to
+ * probe the leading amount.</p>
+ *
+ * <p>IDOR prevention (SCRUM-295): {@code buyerId} is <em>always</em> taken
  * from the session (never from a request parameter); {@code auctionId} is parsed
  * as {@code long} (rejects non-numeric input) and then looked up in the DB.</p>
  */
@@ -87,8 +105,8 @@ public class BidDAO {
         BID_TOO_LOW,
         /**
          * This buyer placed a bid on this same auction less than the configured rate-limit
-         * window ago (anti-spam; see {@code platform_settings.bid_rate_limit_seconds}). Not
-         * anti-sniping — the project's answer to sniping is proxy auto-bid, unchanged here.
+         * window ago (anti-spam; see {@code platform_settings.bid_rate_limit_seconds}). This is
+         * not anti-sniping. The project's answer to sniping is proxy auto-bid, unchanged here.
          */
         BID_TOO_FAST,
         /** Bid amount exceeds the seller-set max-price cap. */
@@ -102,8 +120,8 @@ public class BidDAO {
     /**
      * What {@link #placeBid} did, including who lost the lead because of it.
      *
-     * <p>The leader is captured twice — before the manual bid is inserted and again after
-     * {@link AutoBidDAO#processAutoBids} has resolved every proxy counter-bid — because those
+     * <p>The leader is captured twice, before the manual bid is inserted and again after
+     * {@link AutoBidDAO#processAutoBids} has resolved every proxy counter-bid, because those
      * two facts together are the only reliable way to know who was displaced. Reading the bid
      * table afterwards cannot tell them apart: by the time the transaction commits, an
      * auto-bidder who counter-bid is simultaneously the current leader and the highest bidder
@@ -139,7 +157,7 @@ public class BidDAO {
          *
          * <p>Two cases. If the caller's bid still stands, they took the lead from whoever held
          * it before. If it does not, a proxy auto-bid outbid them within the same transaction,
-         * and the person displaced is the caller themselves — which is exactly the case the
+         * and the person displaced is the caller themselves, which is exactly the case the
          * old runner-up lookup got backwards.</p>
          *
          * <p>Returns {@code null} when the answer would be the current leader, so nobody is
@@ -147,7 +165,7 @@ public class BidDAO {
          */
         public Integer displacedBidderId() {
             // No known leader means no leader information was captured, not that the caller
-            // displaced somebody — a successful bid always leaves someone on top.
+            // displaced somebody. A successful bid always leaves someone on top.
             if (!isSuccess() || finalTopBidderId == null) {
                 return null;
             }
@@ -169,8 +187,10 @@ public class BidDAO {
      * Atomically places a bid on the auction identified by {@code auctionId}.
      *
      * <p>All validations run inside a single serializable transaction protected by
-     * {@code SELECT … FOR UPDATE} on the auction row — concurrent callers block
-     * until the lock is released, preventing duplicate-amount bids (SCRUM-265).</p>
+     * {@code SELECT … FOR UPDATE} on the auction row. Concurrent callers block
+     * until the lock is released, which prevents duplicate-amount bids (SCRUM-265).</p>
+     *
+     * <p>Ascending and Dutch auctions only. Blind is refused here, see the guard below.</p>
      *
      * @param auctionId  ID of the target auction (parsed server-side, not trusted from client)
      * @param buyerId    ID of the authenticated buyer (read from session, not from request)
@@ -188,7 +208,10 @@ public class BidDAO {
             conn = DBUtil.connectDB();
             conn.setAutoCommit(false);
 
-            // SCRUM-265: lock the auction row to serialize concurrent bids
+            // SCRUM-265: lock the auction row to serialize concurrent bids. Everything the
+            // validation needs is read in this one locked statement: lifecycle state, moderation
+            // state, owner, type, and the two prices. Holding the lock from here to the commit is
+            // what makes the floor check and the insert a single indivisible step.
             String lockSql =
                     "SELECT a.auction_id, a.status_id, a.date_end, "
                     + "a.moderation_state, a.seller_id, a.auction_type, "
@@ -227,7 +250,7 @@ public class BidDAO {
             // An ascending bid has no meaning on a sealed auction, and running one anyway
             // reveals the thing the mechanism exists to hide: the floor below is
             // MAX(bid_amount), so BID_TOO_LOW answers "is the top sealed bid above X?" for
-            // any X the caller cares to try — a few probes and the leading bid is known.
+            // any X the caller cares to try, and a few probes give up the leading bid.
             // BidApiServlet routes BLIND to placeSealedBid, but the legacy /protected/bid
             // servlet calls this method for every auction type, so the guard belongs here
             // with the ones acceptDutchBid, buyItNow and placeSealedBid already carry.
@@ -241,7 +264,7 @@ public class BidDAO {
                 conn.rollback();
                 return BidOutcome.of(BidResult.AUCTION_CLOSED);
             }
-            // Moderation check
+            // A listing an admin flagged or removed stays visible but stops taking bids.
             if (!"active".equals(moderationState)) {
                 conn.rollback();
                 return BidOutcome.of(BidResult.AUCTION_REMOVED);
@@ -253,7 +276,7 @@ public class BidDAO {
             }
 
             // Anti-spam rate limit: reject a repeat bid from this same buyer, on this same
-            // auction, inside the configured window. Scoped to (buyerId, auctionId) only —
+            // auction, inside the configured window. Scoped to (buyerId, auctionId) only:
             // it reads that buyer's own last bid_time on this auction, so a rejected fast bid
             // never writes any state and can never block a different buyer or a different
             // auction. This is rate limiting, not anti-sniping: the auction clock and the
@@ -269,7 +292,8 @@ public class BidDAO {
                 }
             }
 
-            // Fetch current highest bid (within same transaction)
+            // Current highest bid, read under the same lock so nothing can slip in between this
+            // and the insert. Null when nobody has bid yet.
             BigDecimal currentMax;
             String maxBidSql = "SELECT MAX(bid_amount) FROM bids WHERE auction_id = ?";
             try (PreparedStatement ps = conn.prepareStatement(maxBidSql)) {
@@ -279,7 +303,8 @@ public class BidDAO {
                 }
             }
 
-            // Floor = max(startingPrice, currentMax)
+            // Floor = max(startingPrice, currentMax). Taking the maximum covers a historic bid
+            // recorded below the listing's own opening price, which would otherwise lower the bar.
             BigDecimal floor = (currentMax == null) ? startingPrice
                     : currentMax.max(startingPrice);
 
@@ -299,7 +324,7 @@ public class BidDAO {
             // is the leader and the previous holder is indistinguishable from any other bidder.
             Integer previousTopBidder = topBidderId(conn, auctionId);
 
-            // All checks passed — insert manual bid
+            // All checks passed, so the manual bid goes in.
             String insertSql =
                     "INSERT INTO bids (auction_id, user_id, bid_amount, bid_time) "
                     + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)";
@@ -340,7 +365,7 @@ public class BidDAO {
      * are no bids.
      *
      * <p>Ordered {@code bid_amount DESC, bid_time ASC} to match {@code AuctionFinalizer} and
-     * {@link AutoBidDAO#processAutoBids} — that is, whoever this returns is the person who
+     * {@link AutoBidDAO#processAutoBids}, so whoever this returns is the person who
      * would win if the auction ended now. Ties on time cannot decide anything here because
      * every bid on an auction has a distinct amount.</p>
      */
@@ -398,6 +423,12 @@ public class BidDAO {
      * Accepts the current Dutch clock price for {@code auctionId}. The first valid
      * acceptance records a winning bid at the computed clock price and finishes the
      * auction. Row-locked to serialise concurrent acceptances (only the first wins).
+     *
+     * <p>The price is not sent by the client. It is recomputed here from the listing's start
+     * price, floor price and the two timestamps through {@link DutchClock}, the same shared
+     * calculation the list and detail pages display, so a buyer cannot claim a lower figure than
+     * the clock actually shows. The insert, the finish, the stock decrement and the order creation
+     * are one transaction.</p>
      */
     public BidResult acceptDutchBid(long auctionId, int buyerId) {
         Connection conn = null;
@@ -468,6 +499,8 @@ public class BidDAO {
                 ps.setLong(3, auctionId);
                 ps.executeUpdate();
             }
+            // Both run on this connection, so a Dutch acceptance either takes stock and produces an
+            // order or does neither.
             SellerAuctionDAO.decrementStockForSale(conn, auctionId);
             new OrderDAO().ensureOrderForAuction(conn, auctionId);
 

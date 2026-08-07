@@ -33,6 +33,14 @@ import java.util.UUID;
  * POST /api/support/threads/{id}/messages (body, attachmentUrl?)
  * POST /api/support/threads/{id}/close
  * POST /api/support/threads/{id}/read
+ *
+ * <p>Support ticketing between a member and the admin team, distinct from the buyer to seller
+ * conversation in {@code OrderMessageApiServlet}. Everything is behind AuthFilter.</p>
+ *
+ * <p>Access is decided by {@link #canAccessThread}: an admin may open any thread, a member only
+ * their own. Threads are always opened by members, so an admin is refused there; closing is the
+ * reverse and is admin only. Message text is sanitised because both sides read it, and image
+ * attachments are written under the /uploads directory with a generated filename.</p>
  */
 @WebServlet("/api/support/*")
 public class SupportApiServlet extends ApiBase {
@@ -46,6 +54,10 @@ public class SupportApiServlet extends ApiBase {
     private final SupportChatDAO chatDAO = new SupportChatDAO();
     private final UserDAO userDAO = new UserDAO();
 
+    /**
+     * Routes the reads by path shape: a bare /threads lists them, /threads/{id}/messages returns
+     * one conversation. Requires a session; the per-thread access check happens in the handler.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -59,6 +71,10 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Routes the writes: create a thread, upload an attachment, send a message, close a thread or
+     * mark one read. The trailing path segment names the action on an existing thread.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -78,6 +94,10 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/support/threads/{id}/read. Clears the unread badge for whichever side is calling,
+     * so the same endpoint serves both the member and the admin.
+     */
     private void handleMarkRead(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         long threadId = parseId(idStr(req), resp);
         if (threadId < 0) return;
@@ -92,6 +112,11 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/support/upload. The body is the raw image bytes; the reply is the URL to pass
+     * back as {@code attachmentUrl} when sending the message. Same allow-list and 5 MB cap as the
+     * other uploads, and the filename is generated rather than taken from the client.
+     */
     private void handleUpload(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String contentType = req.getContentType();
         if (contentType == null) contentType = "";
@@ -120,6 +145,11 @@ public class SupportApiServlet extends ApiBase {
         ok(resp, Collections.singletonMap("imageUrl", "/uploads/" + UPLOAD_SUBDIR + "/" + filename));
     }
 
+    /**
+     * GET /api/support/threads. An admin gets the whole queue, a member gets only their own
+     * threads. The role decides which DAO query runs, so the filtering happens in SQL rather
+     * than by trimming a full list afterwards.
+     */
     private void handleListThreads(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
         int userId = ((Number) session.getAttribute("userId")).intValue();
@@ -134,6 +164,11 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/support/threads with {@code subject}, {@code body} and optional
+     * {@code attachmentUrl}. Opens a ticket and posts the first message. An admin is refused,
+     * because support threads run from a member to the platform and never the other way.
+     */
     private void handleCreateThread(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
         if (isAdmin(session)) { forbidden(resp); return; }
@@ -162,6 +197,7 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /** GET /api/support/threads/{id}/messages. Returns the conversation once the access check passes. */
     private void handleGetMessages(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         long threadId = parseId(idStr(req), resp);
         if (threadId < 0) return;
@@ -173,6 +209,12 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/support/threads/{id}/messages with {@code body} and optional
+     * {@code attachmentUrl}. Either one alone is enough, so an image can be sent with no text.
+     * A closed thread is refused. Admins are only alerted when the sender is a member, so a reply
+     * from one admin does not notify the whole team about their own message.
+     */
     private void handleSendMessage(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         long threadId = parseId(idStr(req), resp);
         if (threadId < 0) return;
@@ -204,6 +246,10 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/support/threads/{id}/close. Admin only, so a member cannot close a ticket that
+     * the team still has open. A closed thread rejects further messages.
+     */
     private void handleCloseThread(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
         long threadId = parseId(idStr(req), resp);
@@ -216,6 +262,11 @@ public class SupportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * The authorisation rule for a single thread: admins pass, everyone else must own it.
+     * Writes the 403 itself and returns false, so callers guard with
+     * {@code if (!canAccessThread(...)) return;}. A DAO failure falls through to denied.
+     */
     private boolean canAccessThread(HttpServletRequest req, long threadId, HttpServletResponse resp) throws IOException {
         AuthSession session = authSession(req);
         if (isAdmin(session)) return true;
@@ -227,16 +278,19 @@ public class SupportApiServlet extends ApiBase {
         return false;
     }
 
+    /** The {id} segment of /threads/{id}/..., or "" when the path has no id. */
     private String idStr(HttpServletRequest req) {
         String[] parts = parts(req);
         return parts.length >= 2 ? parts[1] : "";
     }
 
+    /** Parses the thread id, writing the 400 itself and returning -1 so callers guard on a negative result. */
     private long parseId(String s, HttpServletResponse resp) throws IOException {
         try { return Long.parseLong(s.trim()); }
         catch (NumberFormatException e) { badRequest(resp, "Invalid thread ID."); return -1; }
     }
 
+    /** Splits the path after /api/support into segments, which is how both doGet and doPost route. */
     private String[] parts(HttpServletRequest req) {
         String p = req.getPathInfo();
         if (p == null || p.equals("/")) return new String[0];

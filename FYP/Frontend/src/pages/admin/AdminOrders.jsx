@@ -1,3 +1,15 @@
+/*
+ * Orders and transactions at "/admin/orders". ADMIN only.
+ * Reads GET /api/admin/orders, which returns every order on the platform rather than the one
+ * sided view a buyer or seller gets. Two actions are available: resolve a refund request, and
+ * correct an order state that has drifted from what really happened.
+ * A refund is normally handled by the seller from My sales. The admin resolution here is the
+ * escalation path for a dispute the two sides did not settle. Approving cancels the order,
+ * declining leaves it running.
+ * A state correction always requires a reason and is written to the audit log with the value
+ * it replaced. The amount is never editable, because it is the settled sale value that feeds
+ * platform commission and the seller's earnings.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
@@ -39,6 +51,8 @@ export default function AdminOrders() {
   };
   useEffect(load, []);
 
+  // Refunds still sitting at REQUESTED are the ones nobody has answered, so they are pulled
+  // out into their own panel above the table instead of being hunted for in it.
   const disputes = useMemo(
     () => orders.filter(o => o.refundStatus === 'REQUESTED'),
     [orders]
@@ -57,6 +71,8 @@ export default function AdminOrders() {
     });
   }, [orders, statusFilter, query]);
 
+  // Only paid and completed orders count towards volume. A pending payment is not money that
+  // has moved, and a cancelled order has been reversed.
   const totalVolume = useMemo(
     () => orders
       .filter(o => o.status === 'PAID' || o.status === 'COMPLETED')
@@ -64,6 +80,9 @@ export default function AdminOrders() {
     [orders]
   );
 
+  // Settles a dispute in the buyer's or the seller's favour. Confirmed first because it moves
+  // money and cannot be undone from this page, and the whole list is reloaded afterwards
+  // since approving also changes the order status and the volume figures above.
   const handleResolve = async (orderId, approve) => {
     const verb = approve ? 'approve' : 'decline';
     if (!window.confirm(`${approve ? 'Approve' : 'Decline'} this refund request? ` +
@@ -81,6 +100,8 @@ export default function AdminOrders() {
     }
   };
 
+  // The reason is checked here before anything is sent, since an audit entry with no
+  // explanation is worth very little. The server requires it as well.
   const saveCorrection = async () => {
     if (!correcting.reason.trim()) {
       setMsg('A reason is required when correcting an order state.');

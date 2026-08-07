@@ -10,6 +10,18 @@ import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 
+/**
+ * Listing moderation screen. GET renders the table of auctions with their moderation state;
+ * POST applies one of three transitions to a listing: FLAG, REMOVE or RESTORE.
+ *
+ * <p>Legacy JSP admin console behind {@code AdminFilter}; the SPA moderates through
+ * {@code /api/admin/*} in {@code AdminApiServlet}.</p>
+ *
+ * <p>Moderation state is separate from auction status. A removed listing keeps running as far
+ * as the auction lifecycle is concerned but stops being visible to buyers, which is why the
+ * change goes through {@code updateModerationState} rather than touching {@code status_id}.
+ * RESTORE is the reverse of both FLAG and REMOVE, setting the state back to active.</p>
+ */
 @WebServlet("/admin/listings")
 public class AdminListingsServlet extends HttpServlet {
 
@@ -24,6 +36,7 @@ public class AdminListingsServlet extends HttpServlet {
         this.auctionDAO = auctionDAO;
     }
 
+    /** Loads every listing with its moderation state and shows any pending flash message. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession();
@@ -35,6 +48,11 @@ public class AdminListingsServlet extends HttpServlet {
         req.getRequestDispatcher("/WEB-INF/views/admin/listings.jsp").forward(req, resp);
     }
 
+    /**
+     * Applies one moderation action. Expects {@code action} (FLAG, REMOVE or RESTORE) and
+     * {@code auctionId}. FLAG does two things, bumping the report counter and setting the state,
+     * so the table can show how often a listing has been reported.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession();
@@ -74,10 +92,12 @@ public class AdminListingsServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/admin/listings");
     }
 
+    /** Stores the outcome message under the success or the error key so it survives the redirect. */
     private static void setFlash(HttpSession session, boolean ok, String success, String err) {
         session.setAttribute(ok ? "adminFlash" : "adminFlashError", ok ? success : err);
     }
 
+    /** Moves a one-shot message from the session onto the request and clears it. */
     private static void copyFlash(HttpSession session, HttpServletRequest req, String key) {
         Object v = session.getAttribute(key);
         if (v != null) {

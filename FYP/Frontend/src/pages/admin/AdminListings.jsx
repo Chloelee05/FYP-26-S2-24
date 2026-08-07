@@ -1,3 +1,15 @@
+/*
+ * Listing moderation at "/admin/listings". ADMIN only.
+ * Reads GET /api/admin/listings and drives the moderation actions: flag, remove, restore,
+ * feature for 7 days and unfeature. Clicking a row opens a review dialog; from there the
+ * admin can also correct the listing content or reclassify it between product and service.
+ * Two statuses are tracked side by side and mean different things. Lifecycle (Active,
+ * Pending, Finished, Cancelled) is where the auction is in its own life. Moderation (ACTIVE,
+ * FLAGGED, REMOVED) is what the admin has decided about it.
+ * Price, reserve and quantity cannot be edited here on purpose, because a bid is an offer
+ * against a published price. Content edits and reclassifications both require a reason and
+ * are written to the audit log with the value they replaced.
+ */
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -25,6 +37,8 @@ const AUCTION_STATUS_STYLE = {
 
 const KIND_STYLE = LISTING_KIND_STYLE;
 
+// Report count colouring, so a listing collecting complaints stands out in the table without
+// the admin having to read the numbers: green at zero, amber under five, red at five or more.
 const REPORT_STYLE = (n) => n === 0 ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : n < 5 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-red-50 text-red-700 ring-red-200';
 
 const normState = (s) => (s ?? '').toUpperCase();
@@ -53,6 +67,9 @@ export default function AdminListings() {
     ? listings
     : listings.filter(l => normKind(l.listingKind) === kindFilter);
 
+  // Applies a change to the table row and, if that listing is the one open in the dialog, to
+  // the dialog copy as well. Without the second write the modal would keep showing the state
+  // from before the action until it was closed and reopened.
   const patchListing = (auctionId, patch) => {
     setListings(prev => prev.map(l => l.auctionId !== auctionId ? l : { ...l, ...patch }));
     if (selected?.auctionId === auctionId) {
@@ -60,6 +77,9 @@ export default function AdminListings() {
     }
   };
 
+  // One handler for the five moderation actions. The call is awaited first and the local
+  // patch applied second, so a rejected action leaves the badge showing the true state.
+  // Featuring from here records the same $9.99 platform fee a seller would pay.
   const handle = async (action, auctionId) => {
     setMsg('');
     try {
@@ -88,6 +108,9 @@ export default function AdminListings() {
     }
   };
 
+  // The table row carries no description, so the full content is fetched before the editor
+  // opens. bidCount comes back with it and drives the warning about editing a listing people
+  // have already bid on.
   const openEditor = async (listing) => {
     setMsg('');
     try {
@@ -125,6 +148,8 @@ export default function AdminListings() {
     }
   };
 
+  // Flips product and service. The seller chose this when creating the listing, so an admin
+  // overriding it has to give a reason, which goes into the audit log next to the old value.
   const reclassify = async (listing) => {
     const next = normKind(listing.listingKind) === 'SERVICE' ? 'PRODUCT' : 'SERVICE';
     const reason = window.prompt(
@@ -256,6 +281,10 @@ export default function AdminListings() {
               </div>
               <div><dt className="text-ink-400">Listed</dt><dd>{selected.listedDate}</dd></div>
             </dl>
+            {/* The buttons offered follow the current moderation state, so the admin is
+                never shown an action that would be rejected: no Flag on an already flagged
+                listing, no Remove on a removed one, and Feature only for an active listing
+                that is not featured yet. */}
             <div className="flex flex-wrap gap-2 mb-4">
               <button onClick={() => openEditor(selected)} className="btn-primary">
                 Edit content

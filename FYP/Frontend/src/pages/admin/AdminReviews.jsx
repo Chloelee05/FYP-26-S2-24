@@ -1,3 +1,11 @@
+/*
+ * Review moderation at "/admin/reviews". ADMIN only. Reads every review on the platform from
+ * GET /api/admin/reviews and removes an abusive one with the admin delete review call.
+ * Removal is the only action: an admin can take a review down but cannot edit its wording or
+ * change its rating, so the surviving reviews are always what the buyer actually wrote.
+ * Comments are stored escaped and decoded here before display, which keeps a review
+ * containing angle brackets from being injected into the page.
+ */
 import { useState, useEffect } from 'react';
 import { Trash2, Star } from 'lucide-react';
 import { getAdminReviews, adminDeleteReview } from '../../api/admin';
@@ -19,6 +27,8 @@ export default function AdminReviews() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Deletion is permanent and affects the reviewee's rating average, so it is confirmed
+  // first. The row is dropped from local state on success instead of reloading the table.
   const handleDelete = async (id) => {
     if (!window.confirm('Remove this review? This cannot be undone.')) return;
     setMsg('');

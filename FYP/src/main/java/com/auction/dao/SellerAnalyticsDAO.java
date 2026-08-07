@@ -14,6 +14,13 @@ import java.util.Map;
 
 /**
  * Per-seller performance analytics, computed on demand from the operational tables.
+ *
+ * <p>Read only. Aggregates {@code auction} and {@code auction_details} for listing counts and
+ * revenue, {@code bids} for buyer interest, {@code orders} for settled sales,
+ * {@code platform_revenue} for fees deducted, and {@code user_reviews} for the star breakdown.
+ * Called by the seller analytics API and by the scheduled performance email, which renders the
+ * same snapshot through {@link #toEmailBody}. Money columns are NUMERIC and are always read as
+ * {@link BigDecimal}, see the notes below.</p>
  */
 public class SellerAnalyticsDAO {
 
@@ -21,6 +28,10 @@ public class SellerAnalyticsDAO {
     public Map<String, Object> generate(int sellerId) {
         Map<String, Object> out = new LinkedHashMap<>();
 
+        // One pass over the seller's listings producing four figures at once. The FILTER clauses
+        // are conditional aggregates: "active" counts only listings that are approved, not removed
+        // by a moderator, and not yet past their end time, while "sold" and "revenue" count only
+        // listings that ended with a winner. Doing it as one grouped query avoids four round trips.
         String countsSql =
             "SELECT COUNT(*) AS total, "
           + "  COUNT(*) FILTER (WHERE a.status_id = 1 AND a.moderation_state = 'active' AND a.date_end > now()) AS active, "
@@ -55,6 +66,9 @@ public class SellerAnalyticsDAO {
                 }
             }
 
+            // Five busiest listings. Both columns come from correlated subqueries against bids:
+            // one counts them, the other takes the highest. COALESCE falls back to the starting
+            // price so a listing with no bids yet still shows a sensible figure instead of null.
             List<Map<String, Object>> topListings = new ArrayList<>();
             String topSql =
                 "SELECT d.title, d.listing_kind, "
@@ -76,6 +90,7 @@ public class SellerAnalyticsDAO {
                 }
             }
 
+            // Sell-through is the share of listings that found a buyer, rounded to one decimal.
             BigDecimal avgSalePrice = sold > 0
                     ? revenue.divide(BigDecimal.valueOf(sold), 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO.setScale(2);
@@ -128,8 +143,8 @@ public class SellerAnalyticsDAO {
      * Names the most popular listing in each calendar day, week, month and quarter.
      *
      * <p>This is the product-by-period cross-tab the minimum requirements ask for.
-     * {@link #loadPeriodStats} answers a different question — how much moved in a rolling
-     * window — and names no listing at all.</p>
+     * {@link #loadPeriodStats} answers a different question, how much moved in a rolling
+     * window, and names no listing at all.</p>
      *
      * <p>Buckets are calendar-aligned with {@code date_trunc} rather than rolling
      * {@code now() - interval} windows, because the requirement enumerates "each day /
@@ -151,12 +166,29 @@ public class SellerAnalyticsDAO {
         return out;
     }
 
+    /**
+     * One row per calendar bucket, each naming the listing that drew the most bids in that bucket
+     * and the listing that earned the most money in it. Returns at most {@code limit} buckets,
+     * newest first, skipping any bucket with neither a bid nor a sale.
+     */
     private List<Map<String, Object>> loadPopularityBuckets(Connection conn, int sellerId,
                                                             String granularity, int limit)
             throws Exception {
         // granularity is one of the hard-coded literals in POPULARITY_PERIODS, never user
         // input, but date_trunc's unit cannot be bound as a parameter so it is passed as a
         // bind value to date_trunc rather than concatenated into the statement.
+        //
+        // Four CTEs feed a single result set:
+        //   bid_activity  bids per (bucket, listing) across all of this seller's auctions
+        //   bid_top       ranks those within each bucket, ROW_NUMBER() = 1 is the busiest listing
+        //   sale_activity settled money per (bucket, listing), only PAID and COMPLETED orders,
+        //                 since a pending order is not revenue yet
+        //   sale_top      the same ranking by revenue
+        // The two winners are then FULL JOINed on bucket, so a bucket that had bids but no sale,
+        // or a sale but no bids, still produces a row. That is also why the output bucket is
+        // COALESCEd: only one side may be present. Each winner is LEFT JOINed to auction_details
+        // for its title, under separate aliases bd and sd. Ties inside a bucket break on
+        // auction_id, which keeps repeated runs of the report consistent.
         String sql =
             "WITH bid_activity AS ("
           + "  SELECT date_trunc(?, b.bid_time)::date AS bucket, a.auction_id, COUNT(*) AS bids"
@@ -210,6 +242,11 @@ public class SellerAnalyticsDAO {
         return rows;
     }
 
+    /**
+     * Sold count, revenue and bids received over four rolling windows ending now.
+     * The interval literals are concatenated into the SQL, which is safe here because they come
+     * from the fixed array below and never from a request.
+     */
     private List<Map<String, Object>> loadPeriodStats(Connection conn, int sellerId) throws Exception {
         // Deliberately rolling windows, and labelled as such. The calendar-aligned
         // product-by-period answer lives in loadPopularityByPeriod; these labels used to
@@ -226,7 +263,7 @@ public class SellerAnalyticsDAO {
                   + intervals[i] + "'", sellerId));
             // orders.amount is NUMERIC(10,2), so this has to be read as a decimal. Read as an
             // int it truncated to whole dollars, which made every period's revenue in the
-            // email quietly wrong — one of the figures the report exists to show.
+            // email quietly wrong, and it is one of the few figures the report exists to show.
             row.put("revenue", sumDecimal(conn,
                     "SELECT COALESCE(SUM(amount), 0) FROM orders WHERE seller_id = ? AND created_at >= now() - interval '"
                   + intervals[i] + "'", sellerId));
@@ -271,6 +308,8 @@ public class SellerAnalyticsDAO {
                 "SELECT COALESCE(SUM(amount), 0) FROM platform_revenue "
               + "WHERE seller_id = ? AND revenue_type = 'FEATURED_LISTING'",
                 sellerId);
+        // What the seller actually keeps: settled sales less the commission the platform took and
+        // any fees paid to feature listings.
         BigDecimal net = gross.subtract(platformFee).subtract(featuredFees);
 
         Map<String, Object> row = new LinkedHashMap<>();
@@ -281,10 +320,13 @@ public class SellerAnalyticsDAO {
         row.put("completedOrders", countSince(conn,
                 "SELECT COUNT(*) FROM orders WHERE seller_id = ? AND status = 'COMPLETED'", sellerId));
         row.put("commissionRatePct", 6);
+        // Flags to the UI that these are book figures derived from order rows, not a real
+        // payout ledger. There is no wallet or settlement system behind them.
         row.put("simulated", true);
         return row;
     }
 
+    /** Runs a single-column money SUM for one seller, normalised to two decimal places. */
     private BigDecimal sumDecimal(Connection conn, String sql, int sellerId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, sellerId);
@@ -300,6 +342,15 @@ public class SellerAnalyticsDAO {
                              : value.setScale(2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * Star distribution for the ten most reviewed listings this seller sold.
+     *
+     * <p>Grouped per auction, so each row is one listing rather than one review. The five
+     * percentage columns each divide a FILTERed count of that star value by the group's total;
+     * NULLIF(COUNT(*), 0) guards the division, though a group only exists when it has reviews.
+     * The WHERE clause pins both sides: the auction must belong to this seller and the review
+     * must be about this seller, which excludes reviews the seller wrote about buyers.</p>
+     */
     private List<Map<String, Object>> loadProductRatings(Connection conn, int sellerId) throws Exception {
         String sql =
             "SELECT d.title, d.listing_kind, ur.auction_id, COUNT(*) AS review_count, "
@@ -341,7 +392,11 @@ public class SellerAnalyticsDAO {
         return rows;
     }
 
-    /** Renders a plain-text email body from a generated analytics snapshot. */
+    /**
+     * Renders a plain-text email body from a snapshot produced by {@link #generate}.
+     * Static and map-driven so the scheduled mailer can format a snapshot without a database
+     * connection. Each section is skipped when its data is absent.
+     */
     @SuppressWarnings("unchecked")
     public static String toEmailBody(String sellerName, Map<String, Object> a) {
         StringBuilder sb = new StringBuilder();
@@ -463,6 +518,7 @@ public class SellerAnalyticsDAO {
         }
     }
 
+    /** Tags a title as a service in the email; products get no suffix, which is the common case. */
     private static String kindSuffix(Object listingKind) {
         return "SERVICE".equalsIgnoreCase(String.valueOf(listingKind)) ? " [service]" : "";
     }

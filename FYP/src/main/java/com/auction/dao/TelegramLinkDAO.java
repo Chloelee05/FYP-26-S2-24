@@ -24,13 +24,20 @@ import java.time.Instant;
  * one conditional {@code UPDATE ... RETURNING}, so two concurrent redeliveries of the same
  * Telegram update produce exactly one winner. Telegram delivers at least once, so this
  * matters in practice, not just in theory.</p>
+ *
+ * <p>Reads and writes {@code telegram_link_codes} and {@code telegram_links}. Called by the
+ * account settings API when a member starts linking, and by the Telegram webhook when the bot
+ * receives the code. Note the two different treatments of a chat id: a peppered SHA-256 hash for
+ * looking the link up, and an AES-GCM ciphertext for actually sending to it later.</p>
  */
 public class TelegramLinkDAO {
 
     /** Codes minted per {@code link/start}; both are valid for this long. */
     public static final int CODE_TTL_MINUTES = 10;
 
+    /** A 6-digit code the member types to the bot manually. */
     public static final String KIND_OTP = "OTP";
+    /** The longer token embedded in a t.me deep link, so tapping through skips the typing. */
     public static final String KIND_DEEPLINK = "DEEPLINK";
 
     // -------------------------------------------------------------------------
@@ -41,7 +48,7 @@ public class TelegramLinkDAO {
     public enum LinkStatus {
         /** A new active link was created. */
         LINKED,
-        /** This exact chat was already linked to this account — nothing changed. */
+        /** This exact chat was already linked to this account, so nothing changed. */
         UNCHANGED
     }
 
@@ -94,8 +101,15 @@ public class TelegramLinkDAO {
         }
     }
 
+    /**
+     * Retires the old codes and inserts the two new ones in a single transaction, so there is
+     * never a window where the member has no valid code or two live batches at once. The expiry is
+     * computed by the database from {@link #CODE_TTL_MINUTES}.
+     */
     void mintCodesWithConnection(Connection conn, int userId, String deepLinkToken, String otp)
             throws SQLException {
+        // The caller's autocommit setting is saved and restored, because this may be running on a
+        // connection that the caller is managing itself.
         boolean previousAutoCommit = conn.getAutoCommit();
         conn.setAutoCommit(false);
         try {
@@ -109,6 +123,8 @@ public class TelegramLinkDAO {
             String insert = "INSERT INTO telegram_link_codes (user_id, code_hash, kind, expires_at) "
                     + "VALUES (?, ?, ?, CURRENT_TIMESTAMP + (? || ' minutes')::interval)";
             try (PreparedStatement ps = conn.prepareStatement(insert)) {
+                // Only the hash is stored. The raw code is shown to the member once and then
+                // exists nowhere on the server, so a database dump does not yield usable codes.
                 ps.setInt(1, userId);
                 ps.setString(2, hash(deepLinkToken));
                 ps.setString(3, KIND_DEEPLINK);
@@ -148,6 +164,11 @@ public class TelegramLinkDAO {
         }
     }
 
+    /**
+     * The whole redemption in one statement: the WHERE clause is the validity check (known hash,
+     * not yet used, not expired), the SET is the spend, and RETURNING reports which account it
+     * belonged to. Only one of two racing calls can match the {@code used_at IS NULL} condition.
+     */
     Integer consumeCodeWithConnection(Connection conn, String rawCode) throws SQLException {
         String sql = "UPDATE telegram_link_codes SET used_at = CURRENT_TIMESTAMP "
                 + "WHERE code_hash = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP "
@@ -185,8 +206,8 @@ public class TelegramLinkDAO {
     /**
      * Points {@code userId}'s alerts at {@code chatId}, retiring whatever was there before.
      *
-     * <p>Both directions are cleared first — the account's old chat and the chat's old
-     * account — because the partial unique indexes allow only one active row for each.
+     * <p>Both directions are cleared first, the account's old chat and the chat's old
+     * account, because the partial unique indexes allow only one active row for each.
      * Doing it in one transaction is what keeps "link my second account to the same
      * Telegram" and "move my account to a new phone" from colliding.</p>
      */
@@ -222,7 +243,8 @@ public class TelegramLinkDAO {
             }
 
             // Retire the account's previous chat, keeping its ciphertext so the webhook can
-            // warn that chat its alerts have moved — a hijack would look exactly like this.
+            // warn that chat its alerts have moved. A hijack would look exactly like this, which
+            // is why the displaced chat is told rather than silently dropped.
             String displaced = null;
             if (currentHash != null) {
                 String select = "SELECT chat_id_encrypted FROM telegram_links WHERE user_id = ? AND active";
@@ -237,7 +259,8 @@ public class TelegramLinkDAO {
                 deactivateByUser(conn, userId);
             }
 
-            // Retire any other account currently using this chat.
+            // Retire any other account currently using this chat, so one Telegram account cannot
+            // end up receiving alerts for two members at the same time.
             String releaseChat = "UPDATE telegram_links SET active = FALSE, unlinked_at = CURRENT_TIMESTAMP "
                     + "WHERE chat_id_hash = ? AND active";
             try (PreparedStatement ps = conn.prepareStatement(releaseChat)) {
@@ -249,6 +272,8 @@ public class TelegramLinkDAO {
                     + "(user_id, chat_id_hash, chat_id_encrypted, telegram_username) VALUES (?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(insert)) {
                 ps.setInt(1, userId);
+                // Both forms of the same chat id: the hash is what lookups match on, the
+                // ciphertext is what the delivery worker decrypts when it has a message to send.
                 ps.setString(2, chatHash);
                 ps.setString(3, SecurityUtil.encrypt(chatId));
                 ps.setString(4, trimTo(telegramUsername, 64));
@@ -327,6 +352,10 @@ public class TelegramLinkDAO {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Soft-deactivates the account's link rather than deleting the row, so the linking history
+     * survives for audit. Shared by {@link #unlinkUser} and the re-link path.
+     */
     private static int deactivateByUser(Connection conn, int userId) throws SQLException {
         String sql = "UPDATE telegram_links SET active = FALSE, unlinked_at = CURRENT_TIMESTAMP "
                 + "WHERE user_id = ? AND active";
@@ -337,9 +366,9 @@ public class TelegramLinkDAO {
     }
 
     /**
-     * Peppered SHA-256, lowercase hex — the deterministic form used for every lookup.
-     * The pepper lives in the environment, so a database dump on its own cannot be walked
-     * back to chat ids or guessed 6-digit codes.
+     * Peppered SHA-256, lowercase hex. This is the deterministic form used for every lookup, which
+     * is why it cannot be salted per row. The pepper lives in the environment, so a database dump
+     * on its own cannot be walked back to chat ids or guessed 6-digit codes.
      */
     public static String hash(String raw) {
         try {
@@ -358,6 +387,7 @@ public class TelegramLinkDAO {
         }
     }
 
+    /** Trims to the column width and normalises blank to null, for the display-only username. */
     private static String trimTo(String value, int max) {
         if (value == null) {
             return null;

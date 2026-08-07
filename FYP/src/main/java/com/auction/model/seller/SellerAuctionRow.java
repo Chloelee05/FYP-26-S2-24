@@ -5,6 +5,14 @@ import com.auction.model.ListingKind;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+/**
+ * One listing as it appears in the seller's own "My listings" table. A read-only
+ * projection assembled by {@code SellerAuctionDAO}, so it carries the counts the seller
+ * cares about (bids, watchers) alongside the listing's own fields.
+ *
+ * <p>Seller-facing rather than public, but it still omits the seller's private cost price:
+ * that is only needed on the edit form, not in a list.</p>
+ */
 public class SellerAuctionRow {
     private final long auctionId;
     private final String title;

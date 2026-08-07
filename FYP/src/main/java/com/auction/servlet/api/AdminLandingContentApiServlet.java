@@ -32,9 +32,13 @@ public class AdminLandingContentApiServlet extends ApiBase {
 
     private LandingContentDAO landingContentDAO = new LandingContentDAO();
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setLandingContentDAO(LandingContentDAO dao) { this.landingContentDAO = dao; }
 
+    /**
+     * GET /api/admin/landing-content. ADMIN only. Returns every editable key with its current
+     * value and the metadata the admin form needs, such as its group and label.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
@@ -45,6 +49,11 @@ public class AdminLandingContentApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/admin/landing-content. ADMIN only. {@code action=RESET} restores seeded defaults
+     * for one key or a whole group; anything else is treated as an update. An unrecognised action
+     * is rejected rather than falling through to a save.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireRole(req, resp, "ADMIN")) return;
@@ -61,6 +70,11 @@ public class AdminLandingContentApiServlet extends ApiBase {
         handleUpdate(req, resp);
     }
 
+    /**
+     * Saves the submitted copy. Each request parameter is one content key, so the whole form or
+     * a single field can be posted. Every key is checked against the set the database actually
+     * defines, which stops an arbitrary key being inserted into the content table.
+     */
     private void handleUpdate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Set<String> allowedKeys;
         try {
@@ -93,7 +107,10 @@ public class AdminLandingContentApiServlet extends ApiBase {
         }
 
         try {
+            // The admin's user id is recorded with the change, so an edit can be traced back.
             int saved = landingContentDAO.updateAll(updates, sessionUserId(req));
+            // Drop the public cache immediately, otherwise the admin saves and then sees the old
+            // wording on the landing page for up to a minute and assumes the save failed.
             LandingContentApiServlet.invalidateCache();
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("updated", saved);
@@ -104,6 +121,10 @@ public class AdminLandingContentApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Restores seeded wording. Takes either {@code key} for a single field or {@code group} for a
+     * whole section of the page. Both invalidate the public cache so the change shows at once.
+     */
     private void handleReset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String key   = param(req, "key");
         String group = param(req, "group");

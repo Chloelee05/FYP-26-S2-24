@@ -26,27 +26,61 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Personalised auction recommendations via a hybrid pipeline.
+ * Personalised auction recommendations, assembled by a hybrid pipeline over the tables the
+ * marketplace already keeps.
  *
- * <p><b>Candidate generators (SCRUM-400):</b></p>
+ * <p>Two strips in the UI are served from here. The landing page recommendation strip calls
+ * {@link #recommendForUser(int, int)} for a signed-in visitor. The "Bidders Also Bid On"
+ * strip on the auction detail page calls {@link #similarByBidders(long, Integer, int)}. The
+ * landing page also carries a lower "Trending Auctions" strip from {@link #trending}, which
+ * is not personalised and exists as a popularity baseline to read the others against.</p>
+ *
+ * <p>Reads {@code auction}, {@code auction_details}, {@code auction_images}, {@code bids},
+ * {@code watchlist}, {@code browse_history}, {@code auction_tag_info}, {@code tags},
+ * {@code users}, {@code search_history}, {@code dismissed_recommendations} and
+ * {@code recommendation_settings}. Writes {@code recommendation_events},
+ * {@code search_history} and {@code dismissed_recommendations}. Called by the landing page
+ * and auction detail API servlets, and by the admin analytics endpoints.</p>
+ *
+ * <p><b>The pipeline is not one query.</b> Four independent arms each run their own bounded
+ * SQL, one after another, and their candidate lists are merged in Java (SCRUM-400):</p>
  * <ol>
- *   <li>Item-based collaborative filtering — peer co-occurrence on bids/watchlist</li>
- *   <li>User-based CF with cosine similarity — bids, watchlist, and browse history</li>
- *   <li>Content-based — active auctions sharing category or tags with the user's
- *       bids / watchlist / browse history inside the configured window</li>
- *   <li>Trending — recent bid count, which also covers cold start</li>
+ *   <li>{@link Reason#PEER_BIDS}, item-based collaborative filtering. Finds auctions that
+ *       the people who bid on the same items as you also bid on. See
+ *       {@link #collaborativeFiltering(int, int)}.</li>
+ *   <li>{@link Reason#SIMILAR_TASTE}, user-based collaborative filtering. Scores users
+ *       against each other by cosine similarity over their interaction vectors and
+ *       recommends what the nearest neighbours like. Hydrated through
+ *       {@link UserBasedCollaborativeFilter}. See
+ *       {@link #userBasedCosineRecommendations(int, int, Set)}.</li>
+ *   <li>{@link Reason#SAME_CATEGORY}, content-based. Active auctions in the categories, or
+ *       carrying the tags, the viewer has already shown interest in. See
+ *       {@link #contentBased(int, int, Set)}.</li>
+ *   <li>{@link Reason#TRENDING}, the popularity fallback. Ordered by bid count inside a
+ *       recent window, it fills whatever slots the personalised arms could not, so a brand
+ *       new account with no history still sees a populated strip. This is the cold start
+ *       answer.</li>
  * </ol>
  *
- * <p>The four used to run in sequence, each filling whatever slots the previous one left,
- * so the final order was decided by stage boundaries rather than by any score: an auction
- * three signals agreed on weakly could sit below one a single signal happened to like. They
- * are now candidate generators feeding a single re-ranking pass — see {@code rerank} — that
- * blends five min-max normalised components under admin-tunable weights. The stage that
- * first produced a card still supplies its {@link Reason}, because that is the label the
- * per-arm CTR breakdown groups by.</p>
+ * <p>Once the arms have produced candidates the list is re-ranked rather than served in
+ * arm order. {@link #rerank} blends five min-max normalised components under weights an
+ * admin can change, {@link #capPerCategory} applies a category diversity cap so one
+ * category cannot take over the strip, and a recency term favours auctions closing sooner.
+ * A separate recency decay, {@link #recencyMultiplier(double, double)}, fades the viewer's
+ * older interactions when the similarity vectors are built.</p>
  *
- * <p>Pure SQL over existing tables — no external ML dependency — which keeps the
- * approach explainable and defensible for the project's scope.</p>
+ * <p>A card is labelled with the arm that contributed most to its final score, not with
+ * whichever arm happened to find it first. That distinction is deliberate: see
+ * {@link #labelWithStrongestArm}. Each card carries a {@link RecommendationProvenance}
+ * holding the reason code, the click count and the search keywords that the landing page
+ * shows to explain why the item was recommended.</p>
+ *
+ * <p>Weights, the similarity threshold, how many items are shown, the trending window and
+ * the decay settings are all read from the {@code recommendation_settings} table rather
+ * than being hardcoded, so they can be tuned from the admin page without a redeploy.</p>
+ *
+ * <p>Plain SQL over existing tables, with no external ML dependency. That keeps the
+ * approach explainable and defensible at the scale this project works at.</p>
  */
 public class RecommendationDAO {
 
@@ -81,8 +115,8 @@ public class RecommendationDAO {
     public static final int DEFAULT_CONTENT_WINDOW_DAYS = 180;
 
     // Hybrid re-ranking weights. Ordered so that, on a candidate carrying one signal only,
-    // the arms rank in the same sequence the stages used to run in — collaborative first,
-    // popularity last — while still letting a candidate that several signals agree on
+    // the arms rank in the same sequence the stages used to run in, collaborative first and
+    // popularity last, while still letting a candidate that several signals agree on
     // overtake one that a single signal likes a lot. They are starting points chosen for
     // being explainable rather than tuned figures; there is no offline evaluation set here
     // to fit them against, and pretending otherwise would be dishonest.
@@ -102,13 +136,24 @@ public class RecommendationDAO {
     private static final int CANDIDATE_MULTIPLIER = 2;
 
     /**
-     * The extra columns {@link DutchClock#listedPrice} needs to re-price a descending listing
-     * when a row is mapped. Every query below computes {@code current_price} from the bids
-     * table, which for a Dutch auction is the price its clock started at rather than the one
-     * on offer now — see {@link SearchDAO} for the same pair of column lists.
+     * The extra columns {@link DutchClock#listedPrice} needs in order to re-price a
+     * descending (Dutch) listing at the moment a row is mapped.
      *
-     * <p>Selected, never filtered or ordered on: candidate selection and ordering are
-     * unchanged by their presence.</p>
+     * <p>Every query here computes {@code current_price} from the bids table. For a Dutch
+     * auction that figure is the price the clock started at, not the price on offer now,
+     * because a Dutch price falls with time instead of rising with bids. Rather than each
+     * query reimplementing the decline, the shared {@link DutchClock#listedPrice} helper
+     * computes it from the starting price, the floor price and how far through its run the
+     * listing is. Doing it in one helper is what stops a list surface and the auction detail
+     * page quoting different prices for the same Dutch listing. {@link SearchDAO} selects the
+     * same pair of column lists for the same reason.</p>
+     *
+     * <p>Appended into five queries: {@link #similarByBidders}, {@link #fetchItemsByIds},
+     * {@link #collaborativeFiltering}, {@link #contentBased} and {@link #trending}. In every
+     * one of them these columns appear only in the SELECT list. They are never used in a
+     * WHERE, ORDER BY or GROUP BY clause, so which candidates a query returns, and the order
+     * it returns them in, are unaffected by their presence. They feed the price shown, and
+     * nothing else.</p>
      */
     private static final String DUTCH_CLOCK_COLUMNS =
             "  d.starting_price, d.dutch_floor_price, a.date_created, ";
@@ -125,9 +170,15 @@ public class RecommendationDAO {
     public static final int DEFAULT_DIVERSITY_DIVISOR = 3;
 
     /**
-     * Returns up to {@code limit} active, open auctions recommended for {@code userId},
-     * ranked by CF score, then content similarity, topped up with trending auctions.
-     * Auctions the user dismissed ("not interested") are always excluded (SCRUM-74).
+     * The landing page recommendation strip: up to {@code limit} open auctions for
+     * {@code userId}.
+     *
+     * <p>Runs all four arms, merges what they return into one candidate set keyed by auction
+     * id, then hands that set to {@link #rerank} for scoring and final assembly. Each arm is
+     * asked for {@link #CANDIDATE_MULTIPLIER} pages' worth so the re-ranker has room to
+     * choose, plus enough extra to absorb the dismissals filtered out afterwards.</p>
+     *
+     * <p>Auctions the user marked "not interested" are always excluded (SCRUM-74).</p>
      */
     public List<SearchResultItem> recommendForUser(int userId, int limit) {
         Set<Long> dismissed = listDismissedIds(userId);
@@ -224,7 +275,7 @@ public class RecommendationDAO {
      *
      * <p>Under the old sequential pipeline the two were the same thing: a card belonged to
      * exactly one stage. Once stages became generators over a shared candidate space, the
-     * first-sighting label started describing generator order instead of evidence — a
+     * first-sighting label started describing generator order instead of evidence. A
      * listing the content stage ranked top could be labelled SIMILAR_TASTE purely because
      * user-based CF ran earlier, and the per-arm CTR breakdown would then be measuring
      * stage order too.</p>
@@ -249,6 +300,16 @@ public class RecommendationDAO {
         if (best != null) candidate.item.setWhy(best);
     }
 
+    /**
+     * Scores the merged candidate set and assembles the final page.
+     *
+     * <p>Four steps. The recency component is filled in from how soon each candidate closes;
+     * each of the five components is min-max normalised so they can be compared on one
+     * scale; every candidate gets a weighted average of those components and is labelled
+     * with its strongest arm; the sorted list then goes through the category diversity cap.
+     * The divisor is the sum of the weights of the components actually present, so an arm
+     * that returned nothing does not drag every score down by a constant.</p>
+     */
     private List<SearchResultItem> rerank(List<Candidate> candidates, int limit, Settings settings) {
         fillRecencyComponent(candidates);
 
@@ -381,8 +442,8 @@ public class RecommendationDAO {
      *
      * <p>Two degenerate cases have to be answered rather than divided through. A component
      * no candidate carries normalises to zero everywhere, so it neither promotes nor
-     * demotes anything. A component every candidate carries <em>identically</em> — the
-     * single-candidate page, most obviously — has a zero range, and normalising to one
+     * demotes anything. A component every candidate carries <em>identically</em>, the
+     * single-candidate page being the obvious case, has a zero range. Normalising that to one
      * rather than to zero keeps "everybody has this signal" distinct from "nobody does".
      * Neither case divides by zero.</p>
      */
@@ -404,6 +465,7 @@ public class RecommendationDAO {
         return out;
     }
 
+    /** Whether any candidate carries this signal at all, which decides if its weight counts. */
     private static boolean componentIsPresent(List<Candidate> candidates, int component) {
         for (Candidate candidate : candidates) {
             if (candidate.raw[component] > 0) return true;
@@ -416,7 +478,7 @@ public class RecommendationDAO {
      * latest-ending candidate so the raw value is non-negative like every other component's
      * and the soonest-ending auction scores highest.
      *
-     * <p>This is auction urgency, not the freshness of the viewer's own history — that is
+     * <p>This is auction urgency, not the freshness of the viewer's own history. That is
      * handled separately by {@link #recencyMultiplier(double, double)} inside the
      * interaction vectors. A candidate with no end date is treated as the least urgent
      * rather than skipped.</p>
@@ -441,8 +503,17 @@ public class RecommendationDAO {
     // -------------------------------------------------------------------------
 
     /**
-     * Auctions most often bid on by the buyers who also bid on {@code auctionId},
-     * ranked by co-bidder count. Excludes the viewer's dismissed items when known.
+     * Powers the "Bidders Also Bid On" strip on the auction detail page.
+     *
+     * <p>Item-based collaborative filtering anchored on one listing rather than on a whole
+     * history. {@code co_bidders} is everyone who bid on {@code auctionId}; {@code cand}
+     * then counts, for every other auction, how many of those same people bid on it too.
+     * Ranked by that co-bidder count, soonest-ending first on a tie.</p>
+     *
+     * <p>Counts {@code DISTINCT user_id} so a single persistent bidder cannot outweigh
+     * several different people agreeing. {@code viewerId} is optional because the strip
+     * also renders for signed-out visitors; when it is present the viewer's dismissed
+     * items are filtered out.</p>
      */
     public List<SearchResultItem> similarByBidders(long auctionId, Integer viewerId, int limit) {
         Set<Long> dismissed = viewerId != null ? listDismissedIds(viewerId) : Set.of();
@@ -456,8 +527,10 @@ public class RecommendationDAO {
           + "  GROUP BY b.auction_id "
           + ") "
           + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
-          // Blind auctions resolve to the entry price: recommended listings are
-          // all still open, so their leading sealed bid must not reach the client.
+          // auction_type 3 is BLIND, meaning a sealed bid auction: while it runs, no
+          // bidder may see what anyone else has bid. Every listing recommended here is
+          // still open, so this resolves to the entry price and never to MAX(bid_amount),
+          // which would leak the leading sealed bid to the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + DUTCH_CLOCK_COLUMNS
@@ -522,7 +595,7 @@ public class RecommendationDAO {
                 while (rs.next()) out.add(rs.getLong(1));
             }
         } catch (Exception ignored) {
-            // migration not applied yet — treat as no dismissals
+            // migration not applied yet, so treat as no dismissals
         }
         return out;
     }
@@ -595,6 +668,12 @@ public class RecommendationDAO {
         return null;
     }
 
+    /**
+     * One insert attempt with exactly the optional columns that were supplied, so the caller
+     * can retry with fewer when a column does not exist yet. Returns false instead of
+     * throwing, because a missing analytics row must never surface to the visitor.
+     * A guest has no user id, so that column is written as NULL.
+     */
     private boolean insertEvent(Integer userId, long auctionId, String eventType,
                                 String keyword, String reasonCode) {
         StringBuilder cols = new StringBuilder("user_id, auction_id, event_type");
@@ -614,7 +693,7 @@ public class RecommendationDAO {
             ps.executeUpdate();
             return true;
         } catch (Exception ignored) {
-            // analytics only — never break the page
+            // analytics only, so never break the page
             return false;
         }
     }
@@ -630,7 +709,7 @@ public class RecommendationDAO {
             ps.setString(2, cleaned);
             ps.executeUpdate();
         } catch (Exception ignored) {
-            // analytics only — never break search
+            // analytics only, so never break search
         }
     }
 
@@ -680,7 +759,7 @@ public class RecommendationDAO {
      * content-based stage and against the {@link #REASON_TRENDING_CONTROL} popularity strip.
      *
      * <p>Rows recorded before arm labelling existed carry no {@code reason_code} and are
-     * left out rather than lumped into whichever arm happens to be first — an unlabelled
+     * left out rather than lumped into whichever arm happens to be first. An unlabelled
      * backlog would otherwise silently dominate every comparison.</p>
      *
      * <p>Returns an empty list on an unmigrated database, like every other analytics read
@@ -720,7 +799,7 @@ public class RecommendationDAO {
                 out.add(row);
             }
         } catch (Exception ignored) {
-            // analytics only — an un-migrated database reports nothing rather than failing
+            // analytics only: an un-migrated database reports nothing rather than failing
         }
         return out;
     }
@@ -781,7 +860,7 @@ public class RecommendationDAO {
      * upgrading the reason to "matches your search" where one of the viewer's own recent
      * keywords explains the card. Items without a stage reason default to trending.
      *
-     * <p>Only aggregates and masked names are written here — see
+     * <p>Only aggregates and masked names are written here. See
      * {@link #attributionDetail(long, int)} for the admin-only per-user view.</p>
      */
     public void attachProvenance(List<SearchResultItem> items, Integer viewerId) {
@@ -825,11 +904,22 @@ public class RecommendationDAO {
                 while (rs.next()) out.add(rs.getString(1));
             }
         } catch (Exception ignored) {
-            // migration not applied yet — no keyword attribution
+            // migration not applied yet, so no keyword attribution
         }
         return out;
     }
 
+    /**
+     * Works out which search keywords explain each card, and upgrades the reason when one of
+     * them is the viewer's own.
+     *
+     * <p>Two sources of keywords, in priority order. The viewer's own recent searches are
+     * matched against the card's title and category; anything that hits is both listed on the
+     * card and, for the first hit, promotes the reason to {@link Reason#SEARCH_KEYWORD},
+     * which is a far more convincing explanation than a category match. Keywords other people
+     * previously searched before clicking this auction are appended after, deduplicated
+     * case-insensitively, up to {@link #MAX_KEYWORDS_PER_ITEM}.</p>
+     */
     private void applyKeywordAttribution(List<SearchResultItem> items, Integer viewerId) {
         Map<Long, List<String>> surfaced = keywordsPerAuction(items);
         List<String> mine = viewerId == null ? List.of() : recentKeywords(viewerId, VIEWER_KEYWORD_LOOKBACK);
@@ -881,11 +971,22 @@ public class RecommendationDAO {
                 }
             }
         } catch (Exception ignored) {
-            // migration not applied yet — no aggregate keywords
+            // migration not applied yet, so no aggregate keywords
         }
         return out;
     }
 
+    /**
+     * Adds the social proof figures to each card: how many clicks it has had, from how many
+     * distinct people, and one masked username as a sample.
+     *
+     * <p>Two queries because they answer different questions. The first aggregates counts.
+     * The second picks the most recent clicker per auction via {@code DISTINCT ON} and joins
+     * to {@code users} for a name, which {@link SecurityUtil#maskUsername} obscures before it
+     * is attached. The name is withheld entirely below {@link #MIN_CLICKERS_TO_NAME} distinct
+     * clickers, since on a quiet listing naming the only clicker identifies them however the
+     * string is masked. If the sample query fails the counts still stand.</p>
+     */
     private void applyClickStats(List<SearchResultItem> items) {
         Map<Long, SearchResultItem> byId = new LinkedHashMap<>();
         for (SearchResultItem item : items) byId.put(item.getAuctionId(), item);
@@ -905,7 +1006,7 @@ public class RecommendationDAO {
                 }
             }
         } catch (Exception ignored) {
-            // migration not applied yet — leave click figures at zero
+            // migration not applied yet, so leave click figures at zero
             return;
         }
 
@@ -927,13 +1028,13 @@ public class RecommendationDAO {
                 }
             }
         } catch (Exception ignored) {
-            // masked sample is optional — counts alone still explain the card
+            // masked sample is optional: counts alone still explain the card
         }
     }
 
     /**
      * ADMIN-only provenance detail for one auction: who clicked, what they searched, and
-     * when. Never reachable from a public endpoint — the landing page reads only the
+     * when. Never reachable from a public endpoint: the landing page reads only the
      * aggregates produced by {@link #attachProvenance(List, Integer)}.
      */
     public Map<String, Object> attributionDetail(long auctionId, int limit) {
@@ -1024,7 +1125,7 @@ public class RecommendationDAO {
                 while (rs.next()) out.add(mapper.map(rs));
             }
         } catch (Exception ignored) {
-            // analytics only — an un-migrated database reports nothing rather than failing
+            // analytics only: an un-migrated database reports nothing rather than failing
         }
         return out;
     }
@@ -1054,6 +1155,7 @@ public class RecommendationDAO {
     /** At or above this length a keyword may match anywhere inside a word. */
     private static final int FREE_SUBSTRING_LENGTH = 3;
 
+    /** Trims, rejects anything too short to be meaningful, and caps the length the column allows. */
     private static String normaliseKeyword(String raw) {
         if (raw == null) return null;
         String trimmed = raw.trim();
@@ -1063,7 +1165,7 @@ public class RecommendationDAO {
 
     /**
      * Substring matching is kept for keywords of three characters or more, because the
-     * partial hits it allows are the ones buyers expect — "phone" inside "iPhone",
+     * partial hits it allows are the ones buyers expect: "phone" inside "iPhone",
      * "watch" inside "Smartwatch". Two-character keywords are held to a word boundary
      * instead, so "vr" cannot claim credit for "Louvre".
      */
@@ -1078,6 +1180,7 @@ public class RecommendationDAO {
         return false;
     }
 
+    /** Stamps a whole stage's output with the reason code and wording that stage stands for. */
     private static List<SearchResultItem> tag(List<SearchResultItem> items, Reason code, String text) {
         for (SearchResultItem item : items) item.setWhy(new RecommendationProvenance(code, text));
         return items;
@@ -1100,7 +1203,7 @@ public class RecommendationDAO {
     }
 
     // -------------------------------------------------------------------------
-    // Tunable parameters (SCRUM-76) — defaults live at the top of the class
+    // Tunable parameters (SCRUM-76). Defaults live at the top of the class.
     // -------------------------------------------------------------------------
 
     /**
@@ -1237,7 +1340,7 @@ public class RecommendationDAO {
     static int clampWindowDays(int v)       { return Math.max(1, Math.min(365, v)); }
     /** A negative weight would turn an interaction into evidence of dislike. */
     static double clampWeight(double v)     { return Math.max(0.0, Math.min(100.0, v)); }
-    /** Zero is meaningful — it switches decay off — so the floor is zero, not one. */
+    /** Zero is meaningful, because it switches decay off, so the floor is zero and not one. */
     static double clampTauDays(double v)    { return Math.max(0.0, Math.min(3650.0, v)); }
     static int clampContentWindowDays(int v){ return Math.max(1, Math.min(3650, v)); }
     /** One means "a whole page of one category is fine", which switches the cap off. */
@@ -1246,8 +1349,8 @@ public class RecommendationDAO {
     // -------------------------------------------------------------------------
     // Settings cache
     //
-    // getSettings() is read at least twice per recommendation request — once to resolve
-    // the page size and again inside the ranking stages — and the values change only when
+    // getSettings() is read at least twice per recommendation request, once to resolve
+    // the page size and again inside the ranking stages, and the values change only when
     // an admin saves the form. A short TTL keeps the extra round trips off the hot path
     // while staying well inside "the demo shows the change immediately"; saveSettings()
     // invalidates it outright so a save is visible on the very next request.
@@ -1275,6 +1378,16 @@ public class RecommendationDAO {
         return loaded;
     }
 
+    /**
+     * Reads the tunable parameters out of {@code recommendation_settings}, a key/value table
+     * of strings.
+     *
+     * <p>Written defensively because this table is entirely admin-controlled. Every field
+     * starts on its default, a key that is absent simply leaves that default in place, a
+     * value that will not parse is skipped rather than aborting the read, and a missing
+     * table falls through to defaults for all of them. Everything is then clamped, so no
+     * stored value can put the recommender into a state the code does not expect.</p>
+     */
     private Settings loadSettings() {
         int items = DEFAULT_ITEMS_SHOWN;
         double threshold = DEFAULT_SIMILARITY_THRESHOLD;
@@ -1393,7 +1506,7 @@ public class RecommendationDAO {
     }
 
     /**
-     * Every auction that is currently recommendable to {@code viewerId} — open, moderated
+     * Every auction that is currently recommendable to {@code viewerId}: open, moderated
      * active, not yet ended, and not the viewer's own listing.
      *
      * <p>Ranking used to run over the whole interaction history and hand the top
@@ -1404,8 +1517,8 @@ public class RecommendationDAO {
      * one demo user the first eleven candidates had all ended and the first recommendable
      * one ranked fourteenth.</p>
      *
-     * <p>The alternative — over-fetching some multiple of {@code limit} and filtering
-     * afterwards — is one query cheaper but only moves the cliff: it still fails once more
+     * <p>The alternative, over-fetching some multiple of {@code limit} and filtering
+     * afterwards, is one query cheaper but only moves the cliff: it still fails once more
      * than the multiple have closed, and the multiple has to be guessed. Materialising the
      * allow-set is exact for any history, at the cost of one extra query and a set of ids
      * bounded by the number of <em>open</em> auctions rather than by all of them.</p>
@@ -1489,6 +1602,15 @@ public class RecommendationDAO {
         return Math.exp(-Math.max(0.0, ageDays) / tauDays);
     }
 
+    /**
+     * Hydrates auction ids into display rows, keeping the order they were given in.
+     *
+     * <p>The user-based CF arm ranks bare ids in Java, so the ranking is the caller's and
+     * SQL must not reimpose one. Rows are collected into a map and then read back in
+     * {@code auctionIds} order. The visibility predicates are repeated here as a backstop:
+     * an auction can close between ranking and hydration, and a seller is never shown their
+     * own listing.</p>
+     */
     private List<SearchResultItem> fetchItemsByIds(List<Long> auctionIds, int excludeSellerId, int limit) {
         if (auctionIds.isEmpty()) return List.of();
 
@@ -1500,8 +1622,10 @@ public class RecommendationDAO {
 
         String sql =
             "SELECT a.auction_id, d.title, d.category, a.auction_type, "
-          // Blind auctions resolve to the entry price: recommended listings are
-          // all still open, so their leading sealed bid must not reach the client.
+          // auction_type 3 is BLIND, meaning a sealed bid auction: while it runs, no
+          // bidder may see what anyone else has bid. Every listing recommended here is
+          // still open, so this resolves to the entry price and never to MAX(bid_amount),
+          // which would leak the leading sealed bid to the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + DUTCH_CLOCK_COLUMNS
@@ -1557,6 +1681,20 @@ public class RecommendationDAO {
         }
     }
 
+    /**
+     * The {@link Reason#PEER_BIDS} arm: item-based collaborative filtering.
+     *
+     * <p>Reads bottom-up through three CTEs. {@code my_items} is everything the viewer has
+     * bid on or watchlisted. {@code peers} is the other people who touched those same items,
+     * which is the "buyers like you" set. {@code cand} then counts how many of those peers
+     * each other auction attracted, and that count is the score. No taste model is involved:
+     * the claim is only that items bid on by the same people tend to go together.</p>
+     *
+     * <p>The scoring subquery counts {@code DISTINCT user_id} rather than rows on purpose,
+     * so one peer bidding twenty times on a listing is one endorsement instead of twenty.
+     * Candidates the viewer already interacted with, and the viewer's own listings, are
+     * excluded in the outer WHERE.</p>
+     */
     private List<SearchResultItem> collaborativeFiltering(int userId, int limit) {
         String sql =
             "WITH my_items AS ( "
@@ -1580,8 +1718,10 @@ public class RecommendationDAO {
           + "  ) s GROUP BY auction_id "
           + ") "
           + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
-          // Blind auctions resolve to the entry price: recommended listings are
-          // all still open, so their leading sealed bid must not reach the client.
+          // auction_type 3 is BLIND, meaning a sealed bid auction: while it runs, no
+          // bidder may see what anyone else has bid. Every listing recommended here is
+          // still open, so this resolves to the entry price and never to MAX(bid_amount),
+          // which would leak the leading sealed bid to the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + DUTCH_CLOCK_COLUMNS
@@ -1643,8 +1783,10 @@ public class RecommendationDAO {
           + "  WHERE t.auction_id IN (SELECT auction_id FROM my_signals) "
           + ") "
           + "SELECT a.auction_id, d.title, d.category, a.auction_type, "
-          // Blind auctions resolve to the entry price: recommended listings are
-          // all still open, so their leading sealed bid must not reach the client.
+          // auction_type 3 is BLIND, meaning a sealed bid auction: while it runs, no
+          // bidder may see what anyone else has bid. Every listing recommended here is
+          // still open, so this resolves to the entry price and never to MAX(bid_amount),
+          // which would leak the leading sealed bid to the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + DUTCH_CLOCK_COLUMNS
@@ -1729,8 +1871,10 @@ public class RecommendationDAO {
         }
         sql.append(
             "SELECT a.auction_id, d.title, d.category, a.auction_type, "
-          // Blind auctions resolve to the entry price: recommended listings are
-          // all still open, so their leading sealed bid must not reach the client.
+          // auction_type 3 is BLIND, meaning a sealed bid auction: while it runs, no
+          // bidder may see what anyone else has bid. Every listing recommended here is
+          // still open, so this resolves to the entry price and never to MAX(bid_amount),
+          // which would leak the leading sealed bid to the client.
           + "  CASE WHEN a.auction_type = 3 THEN d.starting_price "
           + "       ELSE COALESCE((SELECT MAX(b.bid_amount) FROM bids b WHERE b.auction_id = a.auction_id), d.starting_price) END AS current_price, "
           + DUTCH_CLOCK_COLUMNS
@@ -1780,6 +1924,13 @@ public class RecommendationDAO {
         return out;
     }
 
+    /**
+     * Maps one candidate row. The price is not taken straight from {@code current_price}:
+     * it goes through {@link DutchClock#listedPrice}, which returns that value unchanged for
+     * a normal auction but recomputes the declining price for a Dutch one. This and
+     * {@link #fetchItemsByIds} are the two places the {@link #DUTCH_CLOCK_COLUMNS} columns
+     * are consumed.
+     */
     private SearchResultItem mapRow(ResultSet rs) throws Exception {
         Timestamp end = rs.getTimestamp("date_end");
         Timestamp start = rs.getTimestamp("date_created");

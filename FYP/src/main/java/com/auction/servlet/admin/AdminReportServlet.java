@@ -13,6 +13,18 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * Lists the account reports filed by users and lets an admin set the status of one of them.
+ * Reads and writes through {@link ReportDAO}.
+ *
+ * <p>Legacy code from the JSP era, and currently dead: no {@code @WebServlet} annotation, no
+ * {@code web.xml} entry, no view to forward to, and the session lookup expects a {@code user}
+ * object the current login path never sets. Reports are handled in the live system through
+ * {@code /api/admin/*} in {@code AdminApiServlet}.</p>
+ *
+ * <p>Unlike its two dead siblings in this package, it does at least call
+ * {@link RbacUtil#isAdmin}, so the intended access rule is visible in the code.</p>
+ */
 public class AdminReportServlet extends HttpServlet {
     private ReportDAO reportDAO;
 
@@ -21,10 +33,12 @@ public class AdminReportServlet extends HttpServlet {
         reportDAO = new ReportDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setReportDAO(ReportDAO reportDAO) {
         this.reportDAO = reportDAO;
     }
 
+    /** Loads every report onto the request as {@code report_list} for a page to render. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         if (!requireAdmin(req, resp)) return;
@@ -36,6 +50,10 @@ public class AdminReportServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Sets the status of one report. Expects {@code moderation_status} and an id sent under the
+     * parameter name {@code auction_id}, which the local variable treats as a report id.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         if (!requireAdmin(req, resp)) return;
@@ -72,6 +90,7 @@ public class AdminReportServlet extends HttpServlet {
         }
     }
 
+    /** Records an error message; the forward is commented out because no view exists. */
     private void errorHandler(HttpServletRequest req, HttpServletResponse resp, String message) throws ServletException, IOException {
         req.setAttribute("Error", message);
         // req.getRequestDispatcher("???").forward(req, resp);

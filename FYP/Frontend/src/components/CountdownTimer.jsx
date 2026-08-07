@@ -1,3 +1,12 @@
+/**
+ * Live "time left" label with a clock icon, used on the auction detail page and in the
+ * seller's listing tables. AuctionCard draws its own chip instead, because that one has
+ * to sit over the photo.
+ *
+ * Props: `endTime` is the auction end date, `size` the icon size, `className` any extra
+ * classes. The colour carries the urgency: normal, amber inside 24 hours, and red with a
+ * pulsing icon in the final hour.
+ */
 import { Clock } from 'lucide-react';
 import useNow from '../hooks/useNow';
 import { timeRemainingWithDays } from '../utils/helpers';

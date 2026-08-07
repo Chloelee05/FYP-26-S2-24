@@ -19,6 +19,14 @@ import java.time.Instant;
  * POST /api/report        params: auctionId, description (optional) — report a listing (buyer only)
  * POST /api/report/user   params: reportedId, reason                — report a user   (buyer only)
  * GET  /api/report/mine   — the caller's submitted reports with status + admin reply
+ *
+ * <p>The member-facing half of moderation: this is where a report is raised. Admins triage them
+ * in {@code AdminApiServlet}. Every route needs a session, because an anonymous report cannot be
+ * followed up and would make the queue easy to flood.</p>
+ *
+ * <p>Self-reporting is blocked on both routes, a listing can only be reported once by the same
+ * member, and the free-text reason is sanitised before it reaches the admin console.
+ * {@link NotificationService} alerts the admins once a report lands.</p>
  */
 @WebServlet("/api/report/*")
 public class ReportApiServlet extends ApiBase {
@@ -31,10 +39,14 @@ public class ReportApiServlet extends ApiBase {
         this.userDAO    = new UserDAO();
     }
 
-    /** Test hook */
+    /** Test hooks: let a unit test supply stub DAOs. */
     public void setReportDAO(ReportDAO reportDAO) { this.reportDAO = reportDAO; }
     public void setUserDAO(UserDAO userDAO)       { this.userDAO    = userDAO; }
 
+    /**
+     * GET /api/report/mine. Lists the caller's own reports with their current status and any
+     * admin reply, so a member can see their report was acted on. Any other path gives 404.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -49,6 +61,10 @@ public class ReportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Routes the two report types. /user reports a member and is open to any signed-in account,
+     * including sellers reporting a buyer. Anything else reports a listing and is buyer-side only.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
@@ -63,6 +79,11 @@ public class ReportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/report with {@code auctionId} and an optional {@code description}. The DAO
+     * refuses a report on the caller's own listing and a duplicate report of the same listing,
+     * so the moderation queue is not filled by one member clicking repeatedly.
+     */
     private void handleReportListing(HttpServletRequest req, HttpServletResponse resp, AuthSession session)
             throws IOException {
         int reporterId = ((Number) session.getAttribute("userId")).intValue();
@@ -86,6 +107,11 @@ public class ReportApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/report/user with {@code reportedId} and {@code reason}. Reports a member rather
+     * than a listing, which is how a seller reports a non-paying buyer. Reporting yourself is
+     * rejected here, since there is no DAO-level rule for it.
+     */
     private void handleReportUser(HttpServletRequest req, HttpServletResponse resp, AuthSession session)
             throws IOException {
         int reporterId = ((Number) session.getAttribute("userId")).intValue();
@@ -122,6 +148,7 @@ public class ReportApiServlet extends ApiBase {
         }
     }
 
+    /** Wording for each reason a listing report can be refused. */
     private String toMessage(ReportResult r) {
         switch (r) {
             case AUCTION_NOT_FOUND: return "Auction not found.";

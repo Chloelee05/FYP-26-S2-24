@@ -1,3 +1,12 @@
+/*
+ * Buyer and seller messaging at "/messages". Behind ProtectedRoute, any signed in account.
+ * Threads are tied to an order, so a conversation only exists once a deal has been struck.
+ * That is deliberate: it stops the platform being used as a general chat and means the seller
+ * and buyer are already identified to each other. Platform help goes through /support instead.
+ * Reads GET conversations and GET messages for the selected order, POSTs a new message.
+ * Both lists are polled, conversations every 12 seconds and the open thread every 5, so a
+ * reply appears without a refresh. There is no websocket in this project.
+ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { MessageSquare, Send, Store, ShoppingBag } from 'lucide-react';
@@ -41,13 +50,19 @@ export default function Messages() {
     }
   }, [selectedId]);
 
+  // The open thread is polled more often than the sidebar, since that is where a new reply
+  // needs to show up quickly. The third argument stops the message poll entirely when no
+  // conversation is selected.
   usePolling(loadConversations, 12000);
   usePolling(loadMessages, 5000, Boolean(selectedId));
 
+  // Keeps the newest message in view whenever the list changes, including after a poll.
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const selected = conversations.find(c => c.orderId === selectedId);
 
+  // Sends, then reloads both lists rather than waiting for the next poll tick, so the sent
+  // message and the updated preview in the sidebar appear at once.
   const handleSend = async (e) => {
     e.preventDefault();
     const text = body.trim();

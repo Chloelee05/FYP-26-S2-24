@@ -1,3 +1,9 @@
+<%--
+  Account creation form. Rendered by RegisterServlet (/register). On a validation failure the
+  servlet forwards back here with "Error" plus the sticky "username" and "email" values.
+  There is no account-type choice: every sign-up creates a buyer who can enable selling later.
+  Legacy JSP flow; the SPA registers through /api/auth/register.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <!DOCTYPE html>

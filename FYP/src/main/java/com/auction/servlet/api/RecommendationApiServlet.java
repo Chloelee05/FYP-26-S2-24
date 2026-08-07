@@ -35,6 +35,7 @@ import java.util.Map;
 @WebServlet({"/api/recommendations", "/api/recommendations/*"})
 public class RecommendationApiServlet extends ApiBase {
 
+    /** Upper bound on any caller-supplied limit, so one request cannot make the pipeline rank the whole catalogue. */
     private static final int MAX_LIMIT = 24;
 
     private RecommendationDAO recommendationDAO;
@@ -43,11 +44,20 @@ public class RecommendationApiServlet extends ApiBase {
         this.recommendationDAO = new RecommendationDAO();
     }
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setRecommendationDAO(RecommendationDAO recommendationDAO) {
         this.recommendationDAO = recommendationDAO;
     }
 
+    /**
+     * Routes the reads and serves the main recommendation strip. Runs the sequential top-up
+     * pipeline in {@link RecommendationDAO}: PEER_BIDS, then SIMILAR_TASTE, then SAME_CATEGORY,
+     * then TRENDING as filler, followed by hybrid re-ranking with a category diversity cap and
+     * recency decay. Optional {@code limit} overrides the admin-configured card count.
+     *
+     * <p>Returns {@code results}, a {@code personalised} flag and {@code trendingWindowDays}.
+     * No authentication is needed; a guest simply gets the trending arm.</p>
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
@@ -110,6 +120,11 @@ public class RecommendationApiServlet extends ApiBase {
         return limit;
     }
 
+    /**
+     * Routes the writes: /dismiss suppresses an item, /events logs impressions and clicks that
+     * feed the click-through reporting, and /search-keyword records a search term for the
+     * "matches your search" explanation. Only /dismiss requires a session.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
@@ -130,6 +145,8 @@ public class RecommendationApiServlet extends ApiBase {
      * returns the individual users behind that auction's recommendations.
      */
     private void handleAttribution(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // The only route in this servlet with a role check. Everything else is aggregate or
+        // masked; this one names individual users, so it is admin only.
         if (!requireRole(req, resp, "ADMIN")) return;
 
         int limit = 25;
@@ -160,6 +177,7 @@ public class RecommendationApiServlet extends ApiBase {
     private void handleSearchKeyword(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String keyword = param(req, "q");
         if (keyword == null) { badRequest(resp, "q is required."); return; }
+        // Very short terms carry no signal and would just add noise to the keyword table.
         if (keyword.trim().length() < RecommendationDAO.MIN_KEYWORD_LENGTH) {
             badRequest(resp, "q must be at least " + RecommendationDAO.MIN_KEYWORD_LENGTH + " characters.");
             return;
@@ -168,7 +186,13 @@ public class RecommendationApiServlet extends ApiBase {
         okMsg(resp, "Recorded.");
     }
 
-    /** GET /api/recommendations/similar?auctionId=&limit= */
+    /**
+     * GET /api/recommendations/similar?auctionId=&limit=
+     *
+     * <p>The "buyers who bid on this also bid on" strip at the bottom of a listing page. This is
+     * the PEER_BIDS collaborative filtering arm run against one auction rather than against a
+     * whole user profile, so it works for guests too. Default 4 cards, capped at 12.</p>
+     */
     private void handleSimilar(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Long auctionId = parseLong(param(req, "auctionId"));
         if (auctionId == null) { badRequest(resp, "auctionId is required."); return; }
@@ -197,7 +221,11 @@ public class RecommendationApiServlet extends ApiBase {
         ok(resp, body);
     }
 
-    /** POST /api/recommendations/dismiss  auctionId — requires login. */
+    /**
+     * POST /api/recommendations/dismiss with auctionId, login required.
+     * Records negative feedback against the caller's own profile so the item stops appearing.
+     * Login is required because a dismissal has to be attached to a user to mean anything.
+     */
     private void handleDismiss(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         Long auctionId = parseLong(param(req, "auctionId"));
@@ -213,6 +241,10 @@ public class RecommendationApiServlet extends ApiBase {
     /**
      * POST /api/recommendations/events  type=impression|click,
      * auctionId (single) or auctionIds (comma-separated, for batched impressions).
+     *
+     * <p>Batching exists because a single strip render produces one impression per visible card,
+     * and sending them as one request keeps that off the page's critical path. A guest's events
+     * are stored with a null user id, which still counts towards aggregate click-through.</p>
      */
     private void handleEvents(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String type = param(req, "type");
@@ -242,6 +274,7 @@ public class RecommendationApiServlet extends ApiBase {
         okMsg(resp, "Recorded.");
     }
 
+    /** Parses an id, returning null rather than throwing so a malformed entry in a CSV is just skipped. */
     private Long parseLong(String v) {
         if (v == null || v.isBlank()) return null;
         try { return Long.parseLong(v); } catch (NumberFormatException e) { return null; }

@@ -1,3 +1,10 @@
+<%--
+  Public seller profile: summary, average rating, active listing count and a paginated list of
+  reviews. Rendered by SellerProfileServlet (/seller/{id}), open to guests. The servlet loads
+  only the public columns and a masked email, so no phone, address or account detail is
+  available to this page even if the markup asked for it.
+  Legacy JSP page; the SPA reads the same profile from /api/seller/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

@@ -5,6 +5,15 @@ import java.time.LocalDate;
 
 /**
  * Listing row for admin listing moderation table.
+ *
+ * <p>Built by {@code AdminManagementDAO} for the moderation queue. It joins the listing to
+ * its seller and to a count of open reports, which is what the queue is ordered by, so it
+ * is wider than what any single table holds.</p>
+ *
+ * <p>Two independent states travel together here and are easy to confuse.
+ * {@link #getModerationState()} is the admin's own decision about the listing, and
+ * {@link #getAuctionStatus()} is where the auction is in its normal lifecycle. A listing
+ * can be live and flagged at the same time.</p>
  */
 public final class AdminListingRow {
     private  long auctionId;
@@ -13,8 +22,11 @@ public final class AdminListingRow {
     private  String sellerUsername;
     private String category;
     private  BigDecimal currentBid;
+    /** Open reports against this listing. The moderation queue sorts on it. */
     private  int reportCount;
+    /** Admin moderation decision: active, flagged or removed. */
     private  String moderationState;
+    /** Whether an admin has pinned this listing to the landing page. */
     private boolean featured;
     /** Auction lifecycle status: ACTIVE, PENDING, FINISHED, CANCELLED */
     private String auctionStatus;

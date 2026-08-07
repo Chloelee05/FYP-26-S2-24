@@ -1,3 +1,16 @@
+/**
+ * The top bar on every page. Takes no props: everything it shows is derived from
+ * useAuth() and the current location.
+ *
+ * What appears depends on the account. A guest gets Explore, the search box and a Sign in
+ * button. A signed-in member additionally gets My listings, Bidding History, the
+ * watchlist and messages icons, the notification bell and an account menu. An admin is
+ * treated separately: the buying and selling links are hidden and the menu offers the
+ * admin console instead, since an admin account does not trade.
+ *
+ * The search box navigates as the user types, which needs care. See the effect below,
+ * which only acts when the term itself changes.
+ */
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Search, User, LogOut, LayoutDashboard, Heart, MessageCircle, MessageSquare, Gavel, Menu, X, ChevronDown, ShoppingBag, Tag, Send } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
@@ -18,6 +31,8 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname, search: locationSearch } = useLocation();
+  // The raw text in the search box, the account dropdown, and the drawer that replaces
+  // the horizontal nav below the md breakpoint.
   const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -58,6 +73,21 @@ export default function Navbar() {
   // navigation instead of one per keystroke.
   const settledSearch = useDebouncedValue(search);
 
+  /**
+   * Navigate to /search when the search term changes, and only then.
+   *
+   * The two refs above are what make that true, and they are the reason this effect is
+   * worth reading carefully. It has to depend on the location, because it needs to know
+   * whether the user is currently looking at results, so React re-runs it on every
+   * navigation, including navigations it had nothing to do with.
+   *
+   * Without the `navigatedFor` guard, clicking a result took the user to the listing,
+   * the effect re-ran with the search term still in the box, and it steered straight
+   * back to /search. The same happened when the sidebar added ?category= to the query
+   * string: the effect rebuilt the URL from the term alone and the category filter was
+   * lost. Comparing against the last term acted on means both of those are ignored,
+   * because the term did not change.
+   */
   useEffect(() => {
     if (!hasTyped.current) return;
     const term = settledSearch.trim();
@@ -76,6 +106,7 @@ export default function Navbar() {
     navigate(target, { replace: onSearchPage });
   }, [settledSearch, pathname, locationSearch, navigate]);
 
+  // Records that the box has genuinely been typed in, which is what arms the effect above.
   const handleSearchChange = (e) => {
     hasTyped.current = true;
     setSearch(e.target.value);
@@ -88,6 +119,8 @@ export default function Navbar() {
     setMobileOpen(false);
   };
 
+  // Clear the session first, then leave, so no protected page renders against a user who
+  // is on their way out.
   const handleLogout = async () => {
     await logout();
     navigate('/login');

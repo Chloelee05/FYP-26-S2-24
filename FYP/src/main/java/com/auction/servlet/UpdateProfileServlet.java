@@ -15,6 +15,15 @@ import java.io.IOException;
 /**
  * SCRUM-10/11: profile update — validates input, re-encrypts PII with {@link SecurityUtil#encrypt(String)},
  * persists via {@link UserDAO#updateProfile(int, String, String, String, String, String)}.
+ *
+ * <p>Save handler for the form rendered by {@link EditProfileServlet}. On any validation
+ * problem it forwards back to that form with the rejected values, so the user never loses
+ * their input. Legacy JSP flow behind {@code AuthFilter}; the SPA uses {@code /api/account/*}
+ * in {@code AccountApiServlet}.</p>
+ *
+ * <p>The target row is always the session's own user id. Username and email uniqueness are
+ * checked with the "excluding self" DAO variants, otherwise saving the form unchanged would
+ * report your own email as taken.</p>
  */
 @WebServlet("/protected/account/update")
 public class UpdateProfileServlet extends HttpServlet {
@@ -25,10 +34,17 @@ public class UpdateProfileServlet extends HttpServlet {
         this.userDAO = new UserDAO();
     }
 
+    /** Injection point for a stub DAO in unit tests. */
     public void setUserDAO(UserDAO userDAO) {
         this.userDAO = userDAO;
     }
 
+    /**
+     * Validates and saves the profile. Accepts {@code username}, {@code email}, and the optional
+     * {@code phone}, {@code address} and {@code profileImageUrl}. Phone and address are encrypted
+     * before they reach the database, and an empty optional field is stored as SQL NULL rather
+     * than as an encrypted empty string, so "no value" stays distinguishable from "blank value".
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession(false);
@@ -94,6 +110,8 @@ public class UpdateProfileServlet extends HttpServlet {
             return;
         }
 
+        // The session caches the email and the masked display strings, so they have to be
+        // refreshed here or the navbar would keep showing the old name until the next sign-in.
         session.setAttribute("sessionEmail", email);
         session.setAttribute("maskedEmail", SecurityUtil.maskEmail(email));
         session.setAttribute("maskedUsername", SecurityUtil.maskUsername(username));
@@ -101,6 +119,10 @@ public class UpdateProfileServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/protected/account?updated=1");
     }
 
+    /**
+     * Sends the user back to the edit form with an error banner and the values they submitted,
+     * including the ones that were fine, so nothing has to be retyped.
+     */
     private static void forwardToEdit(HttpServletRequest req, HttpServletResponse resp, String error,
                                       String username, String email, String phone, String address, String profileImageUrl)
             throws ServletException, IOException {

@@ -25,6 +25,7 @@ import java.util.Map;
 @WebServlet("/api/stats")
 public class PlatformStatsApiServlet extends ApiBase {
 
+    /** One minute. The counts move slowly and the landing page is the busiest route on the site. */
     private static final long CACHE_TTL_MS = 60_000;
 
     private final UserDAO userDAO = new UserDAO();
@@ -35,6 +36,11 @@ public class PlatformStatsApiServlet extends ApiBase {
     private volatile Map<String, Object> cached;
     private volatile long cachedAt;
 
+    /**
+     * Serves GET /api/stats. No parameters and no authentication. Answers from the cache while
+     * it is fresh, otherwise recomputes. On failure it returns an empty map, so the landing page
+     * falls back to its own defaults rather than failing to render.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Map<String, Object> body = cached;
@@ -52,8 +58,13 @@ public class PlatformStatsApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /**
+     * Runs the counting queries and assembles the response. Called only on a cache miss, so
+     * these queries do not run per request.
+     */
     private Map<String, Object> build() {
         Map<String, Object> body = new LinkedHashMap<>();
+        // Soft-deleted accounts are excluded, so a closed account stops counting as a member.
         body.put("totalUsers", userDAO.countNonDeletedUsers());
         body.put("activeListings", auctionDAO.countListingsModerationActive());
         body.put("totalListings", auctionDAO.countListingsTotal());

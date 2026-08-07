@@ -1,3 +1,9 @@
+<%--
+  Full paginated bid history for one auction. Rendered by AuctionBidHistoryServlet
+  (/auction-bids?auctionId=), open to guests. Bidder names arrive already masked from BidDAO,
+  so this page cannot expose who is bidding even though anyone can read it.
+  Legacy JSP page; the SPA shows the same history from /api/auction/*.
+--%>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fmt" uri="jakarta.tags.fmt" %>

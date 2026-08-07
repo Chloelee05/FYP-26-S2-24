@@ -11,8 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Persistence for {@code telegram_outbox} — the store-and-forward queue between the
+ * Persistence for {@code telegram_outbox}, the store-and-forward queue between the
  * request that produces a notification and the background worker that delivers it.
+ *
+ * <p>This is the only table the class touches. Producers are the bid, order and auction-close
+ * paths; the consumer is the Telegram delivery worker, which calls {@link #claimDue(int)} and then
+ * reports each outcome back through {@code markSent}, {@code markFailed}, {@code delayFor} or
+ * {@code markSkipped}. Whether a user should receive a given event at all is decided earlier, by
+ * {@link NotificationDAO.TelegramPreferences}.</p>
  *
  * <p>The queue exists so that Telegram being slow or down can never slow down or fail a
  * bid: {@link #enqueue} is one INSERT inside the caller's own request, and everything
@@ -32,7 +38,7 @@ import java.util.List;
  * pushes {@code next_attempt_at} into the future as it hands rows out. That leases each
  * row rather than locking it: the connection is released immediately instead of being
  * held for the length of a paced send, and a worker that dies mid-batch does not strand
- * its rows — the lease simply expires and the next pass picks them up.
+ * its rows, because the lease simply expires and the next pass picks them up.
  * {@code FOR UPDATE SKIP LOCKED} keeps two instances from claiming the same row.</p>
  */
 public class TelegramOutboxDAO {
@@ -95,7 +101,8 @@ public class TelegramOutboxDAO {
      * <p>The delay is what turns the dedupe index into a coalescing window: a first bid
      * queues a row due in two minutes, and every bid until then only rewrites its body, so
      * the seller receives one message carrying the latest price instead of twenty carrying
-     * each step. The delay is applied on INSERT only — see {@link #enqueueWithConnection}.</p>
+     * each step. The delay is applied on INSERT only, as explained in
+     * {@link #enqueueWithConnection}.</p>
      */
     public void enqueue(int userId, String eventType, Long auctionId, String body,
                         String dedupeKey, int initialDelaySeconds) {
@@ -107,11 +114,13 @@ public class TelegramOutboxDAO {
         }
     }
 
+    /** Package-private variant for callers that already hold a connection or a transaction. */
     void enqueueWithConnection(Connection conn, int userId, String eventType, Long auctionId,
                                String body, String dedupeKey) throws SQLException {
         enqueueWithConnection(conn, userId, eventType, auctionId, body, dedupeKey, 0);
     }
 
+    /** The single INSERT behind every enqueue path. See the class comment for the coalescing rules. */
     void enqueueWithConnection(Connection conn, int userId, String eventType, Long auctionId,
                                String body, String dedupeKey, int initialDelaySeconds)
             throws SQLException {
@@ -119,6 +128,8 @@ public class TelegramOutboxDAO {
         // alone on purpose, for two reasons that happen to want the same thing:
         //   - a row already backing off after a failure must not be pulled forward into a
         //     tight retry loop, and
+        //     (the ON CONFLICT target names the partial unique index, which only covers PENDING
+        //     rows with a non-null dedupe key, so an already-sent message never collides)
         //   - a coalescing price alert must keep the due time its first bid set. Extending
         //     it on every bid would starve the message exactly when the seller most wants
         //     it: a continuously contested auction would push the deadline forever and
@@ -160,6 +171,10 @@ public class TelegramOutboxDAO {
         }
     }
 
+    /**
+     * Connection-carrying form of {@link #cancelPending}, so the cancellation can share the
+     * transaction of the event that superseded the message.
+     */
     int cancelPendingWithConnection(Connection conn, String dedupeKey, String reason)
             throws SQLException {
         String sql = "UPDATE telegram_outbox SET status = 'SKIPPED', last_error = ? "
@@ -184,6 +199,12 @@ public class TelegramOutboxDAO {
         }
     }
 
+    /**
+     * The claim itself. The inner SELECT picks the oldest due rows and locks them with
+     * SKIP LOCKED so a second worker walks past them rather than blocking; the outer UPDATE then
+     * pushes {@code next_attempt_at} out by the lease and RETURNING hands the rows back. Doing the
+     * select, the lease and the read in one statement is what makes the claim atomic.
+     */
     List<PendingMessage> claimDueWithConnection(Connection conn, int limit) throws SQLException {
         String sql = "UPDATE telegram_outbox SET next_attempt_at = "
                 + "CURRENT_TIMESTAMP + (? || ' seconds')::interval "
@@ -220,6 +241,11 @@ public class TelegramOutboxDAO {
         run(conn -> markSentWithConnection(conn, id));
     }
 
+    /**
+     * Every outcome writer carries {@code AND status = 'PENDING'}. A row whose lease expired and
+     * was re-claimed elsewhere is therefore not overwritten by the late report from the first
+     * worker, which is what keeps double delivery from also double-recording.
+     */
     void markSentWithConnection(Connection conn, long id) throws SQLException {
         String sql = "UPDATE telegram_outbox SET status = 'SENT', sent_at = CURRENT_TIMESTAMP, "
                 + "attempts = attempts + 1, last_error = NULL "
@@ -238,6 +264,11 @@ public class TelegramOutboxDAO {
         run(conn -> markFailedWithConnection(conn, id, attemptsBefore, error));
     }
 
+    /**
+     * @param attemptsBefore the count the worker read off the claimed row, so the new total is
+     *                       computed from what this worker actually saw rather than from a
+     *                       read-modify-write against the current row
+     */
     void markFailedWithConnection(Connection conn, long id, int attemptsBefore, String error)
             throws SQLException {
         int attempts = attemptsBefore + 1;
@@ -267,14 +298,16 @@ public class TelegramOutboxDAO {
 
     /**
      * Honours a 429 by pushing the next attempt out {@code retryAfterSeconds}, without
-     * counting it as a failure — flood control is our pacing being wrong, not the message
-     * being undeliverable, so it must not consume the row's retry budget.
+     * counting it as a failure. Flood control means our pacing is wrong, not that the message is
+     * undeliverable, so it must not consume the row's retry budget.
      */
     public void delayFor(long id, int retryAfterSeconds) {
         run(conn -> delayForWithConnection(conn, id, retryAfterSeconds));
     }
 
     void delayForWithConnection(Connection conn, long id, int retryAfterSeconds) throws SQLException {
+        // Clamped at both ends: at least a second so the worker cannot spin, and no more than
+        // MAX_RETRY_AFTER_SECONDS so a malformed Retry-After header cannot park a row for hours.
         int delay = Math.min(Math.max(retryAfterSeconds, 1), MAX_RETRY_AFTER_SECONDS);
         String sql = "UPDATE telegram_outbox SET "
                 + "next_attempt_at = CURRENT_TIMESTAMP + (? || ' seconds')::interval "
@@ -287,7 +320,7 @@ public class TelegramOutboxDAO {
     }
 
     /**
-     * Retires a message that can never be delivered — the chat is gone, the user blocked
+     * Retires a message that can never be delivered, because the chat is gone, the user blocked
      * the bot, or they have no link any more. Distinct from {@code FAILED}, which means
      * "we ran out of retries" and is worth looking at.
      */
@@ -314,11 +347,13 @@ public class TelegramOutboxDAO {
         return BACKOFF_SECONDS[index];
     }
 
+    /** Callback shape for {@link #run}, so each outcome method can share the connection handling. */
     @FunctionalInterface
     private interface Statement {
         void execute(Connection conn) throws SQLException;
     }
 
+    /** Opens a connection, runs one statement and closes it. Removes the boilerplate above. */
     private void run(Statement statement) {
         try (Connection conn = DBUtil.connectDB()) {
             statement.execute(conn);

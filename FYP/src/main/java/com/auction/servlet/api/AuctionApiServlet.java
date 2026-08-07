@@ -38,6 +38,17 @@ import java.util.UUID;
  * GET  /api/auction/{id}/bids       — paginated bid history
  * GET  /api/auction/{id}/questions  — question list
  * POST /api/auction/upload-image    — upload a single listing image (SELLER auth required)
+ *
+ * <p>The read side of the auction detail page, which guests can reach, so it is mapped outside
+ * AuthFilter. Authentication is still read where it exists, because what a viewer is allowed to
+ * see depends on who they are: the seller sees their cost price and the standing sealed bid,
+ * a bidder sees their own auto-bid ceiling and their own sealed amount, and everybody else
+ * sees neither.</p>
+ *
+ * <p>This is one of the read paths where the BLIND confidentiality rule is applied, both in the
+ * detail body and in the bid history. Collaborators: {@link BidDAO} for prices and bids,
+ * {@link QuestionDAO}, {@link AuctionTagsDAO}, {@link AutoBidDAO}, {@link OrderDAO}, and
+ * {@link BrowseHistoryDAO}, whose view log feeds the recommendation pipeline.</p>
  */
 @WebServlet("/api/auction/*")
 public class AuctionApiServlet extends ApiBase {
@@ -54,6 +65,11 @@ public class AuctionApiServlet extends ApiBase {
     private final AutoBidDAO        autoBidDAO        = new AutoBidDAO();
     private final OrderDAO          orderDAO          = new OrderDAO();
 
+    /**
+     * Routes the GET paths. The path is {@code /{id}} for the detail body, {@code /{id}/bids}
+     * for bid history, {@code /{id}/questions} for the Q and A list, or the literal
+     * {@code /tags}. No authentication is required for any of them.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String pathInfo = req.getPathInfo(); // e.g. /42  or  /42/bids
@@ -95,7 +111,15 @@ public class AuctionApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * Builds the auction detail body for GET /api/auction/{id}. What goes in depends on the
+     * auction type and on who is looking, so the shared fields are assembled first and the
+     * price-bearing fields are added per type below. 404 if the id does not exist.
+     */
     private void handleDetail(HttpServletRequest req, HttpServletResponse resp, long auctionId) throws IOException {
+        // Lazy close. Nothing runs a scheduler over expired auctions, so an auction that has
+        // passed its end time is finalised on the first page view after expiry. That is what
+        // makes the "open" flag and the revealed sealed price below correct.
         com.auction.util.AuctionFinalizer.finalizeIfExpiredAndNotify(auctionId);
         AuctionDetail detail = bidDAO.findByIdForDisplay(auctionId);
         if (detail == null) {
@@ -112,6 +136,7 @@ public class AuctionApiServlet extends ApiBase {
                 tags.add(t);
             }
         } catch (Exception ignored) { }
+        // Tags are decoration on this page, so a failure to load them must not 500 the listing.
 
         AuctionType type;
         try { type = AuctionType.getAuctionType(detail.getAuctionTypeId()); }
@@ -218,6 +243,9 @@ public class AuctionApiServlet extends ApiBase {
             } catch (Exception ignored) { }
         }
 
+        // Log the view for the recommender. Only signed-in non-owners count: a guest has no
+        // profile to attach it to, and a seller checking their own listing is not a taste signal.
+        // Wrapped because a recommendation-side failure must never break the listing page.
         if (viewerId != null && !isOwner) {
             try {
                 browseHistoryDAO.recordView(viewerId, auctionId);
@@ -227,6 +255,7 @@ public class AuctionApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /** Display label for the auction type, so the SPA does not have to map the numeric id itself. */
     private String auctionTypeName(AuctionType type) {
         switch (type) {
             case DUTCH_AUCTION: return "Dutch (Descending)";
@@ -236,6 +265,12 @@ public class AuctionApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * GET /api/auction/{id}/bids. Optional {@code page} and {@code size} (default 10, capped
+     * at 50). Returns the page of bids with {@code total}, {@code page} and {@code totalPages}.
+     * While a sealed auction is open it returns an empty list with {@code sealed: true} and
+     * only the count, which is the confidentiality guard on this read path.
+     */
     private void handleBidHistory(HttpServletRequest req, HttpServletResponse resp, long auctionId)
             throws IOException {
         int page = parseInt(param(req, "page"), 1);
@@ -258,6 +293,7 @@ public class AuctionApiServlet extends ApiBase {
         }
 
         // Pass viewer ID so the DAO can mark the viewer's own bids as isSelf=true.
+        // 0 stands for a guest, and matches no real user id, so nothing gets flagged as theirs.
         Integer viewerId = sessionUserId(req);
         int viewerIdInt = viewerId != null ? viewerId : 0;
         List<AuctionBidHistoryEntry> bids  = bidDAO.getBidHistory(auctionId, page, size, viewerIdInt);
@@ -271,11 +307,16 @@ public class AuctionApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /**
+     * GET /api/auction/{id}/questions. Public buyer questions and the seller's answers for this
+     * listing. Posting a question goes through {@code QuestionApiServlet} instead.
+     */
     private void handleQuestions(HttpServletResponse resp, long auctionId) throws IOException {
         List<AuctionQuestion> questions = questionDAO.listByAuction(auctionId);
         ok(resp, questions);
     }
 
+    /** The only POST here is the listing image upload; every other path gives 404. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String pathInfo = req.getPathInfo();
@@ -288,9 +329,17 @@ public class AuctionApiServlet extends ApiBase {
 
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024L; // 5 MB
 
+    /**
+     * POST /api/auction/upload-image. The request body is the raw image bytes and the content
+     * type names the format. Requires a seller-capable session. Returns
+     * {@code {"imageUrl": "/uploads/auction/..."}}, which the sell form then submits with the
+     * rest of the listing.
+     */
     private void handleUploadImage(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireSeller(req, resp)) return;
 
+        // Allow-list of image types. Refusing anything else keeps a seller from parking an HTML
+        // or script file under /uploads, which is served back to browsers by UploadedFileServlet.
         String contentType = req.getContentType();
         if (contentType == null) contentType = "";
         String mime = contentType.split(";")[0].trim().toLowerCase();
@@ -305,6 +354,8 @@ public class AuctionApiServlet extends ApiBase {
             return;
         }
 
+        // Name the file from a UUID and derive the extension from the vetted mime type. The
+        // client's own filename is never used, so it cannot control the path or the extension.
         String ext = mime.contains("png") ? ".png" : mime.contains("webp") ? ".webp" : ".jpg";
         String filename = UUID.randomUUID() + ext;
 
@@ -322,6 +373,7 @@ public class AuctionApiServlet extends ApiBase {
         ok(resp, Collections.singletonMap("imageUrl", "/uploads/" + UPLOAD_SUBDIR + "/" + filename));
     }
 
+    /** Parses a paging parameter, forced to at least 1 so a bad value cannot produce a negative offset. */
     private int parseInt(String s, int def) {
         if (s == null) return def;
         try { return Math.max(1, Integer.parseInt(s)); } catch (NumberFormatException e) { return def; }

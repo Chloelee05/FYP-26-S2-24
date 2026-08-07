@@ -43,11 +43,12 @@ public class TelegramApiServlet extends ApiBase {
 
     private TelegramLinkDAO dao = new TelegramLinkDAO();
 
-    /** Test hook */
+    /** Test hook: lets a unit test supply a stub DAO. */
     public void setTelegramLinkDAO(TelegramLinkDAO dao) {
         this.dao = dao;
     }
 
+    /** Routes the single read, /status. Anything else under /api/telegram gives 404. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo() == null ? "/" : req.getPathInfo();
@@ -58,6 +59,7 @@ public class TelegramApiServlet extends ApiBase {
         }
     }
 
+    /** Routes the two writes: starting a link and disconnecting. Both require a session. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo() == null ? "/" : req.getPathInfo();
@@ -72,6 +74,11 @@ public class TelegramApiServlet extends ApiBase {
     // Handlers
     // -------------------------------------------------------------------------
 
+    /**
+     * GET /api/telegram/status. Reports whether the server has a bot configured at all, whether
+     * this account is connected, and the admin-editable dialog wording. The SPA uses
+     * {@code available} to decide whether to offer the feature.
+     */
     private void handleStatus(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
 
@@ -100,6 +107,12 @@ public class TelegramApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/telegram/link/start. Mints a deep-link token and a six-digit OTP, both good for
+     * {@link TelegramLinkDAO#CODE_TTL_MINUTES}. Returns the {@code t.me} deep link, the manual
+     * code and when they expire. Rate limited to {@link #MAX_STARTS_PER_WINDOW} attempts per
+     * window, because each call mints a fresh credential that could otherwise be farmed.
+     */
     private void handleLinkStart(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         if (!TelegramConfig.isConfigured()) {
@@ -132,6 +145,10 @@ public class TelegramApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/telegram/unlink. Disconnects the caller's own chat. Answers 200 either way, since
+     * "nothing was connected" is the state the caller asked for, so the button is safe to press twice.
+     */
     private void handleUnlink(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         try {
@@ -158,6 +175,7 @@ public class TelegramApiServlet extends ApiBase {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    /** Six digits, drawn from {@link SecureRandom} rather than Math.random because it is a credential. */
     private static String randomOtp() {
         return String.format("%06d", RANDOM.nextInt(1_000_000));
     }

@@ -19,6 +19,13 @@ import java.io.IOException;
  * Validates all fields, verifies the OTP via {@link OtpStore}, hashes the new password
  * using {@link SecurityUtil#hashPassword(String)} (salted SHA-256), updates the DB,
  * and invalidates the OTP to prevent replay.
+ *
+ * <p>Ordering here is deliberate: the new password is checked against the policy and the
+ * confirmation field before the OTP is verified, so a wasted OTP attempt is not spent on a
+ * typo. The code is only consumed once the update has actually succeeded.</p>
+ *
+ * <p>Legacy JSP flow. The SPA posts to {@code /api/auth/reset-password} in
+ * {@code AuthApiServlet} for the same step.</p>
  */
 @WebServlet("/reset-password")
 public class ResetPasswordServlet extends HttpServlet {
@@ -42,12 +49,21 @@ public class ResetPasswordServlet extends HttpServlet {
         this.otpStore = otpStore;
     }
 
+    /**
+     * A direct GET means somebody reached this URL without going through step one, so there is
+     * no identifier to reset against. Sends them back to the forgot-password form.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setAttribute("Error", "Please use the forgot-password form to request a reset code.");
         req.getRequestDispatcher(VIEW_FORGOT).forward(req, resp);
     }
 
+    /**
+     * Completes the reset. Expects {@code identifier}, {@code otp}, {@code newPassword} and
+     * {@code confirmNewPassword}. The identifier travels in a hidden form field rather than the
+     * session, so a missing value means the flow was restarted or the page was opened directly.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = req.getParameter("identifier");
@@ -99,6 +115,8 @@ public class ResetPasswordServlet extends HttpServlet {
             return;
         }
 
+        // Burn the code only after the password has really changed, so a failed update leaves
+        // the user able to retry with the same OTP instead of starting the whole flow again.
         otpStore.invalidate(identifier);
 
         req.setAttribute("Reset", "Password reset successfully!");

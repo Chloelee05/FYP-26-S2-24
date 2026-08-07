@@ -11,6 +11,13 @@ import Modal from './Modal';
 /**
  * Direct chat with the order's counterparty (buyer<->seller), Shopee-style.
  * Distinct from admin support — messages go straight to the other party.
+ *
+ * Opened from My purchases and My sales. Props: `order` is the row to talk about, and its
+ * `role` field says which side the current user is on, which sets the header wording and
+ * whether the "view seller profile" shortcut appears; `onClose` closes the dialog.
+ *
+ * Messages are polled every 5 seconds while the dialog is open, and the poll is disabled
+ * when there is no order, so nothing runs in the background once it closes.
  */
 export default function OrderMessageModal({ order, onClose }) {
   const { user } = useAuth();
@@ -36,10 +43,13 @@ export default function OrderMessageModal({ order, onClose }) {
 
   usePolling(load, 5000, Boolean(order));
 
+  // Keep the newest message in view as the transcript grows, including on the first load.
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   if (!order) return null;
 
+  // Send, clear the box, then reload rather than appending locally, so what is on screen
+  // is always what the server actually stored.
   const handleSend = async (e) => {
     e.preventDefault();
     const text = body.trim();

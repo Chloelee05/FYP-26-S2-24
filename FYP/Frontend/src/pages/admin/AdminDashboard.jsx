@@ -1,3 +1,10 @@
+/*
+ * Admin landing page at "/admin". ADMIN only, through the guard on the parent route.
+ * Reads one endpoint, GET /api/admin/dashboard, which returns the headline metrics and a
+ * recent activity feed in a single response, so the overview is one request rather than four.
+ * The cards are read only. Anything actionable, such as a flagged listing, is dealt with on
+ * the moderation pages in the sidebar.
+ */
 import { useState, useEffect } from 'react';
 import { Users, Package, AlertTriangle, DollarSign } from 'lucide-react';
 import { getAdminDashboard } from '../../api/admin';
@@ -22,6 +29,8 @@ export default function AdminDashboard() {
   const m = data?.metrics ?? {};
   const activities = data?.activities ?? [];
 
+  // A dash placeholder is used rather than a zero while the request is still outstanding, so
+  // a loading page is not mistaken for a platform with no users on it.
   const cards = [
     { label: 'Total Users', value: m.totalUsers ?? '—', sub: `${m.activeUsers ?? 0} active`, icon: Users, color: 'text-primary-600', bg: 'bg-primary-50' },
     { label: 'Active Listings', value: m.activeListings ?? '—', sub: `${m.totalListings ?? 0} total`, icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-50' },

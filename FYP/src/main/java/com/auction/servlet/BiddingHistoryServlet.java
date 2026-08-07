@@ -30,6 +30,11 @@ import java.util.logging.Logger;
  * <p><b>Pagination:</b> {@code page} (1-based, default 1) and {@code size}
  * (default {@value #DEFAULT_PAGE_SIZE}, max {@value #MAX_PAGE_SIZE}) are clamped
  * to valid ranges.</p>
+ *
+ * <p>Legacy JSP page; the SPA fetches the same list from {@code /api/bidding-history} in
+ * {@code BiddingHistoryApiServlet}. Note the difference from {@link AuctionBidHistoryServlet}:
+ * that one shows every bid on a single auction to the public with usernames masked, this one
+ * shows one user all of their own bids across every auction.</p>
  */
 @WebServlet("/protected/bidding-history")
 public class BiddingHistoryServlet extends HttpServlet {
@@ -53,6 +58,11 @@ public class BiddingHistoryServlet extends HttpServlet {
         this.dao = dao;
     }
 
+    /**
+     * Renders one page of the caller's own bid history. Reads optional {@code page} and
+     * {@code size}, clamps both, and reloads the last real page if the requested one is past
+     * the end.
+     */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -94,6 +104,7 @@ public class BiddingHistoryServlet extends HttpServlet {
     // Pagination helpers
     // -------------------------------------------------------------------------
 
+    /** 1-based page number; a missing or unparseable value falls back to page 1. */
     private static int parsePage(HttpServletRequest req) {
         try {
             String p = req.getParameter("page");
@@ -104,6 +115,7 @@ public class BiddingHistoryServlet extends HttpServlet {
         return 1;
     }
 
+    /** Rows per page, clamped into [1, {@value #MAX_PAGE_SIZE}] so one request cannot pull the lot. */
     private static int parseSize(HttpServletRequest req) {
         try {
             String s = req.getParameter("size");

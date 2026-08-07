@@ -17,13 +17,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Data-access layer for {@code landing_content} — the admin-editable copy on the
+ * Data-access layer for {@code landing_content}, the admin-editable copy on the
  * landing page.
  *
  * <p>The set of editable fields is defined by the rows seeded in
  * {@code migration_landing_content.sql}, not by a list in code: {@link #allKeys()} is
  * the authorization allowlist for writes, and {@link #resetToDefault(String, Integer)}
  * restores the seeded text. New fields are therefore added by migration alone.</p>
+ *
+ * <p>Reads and writes only {@code landing_content}. The public landing endpoint calls
+ * {@link #findAllValues()}; the admin content editor calls the rest. Every row keeps both the
+ * current {@code content_value} and the original {@code default_value}, which is what makes the
+ * reset operations possible without redeploying.</p>
  */
 public class LandingContentDAO {
 
@@ -101,6 +106,8 @@ public class LandingContentDAO {
         String sql = "UPDATE landing_content SET content_value = ?, updated_at = NOW(), updated_by = ? "
                 + "WHERE content_key = ?";
         try {
+            // One transaction with a JDBC batch: the admin form saves many fields at once, and a
+            // partial save would leave the landing page showing a mix of old and new copy.
             return DBUtil.runInTransaction(conn -> {
                 int updated = 0;
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -127,6 +134,8 @@ public class LandingContentDAO {
      * @return {@code true} if the row existed and was updated
      */
     public boolean resetToDefault(String key, Integer adminId) {
+        // Copying default_value into content_value within the same row is why no default text has
+        // to be duplicated in Java.
         String sql = "UPDATE landing_content SET content_value = default_value, updated_at = NOW(), "
                 + "updated_by = ? WHERE content_key = ?";
         try (Connection conn = DBUtil.connectDB();
@@ -142,6 +151,8 @@ public class LandingContentDAO {
     /**
      * Restores every field in one group to its seeded default.
      *
+     * @param group the {@code content_group} value, which is how the admin form sections are
+     *              defined (hero, footer and so on)
      * @return the number of fields reset
      */
     public int resetGroup(String group, Integer adminId) {
@@ -161,6 +172,7 @@ public class LandingContentDAO {
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /** Binds the editing admin, writing SQL NULL when the change came from a system path. */
     private static void setAdmin(PreparedStatement ps, int index, Integer adminId) throws SQLException {
         if (adminId == null) ps.setNull(index, Types.INTEGER);
         else ps.setInt(index, adminId);
@@ -168,6 +180,8 @@ public class LandingContentDAO {
 
     private static LandingContentItem mapRow(ResultSet rs) throws SQLException {
         Timestamp ts = rs.getTimestamp("updated_at");
+        // getInt returns 0 for SQL NULL, so wasNull is the only way to tell "never edited" apart
+        // from admin id 0. Getting this wrong would attribute seeded copy to a real account.
         int editorId = rs.getInt("updated_by");
         Integer editor = rs.wasNull() ? null : editorId;
         return new LandingContentItem(

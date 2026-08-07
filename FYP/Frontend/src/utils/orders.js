@@ -4,6 +4,8 @@
  * bucketing and labelling live here rather than being duplicated per page.
  */
 
+// The four shipping steps the backend records, in the order a seller advances through
+// them, mapped to wording a buyer understands.
 const SHIPPING_LABEL = {
   PREPARING:  'Seller preparing',
   SHIPPED:    'Shipped',
@@ -104,6 +106,8 @@ export function orderBadgeClass(status) {
   return 'badge-warning';
 }
 
+// Date filtering is done in the browser over the orders already loaded, rather than as
+// another request, because /api/orders returns a member's whole history in one call.
 const DATE_RANGES = {
   all: null,
   '7':  7,
@@ -111,6 +115,7 @@ const DATE_RANGES = {
   '90': 90,
 };
 
+/** The options offered in the date dropdown; keys index into DATE_RANGES above. */
 export const DATE_FILTERS = [
   { key: 'all', label: 'Any date' },
   { key: '7',   label: 'Last 7 days' },
@@ -118,6 +123,7 @@ export const DATE_FILTERS = [
   { key: '90',  label: 'Last 90 days' },
 ];
 
+/** True when the order is inside the selected window. An order with no date is kept. */
 export function withinDateFilter(order, key) {
   const days = DATE_RANGES[key];
   if (!days || !order.createdAt) return true;

@@ -1,3 +1,12 @@
+/*
+ * Registration at "/register". Public, no navbar, rendered inside AuthLayout.
+ * Posts to /api/auth/register. There is one account type: a new account can bid straight away and
+ * turns selling on later from Account settings or the My listings gate, so the form never
+ * asks the visitor to choose a role.
+ * Accepting the terms is required and links to the /terms and /privacy pages. On success the
+ * page shows a confirmation dialog and then sends the user to /login?registered=1 rather
+ * than signing them in automatically.
+ */
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, DollarSign, Zap, ShieldCheck } from 'lucide-react';
@@ -21,6 +30,10 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // Checks the terms box and the password match locally, then registers. The termsAccept
+  // boolean is sent as the string 'on' because the servlet reads it as a form checkbox value.
+  // A missing err.response means the request never reached Tomcat, which during development
+  // usually means the backend is not running, so that case gets its own message.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.termsAccept) { setError('You must accept the terms to continue.'); return; }

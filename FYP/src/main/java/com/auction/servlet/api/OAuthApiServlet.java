@@ -36,6 +36,15 @@ import java.util.logging.Logger;
  * <p>Google ID tokens (from Google Identity Services) are verified server-side against
  * Google's tokeninfo endpoint; the audience must match {@code GOOGLE_CLIENT_ID}
  * (environment variable or {@code google.client.id} system property).</p>
+ *
+ * <p>Server-side verification is the point: the credential the browser sends is never trusted
+ * on its own. Google is asked to confirm it, and the audience check rejects a valid Google
+ * token that was issued for some other application.</p>
+ *
+ * <p>Linking is not registration. /login only works for a Google account already linked to an
+ * AuctionHub account, so signing in with Google cannot create an account and bypass the admin
+ * approval step. The same suspended, deleted, pending and rejected status gates as password
+ * login apply. Links live in {@code linked_accounts} through {@link LinkedAccountDAO}.</p>
  */
 @WebServlet("/api/oauth/*")
 public class OAuthApiServlet extends ApiBase {
@@ -48,6 +57,11 @@ public class OAuthApiServlet extends ApiBase {
     private final LinkedAccountDAO linkedAccountDAO = new LinkedAccountDAO();
     private final UserDAO userDAO = new UserDAO();
 
+    /**
+     * The configured Google client id, or null when Google sign-in is switched off. Read from the
+     * environment first so deployment does not need a code change; the system property is the
+     * local development fallback.
+     */
     static String googleClientId() {
         String env = System.getenv("GOOGLE_CLIENT_ID");
         if (env != null && !env.isBlank()) return env.trim();
@@ -55,6 +69,7 @@ public class OAuthApiServlet extends ApiBase {
         return (prop == null || prop.isBlank()) ? null : prop.trim();
     }
 
+    /** Routes the reads: /config is public, /linked needs a session. */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo() == null ? "/" : req.getPathInfo();
@@ -65,6 +80,7 @@ public class OAuthApiServlet extends ApiBase {
         }
     }
 
+    /** Routes the writes. /link and /unlink require a session; /login is by definition unauthenticated. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo() == null ? "/" : req.getPathInfo();
@@ -76,6 +92,11 @@ public class OAuthApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * GET /api/oauth/config. Public, because the SPA needs the client id before anyone is signed
+     * in to decide whether to render the Google button. A client id is a public value by design,
+     * unlike the client secret, which this flow does not use at all.
+     */
     private void handleConfig(HttpServletResponse resp) throws IOException {
         String clientId = googleClientId();
         Map<String, Object> google = new LinkedHashMap<>();
@@ -84,6 +105,7 @@ public class OAuthApiServlet extends ApiBase {
         ok(resp, Map.of("google", google));
     }
 
+    /** GET /api/oauth/linked. Lists the providers linked to the caller's own account, for Account Settings. */
     private void handleLinked(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         try {
@@ -93,6 +115,12 @@ public class OAuthApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/oauth/link with {@code provider} and {@code credential}. Attaches a verified
+     * Google identity to the signed-in account. The Google subject id is unique per account, so
+     * a 409 comes back if that Google account already belongs to a different member, which stops
+     * two AuctionHub accounts sharing one Google login.
+     */
     private void handleLink(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         String provider = param(req, "provider");
@@ -114,6 +142,10 @@ public class OAuthApiServlet extends ApiBase {
         }
     }
 
+    /**
+     * POST /api/oauth/unlink with {@code provider}. Removes the link for the caller's own account.
+     * The password login still exists afterwards, so unlinking cannot lock anyone out.
+     */
     private void handleUnlink(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         if (!requireAuth(req, resp)) return;
         String provider = param(req, "provider");
@@ -127,7 +159,15 @@ public class OAuthApiServlet extends ApiBase {
         }
     }
 
-    /** Signs the user in with a previously linked Google account. */
+    /**
+     * Signs the user in with a previously linked Google account.
+     *
+     * <p>POST /api/oauth/login with {@code provider} and {@code credential}. The account is found
+     * by the Google subject id rather than by email, because an email address can be changed on
+     * either side while the subject id is stable. An unlinked Google account gets 404 with
+     * instructions instead of being registered. Issues the same token and body as a password
+     * login, and does not go through 2FA since Google already applied its own.</p>
+     */
     private void handleLogin(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String provider = param(req, "provider");
         if (!isSupported(provider)) { badRequest(resp, "Only Google sign-in is supported right now."); return; }
@@ -171,11 +211,13 @@ public class OAuthApiServlet extends ApiBase {
         ok(resp, body);
     }
 
+    /** Checks the provider name against the allow-list, so only Google is accepted at present. */
     private boolean isSupported(String provider) {
         return provider != null
                 && LinkedAccountDAO.SUPPORTED_PROVIDERS.contains(provider.toLowerCase());
     }
 
+    /** The two fields taken from a verified Google token: the stable subject id and the email. */
     private static final class GoogleIdentity {
         final String sub;
         final String email;
@@ -212,6 +254,8 @@ public class OAuthApiServlet extends ApiBase {
             String aud = node.path("aud").asText(null);
             String sub = node.path("sub").asText(null);
             String email = node.path("email").asText(null);
+            // The audience check is what ties the token to this application. Without it, a token
+            // Google issued for any other site would be accepted here as a valid sign-in.
             if (sub == null || !clientId.equals(aud)) {
                 error(resp, 401, "The Google token was issued for a different application.");
                 return null;
