@@ -150,10 +150,14 @@
 \echo '== blind auctions: clear auto-bids that could never fire =='
 \ir migration_blind_auction_no_auto_bid.sql
 
-\echo '== decode HTML entities stored in category names/descriptions =='
-\ir migration_category_name_unescape.sql
-
+-- Schema before data for the categories work: the picture column is what the deployed code
+-- selects, so it must land even if the data repair below has something to complain about.
+-- Ordered the other way round, one bad row aborted the repair and, under ON_ERROR_STOP=1,
+-- took the ADD COLUMN with it -- leaving the app querying a column that did not exist.
 \echo '== per-category picture (admin-uploaded, overrides the built-in icon) =='
 \ir migration_category_image.sql
+
+\echo '== decode HTML entities stored in category names/descriptions =='
+\ir migration_category_name_unescape.sql
 
 \echo 'All migrations applied.'
