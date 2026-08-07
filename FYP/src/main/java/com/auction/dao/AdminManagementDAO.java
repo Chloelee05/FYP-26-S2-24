@@ -349,6 +349,55 @@ public class AdminManagementDAO {
         return true;
     }
 
+    /**
+     * NEW for the "system-wide announcement" admin story: records one broadcast in the
+     * existing {@code admin_audit_log} convention, the same table every other admin
+     * management action here writes to. There is no single entity a broadcast acts on, so
+     * this uses a synthetic {@code entityType = "ANNOUNCEMENT"} with {@code entityId = 0}
+     * rather than inventing a nullable entity id or a new log table just for this one
+     * action. The title is stored as the new value and the body as the reason, mirroring
+     * how {@link #audit} already pairs a changed field with an explanatory reason elsewhere
+     * in this class, so {@code listAuditLog} needs no changes to surface it.
+     *
+     * <p>This opens its own connection rather than running inside
+     * {@code DBUtil.runInTransaction} like the mutating methods above, because a broadcast
+     * has no accompanying row to update atomically — the notifications themselves are
+     * written by {@code NotificationService.broadcastAnnouncement}, and recording the audit
+     * entry is a single INSERT with nothing to roll back together with it. Purely additive:
+     * the private {@link #audit} helper's signature and behaviour are unchanged for every
+     * existing caller.</p>
+     */
+    public void recordAnnouncementBroadcast(int adminId, String title, String body, int recipientCount) {
+        try (Connection conn = DBUtil.connectDB()) {
+            audit(conn, adminId, "ANNOUNCEMENT", 0L, "BROADCAST", "title", null,
+                    title + " (sent to " + recipientCount + " recipient(s))", body);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * NEW for the "platform-wide auction rules" admin story: records one platform setting
+     * change (minimum bid increment or maximum auction duration) in the existing
+     * {@code admin_audit_log} convention, following exactly the shape
+     * {@link #recordAnnouncementBroadcast} established for an action with no single entity row
+     * to key off — a synthetic {@code entityType = "PLATFORM_SETTINGS"} with
+     * {@code entityId = 0}. Kept as its own method rather than reusing
+     * {@code recordAnnouncementBroadcast} directly, since the two are different action types
+     * with different field/value shapes; both simply delegate to the same private
+     * {@link #audit} helper, whose signature and behaviour remain unchanged for every existing
+     * caller.
+     */
+    public void recordAuctionRulesChange(int adminId, String settingKey, String oldValue,
+                                         String newValue, String reason) {
+        try (Connection conn = DBUtil.connectDB()) {
+            audit(conn, adminId, "PLATFORM_SETTINGS", 0L, "UPDATE_AUCTION_RULE",
+                    settingKey, oldValue, newValue, reason);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /** Most recent admin management actions, newest first. */
     public List<Map<String, Object>> listAuditLog(int limit) {
         String sql = "SELECT l.id, l.entity_type, l.entity_id, l.action, l.field_name, "

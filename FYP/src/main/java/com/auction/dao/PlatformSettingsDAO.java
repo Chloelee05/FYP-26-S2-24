@@ -2,6 +2,7 @@ package com.auction.dao;
 
 import com.auction.util.DBUtil;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -82,6 +83,24 @@ public class PlatformSettingsDAO {
         if (v == null) return defaultValue;
         try {
             return Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * NEW for the "platform-wide auction rules" admin story: the {@link BigDecimal} value for
+     * {@code key}, or {@code defaultValue} when missing/unparseable. Added because that story's
+     * minimum-bid-increment setting is a money value, which {@link #getInt} and {@link #getLong}
+     * would silently truncate; this is a pure addition alongside them, sharing the same cached
+     * {@link #settings()} snapshot so it carries no extra cache or behaviour for either of the
+     * existing readers.
+     */
+    public BigDecimal getBigDecimal(String key, BigDecimal defaultValue) {
+        String v = settings().get(key);
+        if (v == null) return defaultValue;
+        try {
+            return new BigDecimal(v.trim());
         } catch (NumberFormatException e) {
             return defaultValue;
         }

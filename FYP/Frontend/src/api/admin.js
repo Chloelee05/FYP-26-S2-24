@@ -24,9 +24,22 @@ const F = { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
 export const getAdminDashboard = () => api.get('/admin/dashboard');
 /** GET /api/admin/analytics. Time series behind the charts. */
 export const getAdminAnalytics = () => api.get('/admin/analytics');
-/** GET /api/admin/analytics/report. Returns a downloadable file, hence responseType blob. */
-export const downloadAdminReport = (type) =>
-  api.get(`/admin/analytics/report?type=${type}`, { responseType: 'blob' });
+/**
+ * GET /api/admin/analytics/report. Returns a downloadable file, hence responseType blob.
+ *
+ * NEW optional third argument `filters` for the "report filters by date range, category and
+ * seller" admin story: `{ dateFrom, dateTo, category }`, all optional. Omitted entirely
+ * (the previous two-argument call shape) or passed as `{}`/`undefined` reproduces exactly
+ * today's request — the server only reads these params for `type=revenue` and only when at
+ * least one is present, so an unfiltered call is completely unaffected.
+ */
+export const downloadAdminReport = (type, filters = {}) => {
+  const params = { type };
+  if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+  if (filters.dateTo) params.dateTo = filters.dateTo;
+  if (filters.category) params.category = filters.category;
+  return api.get('/admin/analytics/report', { params, responseType: 'blob' });
+};
 
 // Database management
 /** GET /api/admin/database/status. Connection state, table counts and last backup time. */
@@ -160,3 +173,19 @@ export const adminResolveRefund = (orderId, approve) =>
 // value and feeds platform revenue.
 export const correctOrderStatus = (orderId, status, reason) =>
   api.post('/admin/orders', form({ action: 'correct-status', orderId, status, reason }), F);
+
+// System-wide announcements (NEW). "As an Admin, I want to send system-wide announcements
+// or notifications to all users, so that I can send maintenance or policy updates."
+// One POST, no query params — the server fans this out to every active user through the
+// existing per-user notification preference/email/Telegram funnel, so there is nothing here
+// beyond title/body to configure.
+export const sendAnnouncement = (title, body) =>
+  api.post('/admin/announcements', form({ title, body }), F);
+
+// Platform-wide auction rules (NEW). Minimum bid increment and maximum auction duration,
+// both admin-tunable through the generic platform_settings store — the same pattern as the
+// recommendation settings above. `settings` is `{ min_bid_increment, max_auction_duration_days }`;
+// either key may be omitted to leave that setting untouched.
+export const getAuctionRules = () => api.get('/admin/auction-rules');
+export const saveAuctionRules = (settings) =>
+  api.post('/admin/auction-rules', form(settings), F);

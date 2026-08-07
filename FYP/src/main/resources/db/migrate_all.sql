@@ -160,4 +160,12 @@
 \echo '== decode HTML entities stored in category names/descriptions =='
 \ir migration_category_name_unescape.sql
 
+-- NEW for the "platform-wide auction rules" admin story. Placed after every schema migration
+-- above (including the categories schema/data-repair pair just above, whose ordering this
+-- keeps intact) and before nothing else, since this is the last migration in the file: it only
+-- seeds two rows into the platform_settings table migration_platform_settings.sql already
+-- created, so it has no schema dependency that requires it to run any earlier.
+\echo '== platform-wide auction rules (minimum bid increment, maximum auction duration) =='
+\ir migration_platform_auction_rules.sql
+
 \echo 'All migrations applied.'

@@ -7,8 +7,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Generates plain-text admin analytics export reports.
@@ -180,6 +183,142 @@ public class AdminReportDAO {
     }
 
     /**
+     * NEW for the "report filters by date range, category and seller" admin story: the revenue
+     * report, filtered to a date window and/or a listing category. Both filters are optional and
+     * independent of each other; either may be {@code null} to mean "no bound on this filter",
+     * so this is a strict superset of {@link #generateRevenueReport()}'s behaviour rather than a
+     * replacement for it — that no-arg method is completely untouched, and the servlet only
+     * calls this overload when the admin actually supplied a date or category parameter.
+     *
+     * <p>{@code category} matches {@code auction_details.category} case-insensitively, the same
+     * convention {@code SearchDAO} and {@code CategoryDAO} already use elsewhere in this
+     * codebase. There is no foreign key from {@code auction_details} to {@code categories}: the
+     * column is a free-text name (see {@code CategoryDAO}'s class comment), so a direct
+     * {@code LOWER(...) = LOWER(?)} match against that text column is the correct join, not a
+     * join through the {@code categories} table, which has no id column on {@code
+     * auction_details} to join against at all.</p>
+     *
+     * <p>The date range narrows every figure to {@code auction.date_end} (for revenue realised
+     * from a completed sale) or {@code orders.created_at} (for order totals), matching the
+     * columns the unfiltered report's own "Revenue by period" section already reads. The four
+     * fixed rolling windows in the unfiltered report stop being meaningful once a custom range is
+     * requested, so this report replaces them with a single total for the requested window
+     * instead of also printing the fixed 1/7/30/90-day figures.</p>
+     *
+     * @param from     inclusive lower bound on the date range, or {@code null} for no lower bound
+     * @param to       inclusive upper bound on the date range, or {@code null} for no upper bound
+     * @param category listing category name to filter to (case-insensitive), or {@code null}/blank
+     *                 for every category
+     */
+    public String generateRevenueReport(LocalDate from, LocalDate to, String category) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("REVENUE REPORT (filtered)\n");
+        sb.append("Generated: ").append(FMT.format(Instant.now())).append("\n");
+        sb.append("Filters applied: ").append(describeFilters(from, to, category)).append("\n\n");
+
+        // Half-open [fromTs, toTs) window: `to` is inclusive of the whole calendar day, so the
+        // upper bound is midnight of the day *after* `to`, not midnight of `to` itself.
+        Timestamp fromTs = from == null ? null
+                : Timestamp.from(from.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        Timestamp toTs = to == null ? null
+                : Timestamp.from(to.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
+        String cat = (category == null || category.isBlank()) ? null : category.trim();
+
+        try (Connection conn = DBUtil.connectDB()) {
+            // Platform revenue from completed winning bids, filtered on the auction's end date
+            // (when the sale actually happened) and, when given, its category.
+            StringBuilder revenueSql = new StringBuilder(
+                    "SELECT COALESCE(SUM(d.winning_bid), 0) FROM auction_details d "
+                  + "JOIN auction a ON a.auction_id = d.id WHERE d.winning_bid IS NOT NULL");
+            List<Object> revenueParams = new ArrayList<>();
+            appendDateFilter(revenueSql, revenueParams, "a.date_end", fromTs, toTs);
+            appendCategoryFilter(revenueSql, revenueParams, "d.category", cat);
+            appendDecimal(sb, conn, "Platform revenue (completed winning bids)",
+                    revenueSql.toString(), revenueParams);
+
+            // Order totals, filtered on when the order was placed and, through the auction it
+            // belongs to, its category.
+            StringBuilder ordersSql = new StringBuilder(
+                    "SELECT COALESCE(SUM(o.amount), 0) FROM orders o "
+                  + "JOIN auction_details d ON d.id = o.auction_id "
+                  + "WHERE o.status IN ('PAID','COMPLETED')");
+            List<Object> ordersParams = new ArrayList<>();
+            appendDateFilter(ordersSql, ordersParams, "o.created_at", fromTs, toTs);
+            appendCategoryFilter(ordersSql, ordersParams, "d.category", cat);
+            appendDecimal(sb, conn, "Paid + completed orders total", ordersSql.toString(), ordersParams);
+
+            sb.append("\n--- Top sellers by revenue (filtered) ---\n");
+            StringBuilder topSql = new StringBuilder(
+                    "SELECT u.username, COALESCE(SUM(d.winning_bid), 0) AS rev "
+                  + "FROM auction a JOIN auction_details d ON d.id = a.auction_id "
+                  + "JOIN users u ON u.id = a.seller_id "
+                  + "WHERE d.winning_bid IS NOT NULL");
+            List<Object> topParams = new ArrayList<>();
+            appendDateFilter(topSql, topParams, "a.date_end", fromTs, toTs);
+            appendCategoryFilter(topSql, topParams, "d.category", cat);
+            topSql.append(" GROUP BY u.username ORDER BY rev DESC LIMIT 10");
+            try (PreparedStatement ps = conn.prepareStatement(topSql.toString())) {
+                bindParams(ps, topParams);
+                try (ResultSet rs = ps.executeQuery()) {
+                    boolean any = false;
+                    while (rs.next()) {
+                        any = true;
+                        sb.append("  ").append(rs.getString("username"))
+                          .append(" — $").append(rs.getBigDecimal("rev")).append('\n');
+                    }
+                    if (!any) sb.append("  (no sellers match these filters)\n");
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return sb.toString();
+    }
+
+    /** Human-readable summary of which filters were applied, for the report header. */
+    private static String describeFilters(LocalDate from, LocalDate to, String category) {
+        List<String> parts = new ArrayList<>();
+        if (from != null) parts.add("from " + from);
+        if (to != null) parts.add("to " + to);
+        if (category != null && !category.isBlank()) parts.add("category = " + category.trim());
+        return parts.isEmpty() ? "none (showing all data)" : String.join(", ", parts);
+    }
+
+    /** Appends an optional {@code column >= ? AND column < ?}-style date range clause. */
+    private static void appendDateFilter(StringBuilder sql, List<Object> params, String column,
+                                         Timestamp from, Timestamp to) {
+        if (from != null) {
+            sql.append(" AND ").append(column).append(" >= ?");
+            params.add(from);
+        }
+        if (to != null) {
+            sql.append(" AND ").append(column).append(" < ?");
+            params.add(to);
+        }
+    }
+
+    /**
+     * Appends an optional case-insensitive category match. {@code column} must be a free-text
+     * category name column (e.g. {@code auction_details.category}), not a foreign key, per the
+     * schema note on {@link #generateRevenueReport(LocalDate, LocalDate, String)}.
+     */
+    private static void appendCategoryFilter(StringBuilder sql, List<Object> params, String column,
+                                              String category) {
+        if (category != null) {
+            sql.append(" AND LOWER(").append(column).append(") = LOWER(?)");
+            params.add(category);
+        }
+    }
+
+    private static void bindParams(PreparedStatement ps, List<Object> params) throws Exception {
+        for (int i = 0; i < params.size(); i++) {
+            Object p = params.get(i);
+            if (p instanceof Timestamp) ps.setTimestamp(i + 1, (Timestamp) p);
+            else ps.setString(i + 1, String.valueOf(p));
+        }
+    }
+
+    /**
      * Trust and safety report: how many listings are flagged or removed, how many users are
      * suspended, how many reports and support threads are still open, plus recent examples of each.
      */
@@ -322,6 +461,23 @@ public class AdminReportDAO {
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             sb.append(label).append(": $").append(rs.next() ? rs.getBigDecimal(1) : 0).append('\n');
+        }
+    }
+
+    /**
+     * NEW for the "report filters by date range, category and seller" admin story: same as
+     * {@link #appendDecimal(StringBuilder, Connection, String, String)}, but for a query built
+     * with bound parameters (the date-range and category filters) rather than a fixed literal
+     * string. The two-argument version above is untouched and still used by every unfiltered
+     * report.
+     */
+    private static void appendDecimal(StringBuilder sb, Connection conn, String label, String sql,
+                                      List<Object> params) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindParams(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                sb.append(label).append(": $").append(rs.next() ? rs.getBigDecimal(1) : 0).append('\n');
+            }
         }
     }
 }

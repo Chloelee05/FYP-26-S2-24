@@ -62,6 +62,10 @@ const AdminReports = lazy(() => import('./pages/admin/AdminReports'));
 const AdminReviews = lazy(() => import('./pages/admin/AdminReviews'));
 const AdminOrders = lazy(() => import('./pages/admin/AdminOrders'));
 const AdminChat = lazy(() => import('./pages/admin/AdminChat'));
+// NEW for the "system-wide announcement" admin story.
+const AdminAnnouncements = lazy(() => import('./pages/admin/AdminAnnouncements'));
+// NEW for the "platform-wide auction rules" admin story.
+const AdminAuctionRules = lazy(() => import('./pages/admin/AdminAuctionRules'));
 
 // Terms, privacy, payments, cookies and ad choice all render from one LegalPage component
 // that picks its text from the current path, so they share a single route definition.
@@ -133,6 +137,10 @@ function App() {
                 <Route path="reviews" element={<AdminReviews />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="chat" element={<AdminChat />} />
+                {/* NEW for the "system-wide announcement" admin story. */}
+                <Route path="announcements" element={<AdminAnnouncements />} />
+                {/* NEW for the "platform-wide auction rules" admin story. */}
+                <Route path="auction-rules" element={<AdminAuctionRules />} />
               </Route>
 
               {/* Public pages. No ProtectedRoute wrapper, so a visitor with no account can

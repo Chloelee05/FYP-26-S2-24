@@ -18,6 +18,9 @@ import {
   getAdminUsers, emailSellerAnalytics, emailAllSellerAnalytics,
   getSellerAnalyticsReport,
   getRecommendationConfig, saveRecommendationConfig,
+  // NEW for the "report filters by date range, category and seller" admin story: the category
+  // list feeds the new optional category filter below.
+  getAdminCategories,
 } from '../../api/admin';
 import { apiErrorMessage } from '../../utils/apiError';
 import RecommendationAttributionPanel from './RecommendationAttributionPanel';
@@ -64,6 +67,14 @@ export default function AdminAnalytics() {
   const [emailBusy, setEmailBusy] = useState(false);
   const [sellerReport, setSellerReport] = useState(null);
   const [reportOnly, setReportOnly] = useState(false);
+  // NEW for the "report filters by date range, category and seller" admin story. All three
+  // default to empty, meaning "no filter" — matching today's output exactly when left unused.
+  // The seller filter this story asks for already exists above (the seller dropdown feeds the
+  // per-seller analytics report), so only date range and category are new state here.
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [categories, setCategories] = useState([]);
   const [recMetrics, setRecMetrics] = useState(null);
   const [recByReason, setRecByReason] = useState([]);
   // Live copy of the recommender's tuning parameters. Seeded from the server on mount and
@@ -93,6 +104,10 @@ export default function AdminAnalytics() {
         if (r.data?.settings) setRecForm(f => ({ ...f, ...r.data.settings }));
       })
       .catch(() => {});
+    // NEW for the "report filters by date range, category and seller" admin story: populates
+    // the new category filter dropdown below. Independent of the other three loads, so a
+    // failure here only disables that one filter rather than the page.
+    getAdminCategories().then(r => setCategories(r.data ?? [])).catch(() => {});
   }, []);
 
   const handleSaveRecSettings = async () => {
@@ -125,7 +140,15 @@ export default function AdminAnalytics() {
     setReportBusy(report.type);
     setMsg('');
     try {
-      const r = await downloadAdminReport(report.type);
+      // NEW for the "report filters by date range, category and seller" admin story: the date
+      // range and category are only honoured by the server for the Revenue Report, but they are
+      // harmless to send alongside the other two report types too, so this always forwards
+      // whatever is currently set rather than special-casing report.type here.
+      const r = await downloadAdminReport(report.type, {
+        dateFrom: filterDateFrom || undefined,
+        dateTo: filterDateTo || undefined,
+        category: filterCategory || undefined,
+      });
       triggerBlobDownload(r.data, report.filename);
       setMsg(`${report.label} downloaded.`);
     } catch (err) {
@@ -337,6 +360,68 @@ export default function AdminAnalytics() {
 
       <div className="card p-5 mb-6">
         <h2 className="section-title text-base mb-4">Generate Reports</h2>
+
+        {/* NEW for the "report filters by date range, category and seller" admin story.
+            All three inputs are optional and default to empty ("no filter"), so a report
+            generated without touching this panel is byte-for-byte identical to today's
+            output. Currently honoured by the server for the Revenue Report only — a date
+            range and a category most directly narrow a money report; the other two report
+            types ignore these params and are unaffected either way. The seller filter this
+            story also asks for already exists on this page, in the Seller Data Analytics
+            card above. */}
+        <div className="mb-4 p-4 rounded-xl bg-ink-50 border border-ink-100">
+          <h3 className="font-semibold text-sm text-ink-900 mb-1">Report filters (optional)</h3>
+          <p className="text-xs text-ink-400 mb-3">
+            Narrows the Revenue Report to a date range and/or a category. Leave blank for
+            today's default, unfiltered report.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-ink-500 mb-1" htmlFor="report-date-from">From</label>
+              <input
+                id="report-date-from"
+                type="date"
+                value={filterDateFrom}
+                onChange={e => setFilterDateFrom(e.target.value)}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1" htmlFor="report-date-to">To</label>
+              <input
+                id="report-date-to"
+                type="date"
+                value={filterDateTo}
+                onChange={e => setFilterDateTo(e.target.value)}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-500 mb-1" htmlFor="report-category">Category</label>
+              <select
+                id="report-category"
+                value={filterCategory}
+                onChange={e => setFilterCategory(e.target.value)}
+                className="border border-ink-200 rounded-lg px-3 py-2 text-sm min-w-[180px]"
+              >
+                <option value="">All categories</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            {(filterDateFrom || filterDateTo || filterCategory) && (
+              <button
+                type="button"
+                onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory(''); }}
+                className="text-xs text-ink-400 hover:text-ink-600 pb-2"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-3 gap-4">
           {REPORTS.map(({ icon: ReportIcon, ...r }) => (
             <button

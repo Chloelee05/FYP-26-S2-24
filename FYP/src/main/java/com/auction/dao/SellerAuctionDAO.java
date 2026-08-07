@@ -188,6 +188,29 @@ public class SellerAuctionDAO {
         }
     }
 
+    /**
+     * NEW for the "platform-wide auction rules" admin story: this auction's creation timestamp
+     * ({@code auction.date_created}), scoped to {@code sellerId} the same way every other
+     * method in this class scopes its query. Added so {@code SellerApiServlet.handleEdit}'s new
+     * maximum-auction-duration guard can compute the listing's total window (start to the
+     * requested new end date) without loading the full edit-form payload
+     * {@link #getAuctionForEdit} assembles. Returns {@code null} when the auction does not exist
+     * or is not owned by {@code sellerId}, mirroring that method's own ownership scoping.
+     */
+    public Instant getDateCreated(long auctionId, int sellerId) throws Exception {
+        String sql = "SELECT date_created FROM auction WHERE auction_id = ? AND seller_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            ps.setInt(2, sellerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                Timestamp ts = rs.getTimestamp("date_created");
+                return ts != null ? ts.toInstant() : null;
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ edit (SCRUM-37)
 
     /**

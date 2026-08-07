@@ -3,10 +3,16 @@ package com.auction.servlet.api;
 import com.auction.dao.AdminManagementDAO;
 import com.auction.dao.AdminReportDAO;
 import com.auction.dao.AuctionDAO;
+// NEW for the "platform-wide auction rules" admin story: reads the shared default constant so
+// GET /auction-rules reports the exact same fallback BidDAO itself uses.
+import com.auction.dao.BidDAO;
 import com.auction.dao.CategoryDAO;
 import com.auction.dao.FeaturedListingDAO;
 import com.auction.dao.OrderDAO;
 import com.auction.dao.PlatformRevenueDAO;
+// NEW for the "platform-wide auction rules" admin story: read/write the settings this
+// endpoint exposes, the same DAO BidDAO and the seller listing endpoints read from.
+import com.auction.dao.PlatformSettingsDAO;
 import com.auction.dao.ReportDAO;
 import com.auction.dao.SellerAnalyticsDAO;
 import com.auction.dao.UserDAO;
@@ -27,13 +33,18 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * GET  /api/admin/dashboard
@@ -82,6 +93,8 @@ public class AdminApiServlet extends ApiBase {
     private final PlatformRevenueDAO platformRevenueDAO = new PlatformRevenueDAO();
     private final com.auction.dao.RatingDAO ratingDAO = new com.auction.dao.RatingDAO();
     private final com.auction.dao.RecommendationDAO recommendationDAO = new com.auction.dao.RecommendationDAO();
+    // NEW for the "platform-wide auction rules" admin story.
+    private final PlatformSettingsDAO platformSettingsDAO = new PlatformSettingsDAO();
 
     /**
      * Routes every admin read. Multi-segment paths such as /database/status are matched first,
@@ -120,6 +133,12 @@ public class AdminApiServlet extends ApiBase {
             handleGetListingContent(req, resp);
             return;
         }
+        // NEW for the "platform-wide auction rules" admin story: its own top-level path check,
+        // matching how /recommendations and /sellers/analytics above are routed.
+        if (path != null && path.equals("/auction-rules")) {
+            handleGetAuctionRules(resp);
+            return;
+        }
         switch (sub(req)) {
             case "dashboard":   handleDashboard(resp);         break;
             case "users":       ok(resp, userDAO.listUsersForAdminTable()); break;
@@ -151,6 +170,20 @@ public class AdminApiServlet extends ApiBase {
         }
         if (path != null && path.equals("/recommendations")) {
             handleSaveRecommendationConfig(req, resp);
+            return;
+        }
+        // NEW for the "system-wide announcement" admin story: its own top-level path check,
+        // exactly like /database/restore, /sellers/analytics-email and /recommendations
+        // above, so it cannot collide with a case added to the switch below by anyone else
+        // working in this file at the same time.
+        if (path != null && path.equals("/announcements")) {
+            handleBroadcastAnnouncement(req, resp);
+            return;
+        }
+        // NEW for the "platform-wide auction rules" admin story: same isolated top-level path
+        // check as /announcements just above.
+        if (path != null && path.equals("/auction-rules")) {
+            handleSaveAuctionRules(req, resp);
             return;
         }
         switch (sub(req)) {
@@ -307,6 +340,173 @@ public class AdminApiServlet extends ApiBase {
         return (raw == null || raw.isBlank()) ? fallback : Double.parseDouble(raw.trim());
     }
 
+    // ── GET/POST: platform-wide auction rules (NEW) ─────────────────────────────
+    //
+    // The whole story: platform-wide minimum bid increment and maximum auction duration,
+    // admin-tunable the same way the recommendation parameters above are. Read/written through
+    // PlatformSettingsDAO, the same generic key/value store BidDAO already reads for the bid
+    // rate limit. Whitelisted the same way AdminLandingContentApiServlet.handleUpdate
+    // whitelists its own content keys, so an unrecognised key is a 400, not a silently-ignored
+    // no-op or a row inserted for a key nothing ever reads.
+
+    /**
+     * The only two keys this endpoint may read or write. {@link BidDAO} and
+     * {@link com.auction.servlet.api.SellerApiServlet} read the same two keys directly from
+     * {@link PlatformSettingsDAO}, so this whitelist exists purely to stop a POST here from
+     * writing an arbitrary {@code platform_settings} row — it is not the only reader.
+     */
+    private static final Set<String> AUCTION_RULE_KEYS =
+            Set.of("min_bid_increment", "max_auction_duration_days");
+
+    /** Sane upper bound on an admin-set minimum bid increment; well above any real listing price. */
+    private static final BigDecimal MAX_MIN_BID_INCREMENT = new BigDecimal("1000");
+    /** Sane upper bound on an admin-set maximum auction duration, in days (100 years). */
+    private static final int MAX_AUCTION_DURATION_DAYS_CEILING = 36500;
+
+    /**
+     * GET /api/admin/auction-rules — the two platform-wide auction rules and their current
+     * effective values (NEW for the "platform-wide auction rules" admin story).
+     */
+    private void handleGetAuctionRules(HttpServletResponse resp) throws IOException {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("minBidIncrement",
+                platformSettingsDAO.getBigDecimal("min_bid_increment", BidDAO.DEFAULT_MIN_BID_INCREMENT));
+        out.put("maxAuctionDurationDays",
+                platformSettingsDAO.getInt("max_auction_duration_days",
+                        SellerApiServlet.DEFAULT_MAX_AUCTION_DURATION_DAYS));
+        ok(resp, out);
+    }
+
+    /**
+     * POST /api/admin/auction-rules — updates one or both settings (NEW for the
+     * "platform-wide auction rules" admin story). Either {@code minBidIncrement} or
+     * {@code maxAuctionDurationDays} (or both) may be supplied; whichever is omitted is left
+     * untouched. Each changed value is written to the admin audit log via
+     * {@link AdminManagementDAO#recordAuctionRulesChange}.
+     */
+    private void handleSaveAuctionRules(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // Reject any request parameter that is not one of the two whitelisted keys, mirroring
+        // AdminLandingContentApiServlet.handleUpdate's own whitelist check.
+        for (String key : req.getParameterMap().keySet()) {
+            if (!AUCTION_RULE_KEYS.contains(key)) {
+                badRequest(resp, "Unknown auction rule key: " + key);
+                return;
+            }
+        }
+
+        String minIncStr = param(req, "min_bid_increment");
+        String maxDaysStr = param(req, "max_auction_duration_days");
+        if (minIncStr == null && maxDaysStr == null) {
+            badRequest(resp, "min_bid_increment or max_auction_duration_days is required.");
+            return;
+        }
+
+        BigDecimal newMinInc = null;
+        if (minIncStr != null) {
+            try {
+                newMinInc = new BigDecimal(minIncStr.trim());
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid min_bid_increment."); return;
+            }
+            if (newMinInc.compareTo(BigDecimal.ZERO) <= 0
+                    || newMinInc.compareTo(MAX_MIN_BID_INCREMENT) > 0) {
+                badRequest(resp, "min_bid_increment must be greater than 0 and at most "
+                        + MAX_MIN_BID_INCREMENT + "."); return;
+            }
+        }
+
+        Integer newMaxDays = null;
+        if (maxDaysStr != null) {
+            try {
+                newMaxDays = Integer.parseInt(maxDaysStr.trim());
+            } catch (NumberFormatException e) {
+                badRequest(resp, "Invalid max_auction_duration_days."); return;
+            }
+            if (newMaxDays <= 0 || newMaxDays > MAX_AUCTION_DURATION_DAYS_CEILING) {
+                badRequest(resp, "max_auction_duration_days must be greater than 0 and at most "
+                        + MAX_AUCTION_DURATION_DAYS_CEILING + "."); return;
+            }
+        }
+
+        try {
+            int admin = adminId(req);
+            if (newMinInc != null) {
+                String oldValue = platformSettingsDAO
+                        .getBigDecimal("min_bid_increment", BidDAO.DEFAULT_MIN_BID_INCREMENT).toPlainString();
+                platformSettingsDAO.setValue("min_bid_increment", newMinInc.toPlainString());
+                adminManagementDAO.recordAuctionRulesChange(admin, "min_bid_increment",
+                        oldValue, newMinInc.toPlainString(), "Admin auction rules update");
+            }
+            if (newMaxDays != null) {
+                String oldValue = String.valueOf(platformSettingsDAO.getInt(
+                        "max_auction_duration_days", SellerApiServlet.DEFAULT_MAX_AUCTION_DURATION_DAYS));
+                platformSettingsDAO.setValue("max_auction_duration_days", String.valueOf(newMaxDays));
+                adminManagementDAO.recordAuctionRulesChange(admin, "max_auction_duration_days",
+                        oldValue, String.valueOf(newMaxDays), "Admin auction rules update");
+            }
+            handleGetAuctionRules(resp);
+        } catch (Exception e) {
+            serverError(resp, "Could not save auction rules.");
+        }
+    }
+
+    // ── POST: system-wide announcement (NEW) ────────────────────────────────────
+    //
+    // The whole story: "As an Admin, I want to send system-wide announcements or
+    // notifications to all users, so that I can send maintenance or policy updates."
+    // A single fire-and-forget compose form — no scheduling, no recipient segmentation, no
+    // channel picker (the existing per-user email/Telegram funnel handles that already).
+
+    /** Bounds for the announcement form, mirroring AdminLandingContentApiServlet.MAX_VALUE_LENGTH's
+     *  shape (a title-sized cap and a longer body cap) rather than inventing new validation. */
+    private static final int ANNOUNCEMENT_TITLE_MAX_LENGTH = 200;
+    private static final int ANNOUNCEMENT_BODY_MAX_LENGTH = 2000;
+
+    /**
+     * POST /api/admin/announcements  title, body — broadcasts one admin-authored message to
+     * every active user (NEW for the system-wide announcement admin story).
+     *
+     * <p>Delegates the fan-out to {@code NotificationService.broadcastAnnouncement}, which
+     * reuses the existing per-user email/Telegram funnel, so this handler carries no channel
+     * logic of its own — only request validation, dispatch and the audit-log entry. The ADMIN
+     * gate already ran in {@link #doPost} before {@code sub(req)}/path routing reached here,
+     * the same as every other write in this servlet.</p>
+     */
+    private void handleBroadcastAnnouncement(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+        String title = SecurityUtil.sanitizeText(param(req, "title"));
+        String body = SecurityUtil.sanitizeText(param(req, "body"));
+        if (title == null || title.isBlank()) { badRequest(resp, "title is required."); return; }
+        if (body == null || body.isBlank()) { badRequest(resp, "body is required."); return; }
+        if (title.length() > ANNOUNCEMENT_TITLE_MAX_LENGTH) {
+            badRequest(resp, "title must be at most " + ANNOUNCEMENT_TITLE_MAX_LENGTH + " characters.");
+            return;
+        }
+        if (body.length() > ANNOUNCEMENT_BODY_MAX_LENGTH) {
+            badRequest(resp, "body must be at most " + ANNOUNCEMENT_BODY_MAX_LENGTH + " characters.");
+            return;
+        }
+        try {
+            int recipients = com.auction.notification.NotificationService
+                    .broadcastAnnouncement(title, body);
+            // Recorded the same way every other admin management action here is: one row in
+            // the existing admin_audit_log, through AdminManagementDAO.
+            adminManagementDAO.recordAnnouncementBroadcast(adminId(req), title, body, recipients);
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("recipients", recipients);
+            // The single source of truth for whether email actually went out is the server's
+            // own MailConfig check, read fresh right here — never assumed from the message
+            // text below, which is the exact "email not configured" self-contradiction bug
+            // that was previously found and fixed on the seller-analytics admin page.
+            out.put("emailConfigured", MailConfig.isSmtpConfigured());
+            out.put("message", "Announcement sent to " + recipients + " user(s).");
+            ok(resp, out);
+        } catch (Exception e) {
+            serverError(resp, "Could not send the announcement.");
+        }
+    }
+
     /** POST /api/admin/reviews  action=delete, reviewId — remove an inappropriate review. */
     private void handleReviewAction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String action = param(req, "action");
@@ -442,15 +642,75 @@ public class AdminApiServlet extends ApiBase {
      * else here this writes plain text with a Content-Disposition header, so the browser saves it
      * as a file. An unknown type falls back to the user activity report.
      */
+    /**
+     * NEW for the "report filters by date range, category and seller" admin story: the largest
+     * date range a report may be asked to cover. An "absurd range" (per the story) is rejected
+     * as a 400 from this new validation rather than silently run — a query spanning centuries is
+     * almost certainly a typo, not a real request.
+     */
+    private static final long MAX_REPORT_RANGE_DAYS = 3650; // 10 years
+    /** Earliest plausible {@code dateFrom}/{@code dateTo}; anything before this is an "absurd" date. */
+    private static final LocalDate MIN_REPORT_DATE = LocalDate.of(2000, 1, 1);
+
     private void handleAnalyticsReport(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String type = param(req, "type");
         if (type == null) type = "user-activity";
+
+        // NEW for the "report filters by date range, category and seller" admin story: dateFrom,
+        // dateTo and category are all optional. Absent means "no filter", so a request with none
+        // of the three falls straight through to the exact unfiltered report generators below —
+        // the original behaviour for every existing caller of this endpoint is untouched.
+        LocalDate dateFrom = null;
+        LocalDate dateTo = null;
+        String dateFromStr = param(req, "dateFrom");
+        String dateToStr = param(req, "dateTo");
+        String category = param(req, "category");
+        if (dateFromStr != null) {
+            try {
+                dateFrom = LocalDate.parse(dateFromStr);
+            } catch (DateTimeParseException e) {
+                badRequest(resp, "Invalid dateFrom. Use YYYY-MM-DD."); return;
+            }
+        }
+        if (dateToStr != null) {
+            try {
+                dateTo = LocalDate.parse(dateToStr);
+            } catch (DateTimeParseException e) {
+                badRequest(resp, "Invalid dateTo. Use YYYY-MM-DD."); return;
+            }
+        }
+        if ((dateFrom != null && dateFrom.isBefore(MIN_REPORT_DATE))
+                || (dateTo != null && dateTo.isBefore(MIN_REPORT_DATE))) {
+            badRequest(resp, "dateFrom/dateTo must not be before " + MIN_REPORT_DATE + "."); return;
+        }
+        if (dateTo != null && dateTo.isAfter(LocalDate.now().plusDays(1))) {
+            badRequest(resp, "dateTo must not be in the future."); return;
+        }
+        if (dateFrom != null && dateTo != null) {
+            if (dateFrom.isAfter(dateTo)) {
+                badRequest(resp, "dateFrom must not be after dateTo."); return;
+            }
+            if (ChronoUnit.DAYS.between(dateFrom, dateTo) > MAX_REPORT_RANGE_DAYS) {
+                badRequest(resp, "Date range is too large (maximum " + MAX_REPORT_RANGE_DAYS
+                        + " days)."); return;
+            }
+        }
+        boolean hasReportFilters = dateFrom != null || dateTo != null
+                || (category != null && !category.isBlank());
+
         try {
             String body;
             String filename;
             switch (type.toLowerCase()) {
                 case "revenue":
-                    body = adminReportDAO.generateRevenueReport();
+                    // Filters currently apply to the revenue report only: it is the report with
+                    // both a time dimension (revenue by period) and a per-listing dimension
+                    // (top sellers) that a date range and category meaningfully narrow. The
+                    // user-activity and moderation reports below are unaffected by these
+                    // parameters and keep calling their original no-arg methods.
+                    body = hasReportFilters
+                            ? adminReportDAO.generateRevenueReport(dateFrom, dateTo, category)
+                            : adminReportDAO.generateRevenueReport();
                     filename = "revenue-report.txt";
                     break;
                 case "moderation":

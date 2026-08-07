@@ -53,6 +53,9 @@ public class CreateAuctionServlet extends HttpServlet {
     private AuctionTagsDAO auctionTagsDAO;
     private String uploadDir;
     private static final List<String> ALLOWED_EXTENSIONS = List.of(".jpg", ".jpeg", ".png", ".webp");
+    // NEW for the "platform-wide auction rules" admin story. Mirrors the guard added to the SPA
+    // create path, SellerApiServlet.handleCreate, for this legacy JSP path as well.
+    private com.auction.dao.PlatformSettingsDAO platformSettingsDAO = new com.auction.dao.PlatformSettingsDAO();
 
     public CreateAuctionServlet() {
         auctionDAO = new AuctionDAO();
@@ -228,6 +231,20 @@ public class CreateAuctionServlet extends HttpServlet {
         if (input.auctionEnd.isBefore(input.auctionStart)) {
             errorHandler(req, resp, "End date must be after start date", input);
             return false;
+        }
+        // NEW for the "platform-wide auction rules" admin story: same additional guard as
+        // SellerApiServlet.handleCreate's SPA path, alongside (not replacing) the "end after
+        // start" check just above.
+        {
+            int maxDurationDays = platformSettingsDAO.getInt(
+                    "max_auction_duration_days",
+                    com.auction.servlet.api.SellerApiServlet.DEFAULT_MAX_AUCTION_DURATION_DAYS);
+            if (maxDurationDays > 0 && java.time.Duration.between(
+                    input.auctionStart, input.auctionEnd).toDays() > maxDurationDays) {
+                errorHandler(req, resp, "Auction duration cannot exceed " + maxDurationDays
+                        + " day(s)", input);
+                return false;
+            }
         }
 
         input.auctionTypeEnum = AuctionType.PRICE_UP;

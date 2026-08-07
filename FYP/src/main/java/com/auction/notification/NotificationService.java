@@ -647,6 +647,51 @@ public final class NotificationService {
         }
     }
 
+    /**
+     * NEW for the "system-wide announcement" admin story (as an Admin, send system-wide
+     * announcements or maintenance/policy notices to all users). Fans one admin-authored
+     * message out to every active, non-deleted, non-suspended account.
+     *
+     * <p>Deliberately reuses the existing {@link #create} funnel below, once per recipient,
+     * instead of writing directly to {@link NotificationDAO} the way {@link #notifyAllAdmins}
+     * does. That gives an announcement the same best-effort email (subject to
+     * {@link MailConfig#isSmtpConfigured()}) and queued Telegram push as every other
+     * notification type in this class, with no separate "channels" concept to build: channel
+     * selection stays automatic and consistent with the rest of the app. Recipients come from
+     * the new {@link UserDAO#listActiveUserIds()}, not {@code listAdminUserIds()} — this is
+     * the one fan-out in the class that is not admin-only. Neither {@link #notifyAllAdmins}
+     * nor {@link #create} is modified by this method.</p>
+     *
+     * <h2>Notification-preference decision</h2>
+     * <p>The type used here, {@code "ANNOUNCEMENT"}, is deliberately not one of
+     * {@code OUTBID} / {@code ENDING_SOON} / {@code WON}, so {@link #allowedByPreference}
+     * takes its existing {@code default: return true} branch and every announcement is
+     * delivered in-app unconditionally. That is a considered choice, not an omission: a
+     * maintenance or policy notice is not the kind of thing a user should be able to
+     * silently mute the way an outbid alert can be, and it means this story needs no new
+     * preference column, no migration and no settings-page change — the smallest change that
+     * still behaves correctly for every existing row.</p>
+     *
+     * @return how many recipients were reached, so the caller (the admin endpoint) can report
+     *         a real count instead of a bare acknowledgement
+     */
+    public static int broadcastAnnouncement(String title, String body) {
+        String subject = (title == null || title.isBlank()) ? "AuctionHub announcement" : title.trim();
+        String message = (body == null) ? "" : body.trim();
+        int sent = 0;
+        for (int userId : userDAO.listActiveUserIds()) {
+            try {
+                create(userId, "ANNOUNCEMENT", message, null, subject, message);
+                sent++;
+            } catch (Exception e) {
+                // One recipient's failure (e.g. a transient DB hiccup) must not abort the
+                // whole broadcast — the same best-effort contract every other hook here keeps.
+                LOG.warning("Announcement broadcast failed for user " + userId + ": " + e.getMessage());
+            }
+        }
+        return sent;
+    }
+
     private static String previewText(String text, int maxLen) {
         if (text == null) return "";
         String s = text.trim().replaceAll("\\s+", " ");

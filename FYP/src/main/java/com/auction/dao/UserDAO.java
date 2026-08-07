@@ -752,6 +752,36 @@ public class UserDAO {
     }
 
     /**
+     * NEW for the "system-wide announcement" admin story (as an Admin, send system-wide
+     * announcements/notifications to all users). Every account currently allowed to sign
+     * in, across every role, which is the recipient list a platform-wide broadcast needs.
+     *
+     * <p>Modelled directly on {@link #listAdminUserIds()} above, but with no role filter and
+     * reading {@code status_id} straight off {@code users} rather than joining
+     * {@code user_status}, since the only question here is "is this account live" — the same
+     * test {@link #countActiveUsers()} already applies for the admin dashboard's headline
+     * count. Suspended, deleted, pending and rejected accounts are all excluded by asking
+     * for {@link Status#ACTIVE} specifically rather than "not deleted".</p>
+     *
+     * <p>This is a pure addition: it does not change {@link #listAdminUserIds()} or any
+     * other existing method, and nothing before this story called it.</p>
+     */
+    public List<Integer> listActiveUserIds() {
+        List<Integer> ids = new ArrayList<>();
+        String sql = "SELECT id FROM users WHERE status_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, Status.ACTIVE.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) ids.add(rs.getInt("id"));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return ids;
+    }
+
+    /**
      * Every account for the admin user table, with the activity counts the table shows.
      * Closed accounts are excluded: their fields are anonymised placeholders and there is nothing
      * an admin can usefully do with them.

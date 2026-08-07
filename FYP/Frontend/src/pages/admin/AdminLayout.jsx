@@ -8,7 +8,7 @@
  * No API calls of its own beyond the notification bell; the session comes from useAuth().
  */
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe, Star, Gavel, Type } from 'lucide-react';
+import { LayoutDashboard, Users, List, BarChart2, Tag, AlertCircle, ShoppingBag, MessageCircle, Database, LogOut, Globe, Star, Gavel, Type, Megaphone, Gauge } from 'lucide-react';
 import NotificationBell from '../../components/NotificationBell';
 import { useAuth } from '../../context/AuthContext';
 
@@ -27,6 +27,10 @@ const NAV = [
   { to: '/admin/reports', icon: AlertCircle, label: 'User Reports' },
   { to: '/admin/reviews', icon: Star, label: 'Reviews' },
   { to: '/admin/chat', icon: MessageCircle, label: 'Support Chat' },
+  // NEW for the "system-wide announcement" admin story.
+  { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
+  // NEW for the "platform-wide auction rules" admin story.
+  { to: '/admin/auction-rules', icon: Gauge, label: 'Auction Rules' },
 ];
 
 export default function AdminLayout() {

@@ -71,6 +71,16 @@ public class BidDAO {
     /** Fallback rate-limit window when {@code platform_settings} has no row yet. */
     public static final int DEFAULT_BID_RATE_LIMIT_SECONDS = 3;
 
+    /**
+     * NEW for the "platform-wide auction rules" admin story: fallback minimum bid increment
+     * when {@code platform_settings} has no row yet, matching the seeded default in
+     * {@code migration_platform_auction_rules.sql} exactly. Set to one cent, the smallest step
+     * {@code bids.bid_amount NUMERIC(10,2)} can represent — i.e. today's existing, unwritten
+     * floor from the SCRUM-263 class comment above — so a database that has not run that
+     * migration yet still behaves exactly as it does today.
+     */
+    public static final BigDecimal DEFAULT_MIN_BID_INCREMENT = new BigDecimal("0.01");
+
     private final AutoBidDAO autoBidDAO;
     private final PlatformSettingsDAO platformSettingsDAO;
 
@@ -307,6 +317,30 @@ public class BidDAO {
             // recorded below the listing's own opening price, which would otherwise lower the bar.
             BigDecimal floor = (currentMax == null) ? startingPrice
                     : currentMax.max(startingPrice);
+
+            // NEW for the "platform-wide auction rules" admin story: a platform-wide minimum
+            // bid increment over the floor, read fresh from PlatformSettingsDAO exactly like the
+            // rate limit above. Deliberately its own isolated early return rather than folded
+            // into the existing floor comparison just below, so that check's own SCRUM-263 intent
+            // ("strictly greater than floor") stays literally unmodified; this can only make that
+            // check stricter, never bypass it. It has to come after floor is computed, so it
+            // cannot sit any earlier in the method.
+            //
+            // Applies to placeBid (ascending, PRICE_UP) only. DUTCH_AUCTION's price is computed
+            // by DutchClock with no buyer-chosen amount at all (acceptDutchBid), and BLIND's
+            // sealed bid (placeSealedBid) is compared only against the starting price, never
+            // against a visible current bid, since revealing "is your bid within one increment
+            // of the leader" would leak the same hidden amount the mechanism exists to protect.
+            // Neither has a "step above the previous highest" to enforce, so this guard leaves
+            // both untouched. With the seeded default (0.01) equal to the pre-existing effective
+            // floor, this changes nothing until an admin actually raises it.
+            BigDecimal minIncrement = platformSettingsDAO.getBigDecimal(
+                    "min_bid_increment", DEFAULT_MIN_BID_INCREMENT);
+            if (minIncrement != null && minIncrement.compareTo(BigDecimal.ZERO) > 0
+                    && bidAmount.compareTo(floor.add(minIncrement)) < 0) {
+                conn.rollback();
+                return BidOutcome.of(BidResult.BID_TOO_LOW);
+            }
 
             // SCRUM-263/SCRUM-267: bid must be strictly greater than floor
             if (bidAmount.compareTo(floor) <= 0) {

@@ -68,6 +68,15 @@ public class SellerApiServlet extends ApiBase {
      */
     private static final int MAX_QUANTITY = 1000;
 
+    /**
+     * NEW for the "platform-wide auction rules" admin story: fallback maximum auction
+     * duration, in days, when {@code platform_settings} has no row yet. Matches the seeded
+     * default in {@code migration_platform_auction_rules.sql} — generous enough that no
+     * plausible listing on this platform is ever rejected by it, so a database that has not
+     * run that migration yet still behaves exactly as it does today (no duration limit at all).
+     */
+    public static final int DEFAULT_MAX_AUCTION_DURATION_DAYS = 3650;
+
     private final SellerProfileDAO profileDAO  = new SellerProfileDAO();
     private       SellerAuctionDAO auctionDAO  = new SellerAuctionDAO();
     private       AuctionDAO       mainDAO     = new AuctionDAO();
@@ -75,10 +84,14 @@ public class SellerApiServlet extends ApiBase {
     private final ReviewDAO        reviewDAO   = new ReviewDAO();
     private final SellerAnalyticsDAO analyticsDAO = new SellerAnalyticsDAO();
     private final UserDAO          userDAO     = new UserDAO();
+    // NEW for the "platform-wide auction rules" admin story.
+    private       com.auction.dao.PlatformSettingsDAO platformSettingsDAO = new com.auction.dao.PlatformSettingsDAO();
 
     /** Test hooks */
     public void setSellerAuctionDAO(SellerAuctionDAO dao) { this.auctionDAO = dao; }
     public void setAuctionDAO(AuctionDAO dao)             { this.mainDAO    = dao; }
+    /** NEW for the "platform-wide auction rules" admin story: lets a test stub the settings DAO. */
+    public void setPlatformSettingsDAO(com.auction.dao.PlatformSettingsDAO dao) { this.platformSettingsDAO = dao; }
 
     /**
      * Routes the GET side. The named segments {@code auctions} and {@code analytics} are checked
@@ -476,6 +489,20 @@ public class SellerApiServlet extends ApiBase {
         if (endDate.isBefore(startDate)) {
             badRequest(resp, "End date must be after start date."); return;
         }
+        // NEW for the "platform-wide auction rules" admin story: an additional guard alongside
+        // the "end after start" check just above, not a replacement for it — that check still
+        // runs first and still rejects the same requests it always did. Reads the admin-set
+        // limit fresh from PlatformSettingsDAO, the same DAO BidDAO's rate limit and minimum
+        // increment guards already read from. The seeded default (3650 days) is generous enough
+        // that no plausible listing on this platform is ever rejected by it.
+        {
+            int maxDurationDays = platformSettingsDAO.getInt(
+                    "max_auction_duration_days", DEFAULT_MAX_AUCTION_DURATION_DAYS);
+            if (maxDurationDays > 0
+                    && java.time.Duration.between(startDate, endDate).toDays() > maxDurationDays) {
+                badRequest(resp, "Auction duration cannot exceed " + maxDurationDays + " day(s)."); return;
+            }
+        }
 
         // Ascending is the default when the client omits the type, which keeps the older create
         // forms working. An unrecognised id is an error rather than a silent fallback.
@@ -852,6 +879,29 @@ public class SellerApiServlet extends ApiBase {
             catch (DateTimeParseException e) { badRequest(resp, "Invalid end date format."); return; }
             if (newEndDate.isBefore(Instant.now())) {
                 badRequest(resp, "End date must be in the future."); return;
+            }
+            // NEW for the "platform-wide auction rules" admin story: an additional guard
+            // alongside the "must be in the future" check just above, only when the seller is
+            // actually changing the end date. Not entangled with editAuction's own transaction
+            // below: this reads the auction's original start date through the new, narrowly
+            // scoped SellerAuctionDAO.getDateCreated rather than modifying editAuction itself.
+            // A missing/not-owned auction is silently skipped here — editAuction's own ownership
+            // check below is the authoritative source of that rejection, so this guard changes
+            // nothing about that eventual outcome.
+            try {
+                Instant originalStart = auctionDAO.getDateCreated(auctionId, sellerId);
+                if (originalStart != null) {
+                    int maxDurationDays = platformSettingsDAO.getInt(
+                            "max_auction_duration_days", DEFAULT_MAX_AUCTION_DURATION_DAYS);
+                    if (maxDurationDays > 0
+                            && java.time.Duration.between(originalStart, newEndDate).toDays() > maxDurationDays) {
+                        badRequest(resp, "Auction duration cannot exceed " + maxDurationDays
+                                + " day(s) from its start date."); return;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Lookup failure (e.g. not found/not owned) — fall through to editAuction below,
+                // which performs the authoritative ownership check and reports it as a 400.
             }
         }
 
