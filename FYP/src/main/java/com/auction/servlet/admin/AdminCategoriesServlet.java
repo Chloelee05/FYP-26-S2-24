@@ -109,9 +109,10 @@ public class AdminCategoriesServlet extends HttpServlet {
 
     private void handleCreate(HttpServletRequest req, HttpServletResponse resp, HttpSession session)
             throws IOException {
-        // SCRUM-280: sanitize all user-supplied string inputs before use
-        String name = SecurityUtil.sanitize(req.getParameter("name"));
-        String description = SecurityUtil.sanitize(req.getParameter("description"));
+        // SCRUM-280: sanitize all user-supplied string inputs before use. sanitizeText keeps
+        // "&" and "'" intact — categories.jsp escapes with <c:out> when it renders them.
+        String name = SecurityUtil.sanitizeText(req.getParameter("name"));
+        String description = SecurityUtil.sanitizeText(req.getParameter("description"));
         int displayOrder = parseDisplayOrder(req.getParameter("displayOrder"));
 
         String nameErr = InputValidator.getCategoryNameViolation(name);
@@ -148,8 +149,8 @@ public class AdminCategoriesServlet extends HttpServlet {
         int id = parseCategoryId(req, resp, session);
         if (id < 0) return;
 
-        String name = SecurityUtil.sanitize(req.getParameter("name"));
-        String description = SecurityUtil.sanitize(req.getParameter("description"));
+        String name = SecurityUtil.sanitizeText(req.getParameter("name"));
+        String description = SecurityUtil.sanitizeText(req.getParameter("description"));
         int displayOrder = parseDisplayOrder(req.getParameter("displayOrder"));
 
         String nameErr = InputValidator.getCategoryNameViolation(name);

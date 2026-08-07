@@ -315,6 +315,44 @@ public final class SecurityUtil {
         }
     }
 
+    /**
+     * Normalizes free text that is stored verbatim and escaped again by the view layer
+     * (JSP {@code <c:out>}, React text nodes). Trims, drops control characters, and strips
+     * the angle brackets that could open a tag, but leaves {@code &}, {@code '} and
+     * {@code "} exactly as the user typed them.
+     * <p>
+     * Prefer this over {@link #sanitize(String)} for anything shown back to the user.
+     * {@code sanitize} entity-encodes and doubles single quotes at write time, so with an
+     * escaping view layer the value is encoded twice: {@code Men's Fashion} is persisted as
+     * {@code Men&#39;&#39;s Fashion} and renders with the entities visible. Persistence
+     * safety already comes from {@code PreparedStatement}, and XSS safety from output
+     * encoding, so the write-time encoding only corrupts the data.
+     * </p>
+     * <p>
+     * Requirement: NFR3.
+     * </p>
+     *
+     * @param input user-controlled text; {@code null} returns {@code null}
+     * @return trimmed plain text, or {@code null} if {@code input} was {@code null}
+     */
+    public static String sanitizeText(String input) {
+        if (input == null) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (c == '<' || c == '>') {
+                continue;
+            }
+            if (Character.isISOControl(c) && c != '\n' && c != '\r' && c != '\t') {
+                continue;
+            }
+            sb.append(c);
+        }
+        return sb.toString().trim();
+    }
+
     private static byte[] sha256(byte[] salt, byte[] value) throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         md.update(salt);

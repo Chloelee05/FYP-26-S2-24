@@ -76,6 +76,16 @@ export const deleteCategory = (categoryId) =>
 export const restoreCategory = (categoryId) =>
   api.post('/admin/categories', form({ categoryId, action: 'RESTORE' }), F);
 
+// Category picture. Posted as a raw image body like the profile photo upload, not as
+// multipart. Clearing one is safe: the UI falls back to the icon matched to the name.
+export const uploadCategoryImage = (categoryId, file) =>
+  api.post('/admin/category-image', file, {
+    params: { categoryId },
+    headers: { 'Content-Type': file.type },
+  });
+export const removeCategoryImage = (categoryId) =>
+  api.delete('/admin/category-image', { params: { categoryId } });
+
 // Landing page content (hero copy, section headings, CTA text).
 // saveLandingContent takes a { contentKey: text } object — each key is sent as its own
 // form field, and the server rejects any key that is not a seeded content row.

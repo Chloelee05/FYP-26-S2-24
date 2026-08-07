@@ -928,8 +928,10 @@ public class AdminApiServlet extends ApiBase {
     }
 
     private void catCreate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String name = SecurityUtil.sanitize(param(req, "name"));
-        String desc = SecurityUtil.sanitize(param(req, "description"));
+        // sanitizeText, not sanitize: the name is echoed back through escaping views, so
+        // entity-encoding it here would store "Home &amp; Garden" / "Men&#39;&#39;s Fashion".
+        String name = SecurityUtil.sanitizeText(param(req, "name"));
+        String desc = SecurityUtil.sanitizeText(param(req, "description"));
         int order   = parseInt(param(req, "displayOrder"), 0);
 
         String nameErr = InputValidator.getCategoryNameViolation(name);
@@ -953,8 +955,8 @@ public class AdminApiServlet extends ApiBase {
     private void catEdit(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         int id = parseCatId(req, resp); if (id < 0) return;
 
-        String name = SecurityUtil.sanitize(param(req, "name"));
-        String desc = SecurityUtil.sanitize(param(req, "description"));
+        String name = SecurityUtil.sanitizeText(param(req, "name"));
+        String desc = SecurityUtil.sanitizeText(param(req, "description"));
         int order   = parseInt(param(req, "displayOrder"), 0);
 
         String nameErr = InputValidator.getCategoryNameViolation(name);

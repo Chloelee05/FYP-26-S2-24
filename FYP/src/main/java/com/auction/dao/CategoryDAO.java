@@ -36,7 +36,7 @@ public class CategoryDAO {
      */
     public List<Category> listAll() {
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
-                + "c.is_deleted, c.created_at, "
+                + "c.is_deleted, c.created_at, c.image_url, "
                 + "COUNT(ad.id)::int AS auction_count "
                 + "FROM categories c "
                 + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
@@ -51,7 +51,7 @@ public class CategoryDAO {
      */
     public List<Category> listActive() {
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
-                + "c.is_deleted, c.created_at, "
+                + "c.is_deleted, c.created_at, c.image_url, "
                 + "COUNT(ad.id)::int AS auction_count "
                 + "FROM categories c "
                 + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
@@ -64,7 +64,7 @@ public class CategoryDAO {
     /** Returns the active {@link Category} with the given {@code slug}, or {@code null} if not found or soft-deleted. */
     public Category findBySlug(String slug) {
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
-                + "c.is_deleted, c.created_at, "
+                + "c.is_deleted, c.created_at, c.image_url, "
                 + "COUNT(ad.id)::int AS auction_count "
                 + "FROM categories c "
                 + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
@@ -85,7 +85,7 @@ public class CategoryDAO {
     /** Returns the {@link Category} with the given {@code id}, or {@code null} if not found. */
     public Category findById(int id) {
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
-                + "c.is_deleted, c.created_at, "
+                + "c.is_deleted, c.created_at, c.image_url, "
                 + "COUNT(ad.id)::int AS auction_count "
                 + "FROM categories c "
                 + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
@@ -208,6 +208,25 @@ public class CategoryDAO {
     }
 
     /**
+     * Sets (or clears, when {@code imageUrl} is {@code null}) the category picture.
+     * Left out of {@link #update} so saving the edit form never disturbs a picture the
+     * admin did not touch.
+     *
+     * @return {@code true} if the row was updated
+     */
+    public boolean updateImageUrl(int id, String imageUrl) {
+        String sql = "UPDATE categories SET image_url = ? WHERE id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, imageUrl);
+            ps.setInt(2, id);
+            return ps.executeUpdate() == 1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Soft-deletes the category by setting {@code is_deleted = TRUE}.
      * Callers <strong>must</strong> verify {@link #countAuctions(int)} == 0 first
      * (restrict policy, SCRUM-217).
@@ -306,6 +325,7 @@ public class CategoryDAO {
                 rs.getString("slug"),
                 rs.getBoolean("is_deleted"),
                 ts != null ? ts.toLocalDateTime() : null,
-                rs.getInt("auction_count"));
+                rs.getInt("auction_count"),
+                rs.getString("image_url"));
     }
 }
