@@ -44,6 +44,14 @@ export default function Modal({
   const restoreFocusRef = useRef(null);
   const titleId = useId();
 
+  // Callers pass an inline arrow for `onClose`, so it is a new function on every render.
+  // Reading it through a ref keeps the setup effect below on a `[]` dependency list: with
+  // `onClose` as a dependency it tore down and re-ran on each keystroke in a controlled
+  // field, and the re-run moved focus back to the first focusable element — you had to
+  // click the input again after typing a single character.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
   useEffect(() => {
     restoreFocusRef.current = document.activeElement;
 
@@ -55,7 +63,7 @@ export default function Modal({
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose?.();
+        onCloseRef.current?.();
         return;
       }
       if (e.key !== 'Tab' || !panel) return;
@@ -84,7 +92,8 @@ export default function Modal({
       document.body.style.overflow = overflow;
       restoreFocusRef.current?.focus?.();
     };
-  }, [onClose]);
+    // Mount-only on purpose — see the onCloseRef note above.
+  }, []);
 
   return createPortal(
     <div
