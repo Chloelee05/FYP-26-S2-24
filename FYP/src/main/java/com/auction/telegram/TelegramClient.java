@@ -13,8 +13,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Thin Telegram Bot API client over the JDK 11 HTTP client, following the same
- * static-instance pattern as {@code OAuthApiServlet}.
+ * Thin Telegram Bot API client over the JDK 11 HTTP client, held as a single static
+ * instance and shared by every caller.
  *
  * <p>Only {@code sendMessage} is needed: the webhook receives updates, it never polls.
  * Every call is fail-soft — a transport error or an API error becomes a

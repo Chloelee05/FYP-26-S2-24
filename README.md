@@ -23,7 +23,7 @@ Application sources live under **`FYP/`** (artifact `online-auction`, context pa
 - Hybrid recommendation pipeline with per-card explainability, admin-tunable `recommendation_settings`, and per-arm CTR metrics
 - Admin-editable landing-page copy (`landing_content`)
 - Orders with shipping/refund alerts; optional Telegram bot notifications (link account, bid/order/seller alerts)
-- Auth (session, 2FA, Google OAuth when configured), account management, admin moderation/analytics
+- Auth (session, 2FA), account management, admin moderation/analytics
 
 ## Prerequisites
 
@@ -44,7 +44,6 @@ Set these before `mvn cargo:run` or in the deploy environment. **Do not commit r
 | `AUCTION_AES_SECRET` | AES-GCM key material for encrypted PII |
 | `AUCTION_PUBLIC_BASE_URL` | Public site URL used in notification links |
 | `AUCTION_UPLOAD_DIR` | Optional upload directory (useful on Render) |
-| `GOOGLE_CLIENT_ID` | Optional Google sign-in |
 | `TELEGRAM_BOT_TOKEN` | Optional Telegram bot |
 | `TELEGRAM_BOT_USERNAME` | Bot handle (no `@`) |
 | `TELEGRAM_WEBHOOK_SECRET` | Webhook auth secret |

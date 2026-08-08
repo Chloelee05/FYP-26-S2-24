@@ -81,9 +81,6 @@
 \echo '== recommendation features (dismiss, metrics, settings) =='
 \ir migration_recommendation_features.sql
 
-\echo '== linked third-party accounts (Google sign-in) =='
-\ir migration_linked_accounts.sql
-
 \echo '== merged buyer/seller accounts (can_sell capability) =='
 \ir migration_seller_capability.sql
 

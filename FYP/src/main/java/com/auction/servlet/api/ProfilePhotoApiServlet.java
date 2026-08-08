@@ -82,7 +82,7 @@ public class ProfilePhotoApiServlet extends ApiBase {
         String imageUrl = "/uploads/" + UPLOAD_SUBDIR + "/" + filename;
 
         // Delete previous profile photo if it was also an uploaded file. The prefix check keeps
-        // this from touching an OAuth avatar URL, which is remote and not ours to delete.
+        // this from touching a remote avatar URL, which is not ours to delete.
         try {
             com.auction.model.User current = userDAO.getUserById(userId);
             if (current != null) {
