@@ -55,17 +55,21 @@ public class CategoryDAO {
     }
 
     /**
-     * Active (non-deleted) categories only, ordered by {@code display_order}.
-     * Used by seller/buyer-facing dropdowns.
+     * Active (non-deleted) categories only, ordered by {@code display_order}. Used by
+     * seller/buyer-facing dropdowns and by the "Popular Categories" strip on the landing
+     * page, which is why the count here is filtered to currently-live auctions
+     * ({@code status_id = 1} and not yet ended) rather than every listing ever filed under
+     * that category name: a finished or cancelled auction is not a "live listing".
      */
     public List<Category> listActive() {
         // Same shape as listAll with the soft-delete filter added, so a retired category disappears
         // from pickers while its historical listings keep their category text.
         String sql = "SELECT c.id, c.name, c.description, c.display_order, c.slug, "
                 + "c.is_deleted, c.created_at, c.image_url, "
-                + "COUNT(ad.id)::int AS auction_count "
+                + "COUNT(a.auction_id) FILTER (WHERE a.status_id = 1 AND a.date_end > now())::int AS auction_count "
                 + "FROM categories c "
                 + "LEFT JOIN auction_details ad ON LOWER(ad.category) = LOWER(c.name) "
+                + "LEFT JOIN auction a ON a.auction_id = ad.id "
                 + "WHERE c.is_deleted = FALSE "
                 + "GROUP BY c.id "
                 + "ORDER BY c.display_order ASC, c.id ASC";

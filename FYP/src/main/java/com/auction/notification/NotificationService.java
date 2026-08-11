@@ -356,7 +356,11 @@ public final class NotificationService {
     public static void notifyAccountApproved(int userId) {
         safe(() -> create(userId, "ACCOUNT_APPROVED",
                 "Your account has been approved. Welcome to AuctionHub!",
-                "/login",
+                // "/login" used to sit here, but a signed-in account clicking this
+                // notification later would be sent back to the sign-in form instead of
+                // somewhere useful. The account is already usable by the time this is
+                // read, so the landing page is the sensible default.
+                "/",
                 "Your AuctionHub account is approved",
                 "An administrator approved your registration. You can now sign in."));
     }
