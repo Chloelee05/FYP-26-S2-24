@@ -1,10 +1,12 @@
 package com.auction.servlet;
 
+import com.auction.dao.PlatformSettingsDAO;
 import com.auction.dao.UserDAO;
 import com.auction.model.Role;
 import com.auction.model.Status;
 import com.auction.model.User;
 import com.auction.util.InputValidator;
+import com.auction.util.LoginAttemptLimiter;
 import com.auction.util.SecurityUtil;
 
 import jakarta.servlet.ServletException;
@@ -15,6 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
+import java.time.Duration;
 
 /**
  * Legacy JSP sign-in page. Renders {@code /WEB-INF/views/auth/login.jsp} on GET and verifies
@@ -35,6 +38,14 @@ public class LoginServlet extends HttpServlet {
     static final String VIEW_LOGIN = "/WEB-INF/views/auth/login.jsp";
 
     private UserDAO userDAO;
+
+    /**
+     * Same singleton {@code AuthApiServlet} counts against, so failures on this form and on
+     * {@code POST /api/auth/login} share one budget per account. Keeping a second counter here
+     * would give an attacker five fresh guesses simply by switching endpoint.
+     */
+    private final LoginAttemptLimiter loginAttemptLimiter = LoginAttemptLimiter.getInstance();
+    private final PlatformSettingsDAO platformSettingsDAO = new PlatformSettingsDAO();
 
     public LoginServlet() {
         userDAO = new UserDAO();
@@ -77,20 +88,36 @@ public class LoginServlet extends HttpServlet {
             return;
         }
 
+        int maxFailures = platformSettingsDAO.getInt(
+                "login_lockout_threshold", LoginAttemptLimiter.DEFAULT_MAX_FAILURES);
+        Duration cooldown = Duration.ofMinutes(platformSettingsDAO.getInt(
+                "login_lockout_cooldown_minutes", LoginAttemptLimiter.DEFAULT_COOLDOWN_MINUTES));
+
+        if (loginAttemptLimiter.isLockedOut(email)) {
+            long minutesLeft = Math.max(1, (loginAttemptLimiter.lockoutSecondsRemaining(email) + 59) / 60);
+            loginError(req, "Too many failed login attempts. Please try again in "
+                    + minutesLeft + " minute" + (minutesLeft == 1 ? "" : "s") + ".", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+
         // An unknown email and a wrong password deliberately produce the same message, so the
         // form cannot be used to work out which addresses have accounts on the platform.
         User user = userDAO.getUserByEmail(email);
         if (user == null) {
+            loginAttemptLimiter.recordFailure(email, maxFailures, cooldown);
             loginError(req, "Invalid email or password.", email);
             req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
 
         if (!SecurityUtil.verifyPassword(password, user.getPassword())) {
+            loginAttemptLimiter.recordFailure(email, maxFailures, cooldown);
             loginError(req, "Invalid email or password.", email);
             req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }
+        loginAttemptLimiter.recordSuccess(email);
 
         if (user.getStatusId() == Status.SUSPENDED.getId()) {
             loginError(req, "Your account has been suspended.", email);
@@ -99,6 +126,27 @@ public class LoginServlet extends HttpServlet {
         }
         if (user.getStatusId() == Status.DELETED.getId()) {
             loginError(req, "This account is no longer available.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+        // The two gates AuthApiServlet applies that this form was missing. Without them an
+        // account still queued for approval, or one an admin rejected, could sign in here.
+        if (user.getStatusId() == Status.PENDING.getId()) {
+            loginError(req, "Your account is awaiting administrator approval.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+        if (user.getStatusId() == Status.REJECTED.getId()) {
+            loginError(req, "Your registration was not approved. Please contact support.", email);
+            req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
+            return;
+        }
+        // This form has no one-time-code step, so establishing a session here for an account
+        // with two-factor on would let the correct password alone satisfy a login the account
+        // holder asked to require a second factor. The React sign-in does run that step.
+        if (user.isTwoFactorEnabled()) {
+            loginError(req, "This account uses two-factor authentication. "
+                    + "Please sign in from the main site to receive your verification code.", email);
             req.getRequestDispatcher(VIEW_LOGIN).forward(req, resp);
             return;
         }

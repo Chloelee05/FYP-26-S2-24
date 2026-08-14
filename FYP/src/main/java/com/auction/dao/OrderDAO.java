@@ -545,6 +545,12 @@ public class OrderDAO {
             ps.setInt(1, userId);
             ps.setInt(2, userId);
             ps.executeUpdate();
+        } catch (SQLException e) {
+            // 23505 = unique violation on orders_auction_unique: the buyer and the seller both
+            // loaded their order list in the same instant, so NOT EXISTS passed twice and the
+            // second insert lost the race. The row it wanted now exists, which is all this
+            // method was for, so it is not worth failing the whole listing over.
+            if (!"23505".equals(e.getSQLState())) throw new RuntimeException(e);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

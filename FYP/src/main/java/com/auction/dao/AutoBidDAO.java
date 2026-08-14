@@ -227,6 +227,11 @@ public class AutoBidDAO {
         // inherit that guard and has to enforce it here too. This also neutralises any
         // auto-bid row that was stored before the check existed.
         int sellerId = fetchSellerId(conn, auctionId);
+        // The seller's ceiling. BidDAO.placeBid rejects a manual bid above it
+        // (EXCEEDS_MAX_PRICE), but this engine inserts into `bids` directly and so has to
+        // respect the same cap, otherwise a proxy bid drives the price past a limit the
+        // seller set. Null means uncapped.
+        BigDecimal maxPrice = fetchMaxPrice(conn, auctionId);
         int placed = 0;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
@@ -260,6 +265,9 @@ public class AutoBidDAO {
 
             CounterBid next = resolveNextAutoBid(allBids, floor, topBidderId);
             if (next == null) break;
+            // Nothing this round can raise the price without breaching the cap, and the floor
+            // only rises from here, so no later round could either.
+            if (maxPrice != null && next.amount.compareTo(maxPrice) > 0) break;
 
             // Insert the counter-bid within the caller's transaction
             String insertSql =
@@ -406,6 +414,18 @@ public class AutoBidDAO {
         return BigDecimal.ZERO;
     }
 
+    /** The seller's price ceiling for this listing, or {@code null} when it is uncapped. */
+    private BigDecimal fetchMaxPrice(Connection conn, long auctionId) throws SQLException {
+        String sql = "SELECT max_price FROM auction_details WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getBigDecimal("max_price");
+            }
+        }
+        return null;
+    }
+
     /** Owner of the listing, or {@code -1} when the auction does not exist. */
     private int fetchSellerId(Connection conn, long auctionId) throws SQLException {
         String sql = "SELECT seller_id FROM auction WHERE auction_id = ?";
@@ -425,6 +445,42 @@ public class AutoBidDAO {
     public boolean isOwnAuction(long auctionId, int userId) {
         try (Connection conn = DBUtil.connectDB()) {
             return fetchSellerId(conn, auctionId) == userId;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Why proxy bidding cannot be set up on this auction, or {@code null} when it can be.
+     *
+     * <p>Storing an auto-bid inserts real rows into {@code bids} straight away, so the
+     * preconditions {@link BidDAO#placeBid} checks before a manual bid have to hold here too.
+     * Two of them were only enforced on the legacy {@code /protected/auto-bid} path, through
+     * {@code AuctionDetail.isOpen()}: an auto-bid set in the window between a listing expiring
+     * and the finalizer running planted a bid that then won the auction, and one set on a Dutch
+     * listing planted an ascending bid the descending clock never offered, which the finalizer
+     * would award at that amount if the clock ran out unaccepted.</p>
+     */
+    public String autoBidRejection(long auctionId) {
+        String sql = "SELECT auction_type, status_id, moderation_state, date_end "
+                   + "FROM auction WHERE auction_id = ?";
+        try (Connection conn = DBUtil.connectDB();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, auctionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return "Auction not found.";
+                if (rs.getInt("auction_type") != AuctionType.PRICE_UP.getId()) {
+                    return "Auto-bid only applies to ascending auctions.";
+                }
+                java.sql.Timestamp dateEnd = rs.getTimestamp("date_end");
+                boolean open = rs.getInt("status_id") == com.auction.model.AuctionStatus.ACTIVE.getId()
+                        && "active".equals(rs.getString("moderation_state"))
+                        && dateEnd != null && Instant.now().isBefore(dateEnd.toInstant());
+                if (!open) {
+                    return "Auto-bid can only be set on an auction that is still open for bidding.";
+                }
+                return null;
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

@@ -34,6 +34,7 @@ class TestAutoBidSelfBidGuard {
     private Connection mockConn;
     private PreparedStatement sellerStmt;
     private PreparedStatement startingPriceStmt;
+    private PreparedStatement maxPriceStmt;
     private PreparedStatement topBidStmt;
     private PreparedStatement autoBidsStmt;
     private PreparedStatement insertStmt;
@@ -43,6 +44,7 @@ class TestAutoBidSelfBidGuard {
         mockConn          = mock(Connection.class);
         sellerStmt        = mock(PreparedStatement.class);
         startingPriceStmt = mock(PreparedStatement.class);
+        maxPriceStmt      = mock(PreparedStatement.class);
         topBidStmt        = mock(PreparedStatement.class);
         autoBidsStmt      = mock(PreparedStatement.class);
         insertStmt        = mock(PreparedStatement.class);
@@ -52,10 +54,13 @@ class TestAutoBidSelfBidGuard {
             String sql = inv.getArgument(0);
             if (sql.contains("seller_id"))          return sellerStmt;
             if (sql.contains("starting_price"))     return startingPriceStmt;
+            if (sql.contains("max_price"))          return maxPriceStmt;
             if (sql.contains("MAX") || sql.contains("ORDER BY bid_amount")) return topBidStmt;
             if (sql.contains("FROM auto_bids"))     return autoBidsStmt;
             if (sql.startsWith("INSERT INTO bids")) return insertStmt;
-            return mock(PreparedStatement.class);
+            // An unrouted query would otherwise get a bare mock whose executeQuery()
+            // returns null, surfacing as an NPE deep inside the DAO.
+            throw new AssertionError("No stub for SQL: " + sql);
         });
 
         ResultSet sellerRs = mock(ResultSet.class);
@@ -67,6 +72,13 @@ class TestAutoBidSelfBidGuard {
         when(priceRs.next()).thenReturn(true);
         when(priceRs.getBigDecimal("starting_price")).thenReturn(new BigDecimal("10.00"));
         when(startingPriceStmt.executeQuery()).thenReturn(priceRs);
+
+        // Uncapped listing: these two tests are about the self-bid guard, so the seller's
+        // ceiling must not be what decides whether an auto-bid fires.
+        ResultSet maxPriceRs = mock(ResultSet.class);
+        when(maxPriceRs.next()).thenReturn(true);
+        when(maxPriceRs.getBigDecimal("max_price")).thenReturn(null);
+        when(maxPriceStmt.executeQuery()).thenReturn(maxPriceRs);
 
         // No bids placed yet.
         ResultSet topRs = mock(ResultSet.class);

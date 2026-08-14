@@ -132,6 +132,14 @@ public class AutoBidApiServlet extends ApiBase {
             return;
         }
 
+        // Storing the row fires a real bid below, so the listing has to be one a manual bid
+        // would be accepted on: ascending, and still open. Without this a buyer could set an
+        // auto-bid after the end time and have it win before the finalizer ran, or set one on a
+        // Dutch listing and plant an ascending bid its clock never offered. The legacy
+        // /protected/auto-bid path has always checked this; this one did not.
+        String rejection = autoBidDAO.autoBidRejection(auctionId);
+        if (rejection != null) { badRequest(resp, rejection); return; }
+
         String maxStr = param(req, "maxAmount");
         if (maxStr == null) { badRequest(resp, "maxAmount is required."); return; }
 

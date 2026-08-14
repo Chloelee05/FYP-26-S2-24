@@ -123,6 +123,8 @@ public class BidDAO {
         EXCEEDS_MAX_PRICE,
         /** Sealed (blind) auction: this buyer has already submitted a bid. */
         ALREADY_BID,
+        /** Bidding has already reached the Buy It Now price, so the shortcut is no longer offered. */
+        BIN_NO_LONGER_AVAILABLE,
         /** Wrong strategy for the requested action (e.g. accept on a non-Dutch auction). */
         WRONG_AUCTION_TYPE
     }
@@ -597,6 +599,22 @@ public class BidDAO {
             }
             if (!"active".equals(moderationState)) { conn.rollback(); return BidResult.AUCTION_REMOVED; }
             if (sellerId == buyerId) { conn.rollback(); return BidResult.SELF_BID; }
+
+            // Bidding is not capped at the Buy It Now price, so it can climb past it. Once it
+            // has, buying at the lower fixed price would take the item off a bidder who offered
+            // more and pay the seller less than they were already promised, so the shortcut
+            // stops being available. Read under the same lock as the insert below.
+            BigDecimal currentMax;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT MAX(bid_amount) FROM bids WHERE auction_id = ?")) {
+                ps.setLong(1, auctionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    currentMax = rs.next() ? rs.getBigDecimal(1) : null;
+                }
+            }
+            if (currentMax != null && currentMax.compareTo(binPrice) >= 0) {
+                conn.rollback(); return BidResult.BIN_NO_LONGER_AVAILABLE;
+            }
 
             String insertSql = "INSERT INTO bids (auction_id, user_id, bid_amount, bid_time) "
                     + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)";

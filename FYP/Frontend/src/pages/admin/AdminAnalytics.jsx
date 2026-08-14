@@ -152,6 +152,12 @@ export default function AdminAnalytics() {
       triggerBlobDownload(r.data, report.filename);
       setMsg(`${report.label} downloaded.`);
     } catch (err) {
+      // responseType 'blob' also wraps an error response, so a 400's JSON body arrives as a
+      // Blob and has to be unwrapped before the specific validation message is readable.
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try { err.response.data = JSON.parse(await data.text()); } catch { /* not JSON */ }
+      }
       setMsg(apiErrorMessage(err, `Could not generate ${report.label}.`));
     } finally {
       setReportBusy(null);

@@ -220,6 +220,8 @@ public class BidApiServlet extends ApiBase {
             case BID_TOO_FAST:       return "You're bidding too fast — please wait a few seconds before bidding again.";
             case EXCEEDS_MAX_PRICE:  return "Your bid exceeds the maximum allowed price.";
             case ALREADY_BID:        return "You have already submitted a sealed bid for this auction.";
+            case BIN_NO_LONGER_AVAILABLE:
+                return "Bidding has passed the Buy It Now price, so it is no longer available. Place a bid instead.";
             case WRONG_AUCTION_TYPE: return "That action is not valid for this auction type.";
             default:                 return "Could not place bid. Please try again.";
         }

@@ -890,7 +890,10 @@ export default function AuctionDetail() {
                   </button>
                 </div>
 
-                {auction.buyItNowPrice != null && Number(auction.buyItNowPrice) > 0 && canBuy && (
+                {/* Withdrawn once bidding reaches the fixed price: buying at it would then take
+                    the item off someone who offered more, which the server now refuses too. */}
+                {auction.buyItNowPrice != null && Number(auction.buyItNowPrice) > 0 && canBuy
+                  && Number(auction.currentBid ?? 0) < Number(auction.buyItNowPrice) && (
                   <div className="card p-6 border-emerald-200 bg-emerald-50/60">
                     <h3 className="section-title text-base mb-1">Buy It Now</h3>
                     <p className="text-3xl font-bold text-emerald-600 mb-2 tabular-nums">{formatCurrency(auction.buyItNowPrice)}</p>
