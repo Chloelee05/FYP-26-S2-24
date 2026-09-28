@@ -11,7 +11,6 @@ import com.auction.util.LoginAttemptLimiter;
 import com.auction.util.MailConfig;
 import com.auction.util.OtpMailer;
 import com.auction.util.OtpStore;
-import com.auction.notification.NotificationService;
 import com.auction.util.AuthSession;
 import com.auction.util.SecurityUtil;
 import com.auction.util.TokenStore;
@@ -241,10 +240,8 @@ public class AuthApiServlet extends ApiBase {
      * POST /api/auth/register with {@code username}, {@code email}, {@code password},
      * {@code confirmPassword} and {@code termsAccept}. Validates against
      * {@link InputValidator}, rejects a duplicate email or username with 409, stores the
-     * password only as a salted hash, and creates the account in PENDING status.
-     *
-     * <p>No session is issued: the new account cannot sign in until an admin approves it, and
-     * the admins are notified off the request thread.</p>
+     * password only as a salted hash, and creates the account as ACTIVE so it can sign in
+     * immediately. No session is issued; the caller signs in with the new credentials.
      */
     private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String username        = param(req, "username");
@@ -301,10 +298,7 @@ public class AuthApiServlet extends ApiBase {
             return;
         }
 
-        okMsg(resp, "Account created. An administrator will review and approve it before you can sign in.");
-        // Notified after the response is written, since fanning out email and Telegram alerts to
-        // the admins must not make the user wait on registration.
-        NotificationService.notifyAdminsPendingRegistration(username);
+        okMsg(resp, "Account created. You can sign in now.");
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────

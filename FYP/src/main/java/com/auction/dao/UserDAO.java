@@ -81,8 +81,8 @@ public class UserDAO {
             pStatement.setString(2, user.getEmail());
             pStatement.setString(3, user.getPassword());
             pStatement.setInt(4, user.getRole().getId());
-            // New accounts require admin approval before they can sign in.
-            pStatement.setInt(5, Status.PENDING.getId());
+            // New accounts are active immediately so the owner can sign in without admin approval.
+            pStatement.setInt(5, Status.ACTIVE.getId());
 
             int rowsAffected = pStatement.executeUpdate();
             return rowsAffected > 0;
